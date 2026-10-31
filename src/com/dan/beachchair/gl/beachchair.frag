@@ -32,22 +32,24 @@ float vnoise(vec2 x) {
 // Muster der Größe s sichtbar? (1 nah, 0 wenn ein Bildpunkt größer ist als ein Drittel davon)
 float sicht(float s, float pxm) { return 1.0 - smoothstep(0.12 * s, 0.4 * s, pxm); }
 
-// Korbgeflecht: Strähnen 2,6 cm, im Wechsel waagerecht und senkrecht (Leinwandbindung), rund, dazwischen dunkle Lücken;
-// weiter weg bleiben die Reihen (je zwei Strähnen ein Schatten), ganz fern das Mittel
+// Korbgeflecht: Felder zu 3 cm im Wechsel waagerecht und senkrecht (Leinwandbindung), je Feld drei runde Strähnen zu
+// 1 cm, dazwischen dunkle Lücken; waagerechte Strähnen fangen mehr Licht als senkrechte. Weiter weg bleiben die Felder
+// (je Feld ein Schatten), ganz fern das Mittel.
 vec3 geflecht(vec3 c, vec2 uv, float pxm, out float bump) {
-    float s = 0.026;
+    float s = 0.03;
     vec2 g = uv / s, cell = floor(g), f = fract(g);
     bool quer = mod(cell.x + cell.y, 2.0) < 1.0;
     float a = quer ? f.y : f.x, along = quer ? f.x : f.y;
-    float strang = sin(a * PI);
-    float lum = mix(0.35, 1.0, sqrt(max(strang, 0.0))) * (0.8 + 0.2 * sin(along * PI));
-    float luecke = smoothstep(0.0, 0.25, strang);
-    lum *= mix(0.4, 1.0, luecke) * (0.9 + 0.2 * hash2(cell));
-    float v = 1.0 - smoothstep(0.3 * s, 0.75 * s, pxm);
-    bump = (strang - 0.5) * 0.6 * v;
-    float reihe = 0.86 + 0.14 * sin(uv.y / s * PI) * sin(uv.x / s * PI);
-    float vr = 1.0 - smoothstep(0.6 * s, 1.6 * s, pxm);
-    return c * mix(mix(0.82, reihe * 0.9, vr), lum, v);
+    float strang = sin(fract(a * 3.0) * PI);
+    float rand = sin(a * PI);                       // zum Rand des Felds tauchen die Strähnen unter die querenden
+    float lum = mix(0.4, 1.0, sqrt(max(strang, 0.0))) * mix(0.72, 1.0, sqrt(max(sin(along * PI), 0.0)));
+    lum *= mix(0.55, 1.0, smoothstep(0.0, 0.3, strang)) * (quer ? 1.0 : 0.9) * (0.92 + 0.16 * hash2(cell));
+    lum *= 0.85 + 0.15 * rand;
+    float v = 1.0 - smoothstep(0.12 * s, 0.35 * s, pxm);
+    bump = (strang - 0.5) * 0.5 * v;
+    float feld = (quer ? 0.97 : 0.86) * (0.9 + 0.1 * sin(along * PI));
+    float vf = 1.0 - smoothstep(0.35 * s, 1.0 * s, pxm);
+    return c * mix(mix(0.84, feld * 0.95, vf), lum, v);
 }
 
 void main() {
