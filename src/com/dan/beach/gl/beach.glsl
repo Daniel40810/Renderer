@@ -38,7 +38,8 @@ vec4 beachTap(vec2 p, float tile, vec2 cs, vec2 off) {
     return vec4(cs.x * g.x - cs.y * g.y, cs.y * g.x + cs.x * g.y, t.z, t.w);
 }
 
-// Der Strand am Ort p (x, z): n Normale des Geländes, pxm Größe eines Bildpunkts (m), dist Abstand vom Auge (m),
+// Der Strand am Ort p (x, z), außerhalb jeder ungleichmäßigen Verzweigung aufrufen (wo kein Sand ist, mit 0 mischen):
+// n Normale des Geländes, pxm Größe eines Bildpunkts (m), dist Abstand vom Auge (m),
 // trocken 0..1 (0 nass), zertreten 0..1 (0 niemand geht dort), sun Richtung zur Sonne
 BeachSample beachSurface(vec2 p, vec3 n, float pxm, float dist, float trocken, float zertreten, vec3 sun) {
     BeachSample s;
@@ -46,9 +47,9 @@ BeachSample beachSurface(vec2 p, vec3 n, float pxm, float dist, float trocken, f
     s.albedo = 1.0;
     s.height = 0.0;
     s.sun = 1.0;
-    if (uBeachOn == 0) return s;
+    if (uBeachOn == 0) return s;   // einheitlich für das ganze Bild
+    // keine weitere Verzweigung vor den Abgriffen: die Mipmaps brauchen die Ableitungen im Bild
     float nah = 1.0 - smoothstep(uBeachC.w * 0.6, uBeachC.w, dist);
-    if (nah <= 0.0) return s;
     float amp = uBeachA.y * mix(uBeachC.x, 1.0, clamp(trocken, 0.0, 1.0)) * mix(uBeachC.y, 1.0, clamp(zertreten, 0.0, 1.0));
     float t1 = uBeachA.x, t2 = t1 * uBeachB.x;
     // eine Mulde ist rund 1/20 Kachel groß: sichtbar, solange ein Bildpunkt kleiner ist als ein Fünftel davon
