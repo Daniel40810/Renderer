@@ -1,0 +1,193 @@
+#version 430 core
+// cloth.comp — XPBD wie com.dan.cloth.Cloth.step, eine Arbeitsgruppe je Tuch (bis 1024 Punkte), alle Unterschritte
+// eines Bildes in einem Aufruf. Lage und Geschwindigkeit liegen dabei im geteilten Speicher; jeder Faden rechnet seine
+// Punkte (k = Faden, Faden + 256, …). Reihenfolge wie auf dem Prozessor: Kräfte und Vorhersage, Gauß-Seidel in zwölf
+// Farben (in einer Farbe teilt sich keine Nebenbedingung einen Punkt), Fernhalter und Leinen, Grund, Geschwindigkeit.
+layout(local_size_x = 256) in;
+
+const int MAXV = 1024;
+const float G = 9.81;
+const float PI = 3.14159265358979;
+
+struct Param {
+    ivec4 dim;      // nu, nv, erster Punkt, Unterschritte
+    vec4 a;         // h, Durchläufe, Dämpfung (1/s), Luftdichte
+    vec4 wind;      // Wind x, y, z, Staudruck des Flatterns q·flutter
+    vec4 flap;      // Phase am Anfang, Frequenz, Länge in v, Phase aus dem Startwert
+    vec4 comp;      // Nachgiebigkeit Dehnung, Scherung, Biegung, Höhe des Grunds (−1e9: keiner)
+    vec4 coef;      // c_N, c_T, Faktor der Masse (Flächengewicht mal Nässe), Windgeschwindigkeit
+};
+struct Vert {
+    vec4 m;         // Fläche je Punkt (m²), fest (0/1), Fernhalter (Index im Tuch, −1), Länge des Fernhalters
+    vec4 tether;    // Anker x, y, z, Länge (< 0: keine Leine)
+    vec4 rest[3];   // Ruhelängen zu den 12 Nachbarn (< 0: keiner)
+};
+layout(std430, binding = 0) readonly buffer Params { Param P[]; };
+layout(std430, binding = 1) readonly buffer Verts { Vert V[]; };
+layout(std430, binding = 2) buffer Pos { vec4 POS[]; };
+layout(std430, binding = 3) buffer Vel { vec4 VEL[]; };
+layout(std430, binding = 4) writeonly buffer Nrm { vec4 NRM[]; };
+layout(std430, binding = 5) readonly buffer Kin { vec4 KIN[]; };   // feste Punkte: Lage, w = 1
+
+shared vec3 sp[MAXV];
+shared vec3 sv[MAXV];
+
+const ivec2 DIRS[12] = ivec2[12](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1), ivec2(1, 1), ivec2(-1, -1),
+                                 ivec2(1, -1), ivec2(-1, 1), ivec2(2, 0), ivec2(-2, 0), ivec2(0, 2), ivec2(0, -2));
+
+int nu, nv, base;
+
+float restOf(int k, int d) { return V[base + k].rest[d >> 2][d & 3]; }
+bool pinnedOf(int k) { return V[base + k].m.y > 0.5; }
+
+vec3 normalAt(int i, int j) {
+    int il = max(0, i - 1), ir = min(nu - 1, i + 1), jl = max(0, j - 1), jr = min(nv - 1, j + 1);
+    vec3 u = sp[j * nu + ir] - sp[j * nu + il], v = sp[jr * nu + i] - sp[jl * nu + i];
+    vec3 n = cross(u, v);
+    float l = length(n);
+    return l < 1e-12 ? vec3(0, 1, 0) : n / l;
+}
+
+vec3 triForce(int a, int b, int c, vec3 w, float half_, float cN, float cT) {
+    vec3 n = cross(sp[b] - sp[a], sp[c] - sp[a]);
+    float l = length(n);
+    if (l < 1e-12) return vec3(0);
+    float area = 0.5 * l;
+    n /= l;
+    vec3 r = w - (sv[a] + sv[b] + sv[c]) / 3.0;
+    float rn = dot(r, n);
+    vec3 t = r - rn * n;
+    float pn = half_ * cN * area * rn * abs(rn), pt = half_ * cT * area * length(t);
+    return (pn * n + pt * t) / 3.0;
+}
+
+vec3 aroundForce(int i, int j, vec3 w, float half_, float cN, float cT) {
+    vec3 f = vec3(0);
+    for (int c = 0; c < 6; c++) {
+        int qi = i, qj = j;
+        bool second = false;
+        if (c == 1) { qi = i - 1; }
+        else if (c == 2) { qi = i - 1; second = true; }
+        else if (c == 3) { qj = j - 1; }
+        else if (c == 4) { qj = j - 1; second = true; }
+        else if (c == 5) { qi = i - 1; qj = j - 1; second = true; }
+        if (qi < 0 || qj < 0 || qi + 1 >= nu || qj + 1 >= nv) continue;
+        int a = qj * nu + qi, b = a + 1, cc = a + nu, d = cc + 1;
+        f += second ? triForce(b, d, cc, w, half_, cN, cT) : triForce(a, b, cc, w, half_, cN, cT);
+    }
+    return f;
+}
+
+int colorOf(int d, int i, int j) {
+    if (d == 2) return j & 1;
+    if (d == 8) return (i >> 1) & 1;
+    if (d == 10) return (j >> 1) & 1;
+    return i & 1;
+}
+
+void main() {
+    Param p = P[gl_WorkGroupID.x];
+    nu = p.dim.x;
+    nv = p.dim.y;
+    base = p.dim.z;
+    int n = nu * nv, steps = p.dim.w, iters = int(p.a.y + 0.5), tid = int(gl_LocalInvocationID.x);
+    float h = p.a.x, mf = p.coef.z;
+    for (int k = tid; k < n; k += 256) {
+        vec4 kin = KIN[base + k];
+        sp[k] = kin.w > 0.5 ? kin.xyz : POS[base + k].xyz;
+        sv[k] = kin.w > 0.5 ? vec3(0) : VEL[base + k].xyz;
+    }
+    barrier();
+    vec3 prevPos[4];
+    vec3 fl[4];
+    float u = p.coef.w, fr = p.flap.y, len = p.flap.z, q = p.wind.w, half_ = 0.5 * p.a.w;
+    bool flapOn = q > 0.0 && u >= 0.5;
+    float damp = exp(-p.a.z * h);
+    for (int s = 0; s < steps; s++) {
+        float ph = p.flap.x + 2.0 * PI * fr * float(s + 1) * h;
+        // Kräfte
+        for (int k = tid, c = 0; k < n; k += 256, c++) {
+            int i = k % nu, j = k / nu;
+            vec3 f = vec3(0);
+            if (!pinnedOf(k)) {
+                f = aroundForce(i, j, p.wind.xyz, half_, p.coef.x, p.coef.y);
+                if (flapOn && j > 0) {
+                    float sj = float(j) / float(nv - 1);
+                    float sn = sin(ph - 2.0 * PI * fr * (sj * len) / (0.6 * u) + p.flap.w);
+                    f += q * sj * sj * sn * V[base + k].m.x * normalAt(i, j);
+                }
+            }
+            fl[c] = f;
+        }
+        barrier();
+        // Vorhersage
+        for (int k = tid, c = 0; k < n; k += 256, c++) {
+            prevPos[c] = sp[k];
+            if (pinnedOf(k)) continue;
+            float m = V[base + k].m.x * mf;
+            vec3 v = (sv[k] + h * (fl[c] / m - vec3(0, G, 0))) * damp;
+            sv[k] = v;
+            sp[k] += h * v;
+        }
+        barrier();
+        float h2 = h * h;
+        for (int it = 0; it < iters; it++) {
+            for (int d = 0; d < 12; d += 2) {
+                float alpha = (d < 4 ? p.comp.x : d < 8 ? p.comp.y : p.comp.z) / h2;
+                for (int col = 0; col < 2; col++) {
+                    for (int a = tid; a < n; a += 256) {
+                        int i = a % nu, j = a / nu;
+                        if (colorOf(d, i, j) != col) continue;
+                        float r = restOf(a, d);
+                        if (r < 0.0) continue;
+                        int b = (j + DIRS[d].y) * nu + (i + DIRS[d].x);
+                        float wa = pinnedOf(a) ? 0.0 : 1.0 / (V[base + a].m.x * mf), wb = pinnedOf(b) ? 0.0 : 1.0 / (V[base + b].m.x * mf);
+                        if (wa + wb == 0.0) continue;
+                        vec3 dd = sp[a] - sp[b];
+                        float l = length(dd);
+                        if (l < 1e-12) continue;
+                        float dl = -(l - r) / (wa + wb + alpha) / l;
+                        sp[a] += wa * dl * dd;
+                        sp[b] -= wb * dl * dd;
+                    }
+                    barrier();
+                }
+            }
+            for (int k = tid; k < n; k += 256) {
+                if (pinnedOf(k)) continue;
+                Vert vt = V[base + k];
+                int pl = int(vt.m.z);
+                if (pl >= 0 && pinnedOf(pl)) {
+                    vec3 dd = sp[k] - sp[pl];
+                    float l = length(dd);
+                    if (l > vt.m.w && l > 1e-12) sp[k] = sp[pl] + dd * (vt.m.w / l);
+                }
+                if (vt.tether.w >= 0.0) {
+                    vec3 dd = sp[k] - vt.tether.xyz;
+                    float l = length(dd);
+                    if (l > vt.tether.w && l > 1e-12) sp[k] = vt.tether.xyz + dd * (vt.tether.w / l);
+                }
+            }
+            barrier();
+        }
+        // Grund und Geschwindigkeit
+        for (int k = tid, c = 0; k < n; k += 256, c++) {
+            if (pinnedOf(k)) { sv[k] = vec3(0); continue; }
+            vec3 x = sp[k];
+            float g = p.comp.w + 0.005;
+            if (x.y < g) {
+                x.y = g;
+                x.x -= 0.6 * (x.x - prevPos[c].x);
+                x.z -= 0.6 * (x.z - prevPos[c].z);
+                sp[k] = x;
+            }
+            sv[k] = (x - prevPos[c]) / h;
+        }
+        barrier();
+    }
+    for (int k = tid; k < n; k += 256) {
+        POS[base + k] = vec4(sp[k], 1.0);
+        VEL[base + k] = vec4(sv[k], 0.0);
+        NRM[base + k] = vec4(normalAt(k % nu, k / nu), 0.0);
+    }
+}

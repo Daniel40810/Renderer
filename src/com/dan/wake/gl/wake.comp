@@ -1,0 +1,98 @@
+#version 430 core
+// wake.comp — Kielwasser als Höhenfeld-Kachel (seit Timmendorf Phase 8, F14 A): je Zelle Höhe (m) und Schaum (0..1)
+// aller Quellen, wie Wake.tile auf dem Prozessor (Kelvin-Muster aus Bug und Heck nach der stationären Phase, Spur in
+// Kurven, Schaumstreifen). Lagen relativ zu einem Ursprung nahe der Kamera (Genauigkeit der Gleitkommazahlen).
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(rg16f, binding = 0) uniform writeonly image2DArray uOut;
+layout(std430, binding = 1) readonly buffer Params { vec4 P[]; };   // je Quelle 3: (Bug x, z, K0, Länge) (Amplitude, halbe Breite, Schaum, Dauer) (Breite, Reichweite, erster Spurpunkt, Zahl)
+layout(std430, binding = 2) readonly buffer Trails { vec4 T[]; };   // x, z, Weg hinter dem Bug, Alter
+uniform vec4 uRect;      // Ecke x, z (relativ), Kantenlänge (m), Zellen
+uniform int uLayer;
+uniform int uCount;
+uniform float uKmax;
+const float TAN_K = 0.35355339;
+const float PI = 3.14159265;
+
+// zwei Wellen eines Druckpunkts: (Amplitude, Phase) der quer laufenden und der schrägen
+void branches(float x, float y, float k0, float b, float kMax, out vec4 o) {
+    o = vec4(0.0);
+    if (x <= 1e-6) return;
+    float ay = abs(y), r = length(vec2(x, ay)), ta = ay / x, outside = 1.0;
+    if (ta > TAN_K) {
+        float over = atan(ta) - atan(TAN_K);
+        outside = exp(-3.0 * over * pow(k0 * r, 2.0 / 3.0));
+        if (outside < 1e-4) return;
+        ta = TAN_K;
+        float c = 1.0 / sqrt(1.0 + ta * ta);
+        x = r * c;
+        ay = r * ta * c;
+    }
+    float disc = sqrt(max(0.0, 1.0 - 8.0 * ta * ta));
+    for (int br = 0; br < 2; br++) {
+        float t;
+        if (br == 0) t = ta < 1e-9 ? 0.0 : (1.0 - disc) / (4.0 * ta);
+        else { if (ta < 1e-9) continue; t = (1.0 + disc) / (4.0 * ta); }
+        float c = 1.0 / sqrt(1.0 + t * t), s = t * c, S = 1.0 + t * t;
+        float k = k0 * S;
+        if (k > kMax * 1.6) continue;
+        float u = x * c - ay * s, u1 = -x * s - ay * c;
+        float S1 = 2.0 * S * t, S2 = 4.0 * S * t * t + 2.0 * S * S, S3 = 4.0 * S1 * t * t + 8.0 * S * S * t + 4.0 * S * S1;
+        float F = u * S, F2 = -u * S + 2.0 * u1 * S1 + u * S2, F3 = -u1 * S - 3.0 * u * S1 + 3.0 * u1 * S2 + u * S3;
+        float amp = min(sqrt(2.0 * PI / (k0 * abs(F2) + 1e-12)), 1.547 * pow(k0 * abs(F3) / 6.0 + 1e-12, -1.0 / 3.0));
+        float w = exp(-(k * b) * (k * b) / 4.0);
+        if (k > kMax) w *= max(0.0, 1.0 - (k - kMax) / (0.6 * kMax));
+        float a = S * S * w * amp * outside, ph = k0 * F + (F2 > 0.0 ? PI / 4.0 : -PI / 4.0);
+        if (br == 0) o.xy = vec2(a, ph); else o.zw = vec2(a, ph);
+    }
+}
+
+float shape(float x, float y, float k0, float len, float b, float kMax) {
+    vec4 p, q;
+    branches(x, y, k0, b, kMax, p);
+    branches(x - len, y, k0, b, kMax, q);
+    return p.x * cos(p.y) + p.z * cos(p.w) - q.x * cos(q.y) - q.z * cos(q.w);
+}
+
+bool trailCoords(int first, int count, vec2 p, out vec3 o) {
+    float best = 1e30;
+    bool found = false;
+    o = vec3(0.0);
+    for (int i = 0; i + 1 < count; i++) {
+        vec4 a = T[first + i], b = T[first + i + 1];
+        vec2 sv = b.xy - a.xy;
+        float l2 = dot(sv, sv);
+        float u = l2 < 1e-12 ? 0.0 : dot(p - a.xy, sv) / l2;
+        if (u < 0.0 || u > 1.0) continue;
+        vec2 qv = a.xy + sv * u - p;
+        float d2 = dot(qv, qv);
+        if (d2 < best) {
+            best = d2;
+            o = vec3(mix(a.z, b.z, u), sqrt(d2), mix(a.w, b.w, u));
+            found = true;
+        }
+    }
+    return found && o.x > 1e-6;
+}
+
+void main() {
+    int n = int(uRect.w);
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (id.x >= n || id.y >= n) return;
+    float cell = uRect.z / float(n);
+    vec2 p = uRect.xy + (vec2(id) + 0.5) * cell;
+    float h = 0.0, f = 0.0;
+    for (int k = 0; k < uCount; k++) {
+        vec4 a = P[3 * k], b = P[3 * k + 1], c = P[3 * k + 2];
+        if (b.x == 0.0 && b.z == 0.0) continue;
+        if (distance(p, a.xy) > c.y + 2.0 * a.w) continue;
+        vec3 o;
+        if (!trailCoords(int(c.z), int(c.w), p, o)) continue;
+        h += b.x * shape(o.x, o.y, a.z, a.w, b.y, uKmax);
+        float along = o.x - a.w * 0.8;
+        if (along >= -0.2 * a.w && b.z > 0.0) {
+            float w = 0.55 * c.x + 0.12 * sqrt(max(0.0, along) * c.x);
+            f = max(f, min(1.0, b.z * exp(-max(0.0, o.z) / b.w) * (1.0 - smoothstep(0.5 * w, w, o.y))));
+        }
+    }
+    imageStore(uOut, ivec3(id, uLayer), vec4(h, f, 0.0, 0.0));
+}
