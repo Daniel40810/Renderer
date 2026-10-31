@@ -2,8 +2,8 @@
 
 ![Abendsonne, Sturmsee, Erdblitz, Leuchtfeuer, Fluss, Wikingerhäuser, Baum und Promenade bei Nacht – alles aus diesem Repository gerendert](docs/img/hero.png)
 
-**Renderer** ist eine Bibliothek aus 50 Element-Paketen für Naturszenen in Java: Himmel, Wolken, Meer, Brandung, Regen,
-Nebel, Gewitter, Bäume, Gras, Fels, Flüsse, Eis, Tiere, Menschen, Schiffe, Holzbauten, Licht und Feuer. Jedes Paket
+**Renderer** ist eine Bibliothek aus 51 Element-Paketen für Naturszenen in Java: Himmel, Wolken, Meer, Brandung, Regen,
+Nebel, Gewitter, Bäume, Gras, Fels, Flüsse, Eis, Tiere, Menschen, Schiffe, Holzbauten, Strandkörbe, Licht und Feuer. Jedes Paket
 rechnet mit echten physikalischen Größen (Beaufort, IALA, Marshall–Palmer, Briggs, CIE 1931, …), kommt im Kern mit
 reinem Java 21 aus und zeichnet sich im Ordner `gl/` mit JOGL (OpenGL 4.3).
 
@@ -97,6 +97,10 @@ Die Pakete stammen aus den Szenenprojekten *Lighthouse*, *Haithabu*, *Geiranger*
 <td><a href="src/com/dan/wave/README.md"><img src="docs/img/wave.png" alt="wave"></a><br><b>wave</b> – Welle nach einem Einschlag, Auflauf und Reflexion</td>
 <td><a href="src/com/dan/wake/README.md"><img src="docs/img/wake.png" alt="wake"></a><br><b>wake</b> – Kelvin-Muster hinter Boot und Fähre</td>
 </tr>
+<tr>
+<td><a href="src/com/dan/beachchair/README.md"><img src="docs/img/beachchair.png" alt="beachchair"></a><br><b>beachchair</b> – Strandkörbe: Ostsee und Nordsee, Lehne, Fußstützen, abends zu</td>
+<td></td>
+</tr>
 </table>
 
 ---
@@ -167,6 +171,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 | Paket | Inhalt |
 |---|---|
 | [`timber`](src/com/dan/timber/README.md) | Wikingerzeitliche Häuser, Zäune, Bohlenwege, Palisaden und Brücken |
+| [`beachchair`](src/com/dan/beachchair/README.md) | Strandkörbe aus Geflecht, Holz und Markisenstoff (Ostsee rund, Nordsee eckig), mit Stellung, Verschluss und Schatten |
 | [`longship`](src/com/dan/longship/README.md) | Drei Schiffstypen der Wikingerzeit unter Segel und Riemen |
 | [`sail`](src/com/dan/sail/README.md) | Segelboote nach der Physik, Polaren, Wende, Halse, Regatta |
 | [`cloth`](src/com/dan/cloth/README.md) | Flaggen, Wimpel, Segel und Markisen als Tuch nach XPBD |
@@ -277,7 +282,7 @@ xvfb-run -a -s "-screen 0 2560x1600x24" java -cp "build/classes:lib/*:src" com.d
 
 ```
 Renderer/
-├── src/com/dan/<paket>/     50 Element-Pakete: Kern, gl/ (JOGL + Shader), demo/ (Demo + Check), README.md
+├── src/com/dan/<paket>/     51 Element-Pakete: Kern, gl/ (JOGL + Shader), demo/ (Demo + Check), README.md
 ├── lib/                     JOGL 2.6.0, FStyle.jar, NetBeans-CopyLibs
 ├── tools/
 │   ├── PaketPruefung.java   Isolationsprüfung (ant check-packages)
