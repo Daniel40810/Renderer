@@ -2,8 +2,8 @@
 
 ![Abendsonne, Sturmsee, Erdblitz, Leuchtfeuer, Fluss, Wikingerhäuser, Baum und Promenade bei Nacht – alles aus diesem Repository gerendert](docs/img/hero.png)
 
-**Renderer** ist eine Bibliothek aus 51 Element-Paketen für Naturszenen in Java: Himmel, Wolken, Meer, Brandung, Regen,
-Nebel, Gewitter, Bäume, Gras, Fels, Flüsse, Eis, Tiere, Menschen, Schiffe, Holzbauten, Strandkörbe, Licht und Feuer. Jedes Paket
+**Renderer** ist eine Bibliothek aus 52 Element-Paketen für Naturszenen in Java: Himmel, Wolken, Meer, Brandung, Regen,
+Nebel, Gewitter, Bäume, Gras, Fels, Flüsse, Eis, Tiere, Menschen, Schiffe, Holzbauten, Strand und Strandkörbe, Licht und Feuer. Jedes Paket
 rechnet mit echten physikalischen Größen (Beaufort, IALA, Marshall–Palmer, Briggs, CIE 1931, …), kommt im Kern mit
 reinem Java 21 aus und zeichnet sich im Ordner `gl/` mit JOGL (OpenGL 4.3).
 
@@ -99,7 +99,7 @@ Die Pakete stammen aus den Szenenprojekten *Lighthouse*, *Haithabu*, *Geiranger*
 </tr>
 <tr>
 <td><a href="src/com/dan/beachchair/README.md"><img src="docs/img/beachchair.png" alt="beachchair"></a><br><b>beachchair</b> – Strandkörbe: Ostsee und Nordsee, Lehne, Fußstützen, abends zu</td>
-<td></td>
+<td><a href="src/com/dan/beach/README.md"><img src="docs/img/beach.png" alt="beach"></a><br><b>beach</b> – Strand aus einem Asset: Relief und Korn, nass und zertreten</td>
 </tr>
 </table>
 
@@ -135,6 +135,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 | [`tide`](src/com/dan/tide/README.md) | Pegel aus zehn Partialtiden, Überflutung eines Geländes |
 | [`mudflat`](src/com/dan/mudflat/README.md) | Das Watt als Material: Nässe, Sediment, Spuren |
 | [`dune`](src/com/dan/dune/README.md) | Flugsand, Dünen und Windrippel |
+| [`beach`](src/com/dan/beach/README.md) | Relief und Korn des Sands am Auge, gebacken aus einem glTF-Asset (Fab), nass geglättet, zertreten, für jeden Geländeshader |
 | [`buoyancy`](src/com/dan/buoyancy/README.md) | Tonnen und Schiffe, die auf beliebigem Wasser schwimmen |
 | [`wetglass`](src/com/dan/wetglass/README.md) | Regentropfen auf einer Scheibe, jeder eine kleine Linse |
 | [`weathering`](src/com/dan/weathering/README.md) | Nässe, Rost, Algen, Salz und Moos aus Masken und Rauschen |
@@ -282,11 +283,12 @@ xvfb-run -a -s "-screen 0 2560x1600x24" java -cp "build/classes:lib/*:src" com.d
 
 ```
 Renderer/
-├── src/com/dan/<paket>/     51 Element-Pakete: Kern, gl/ (JOGL + Shader), demo/ (Demo + Check), README.md
+├── src/com/dan/<paket>/     52 Element-Pakete: Kern, gl/ (JOGL + Shader), demo/ (Demo + Check), README.md
 ├── lib/                     JOGL 2.6.0, FStyle.jar, NetBeans-CopyLibs
 ├── tools/
 │   ├── PaketPruefung.java   Isolationsprüfung (ant check-packages)
-│   └── tree/                Wandler für Baum- und Gras-Assets (USD, FBX, glTF → .dtree)
+│   ├── tree/                Wandler für Baum- und Gras-Assets (USD, FBX, glTF → .dtree)
+│   └── beach/               Wandler für Sand-Assets (glTF → Relief und Korn für beach)
 ├── docs/img/                Bilder dieser README
 ├── nbproject/, build.xml    NetBeans-/Ant-Projekt
 └── manifest.mf
