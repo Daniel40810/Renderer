@@ -1,0 +1,10 @@
+# com.dan.beach: Karten aus einem Sand-Asset (tools/beach/SandAsset.java)
+quelle=sand_dunes_gltf.zip
+generator=fab-model-conversion
+kachel_m=6.000
+n=1024
+relief_rms_m=0.11692
+grain_rms=0.16570
+dreiecke=496008
+leere_zellen=0
+kodierung=wert = (grau16 / 65535 - 0.5) * 16
