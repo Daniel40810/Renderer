@@ -444,7 +444,7 @@ public final class ForestGpu {
         if (s != null && s.version() != stVersion) {
             gl.glBindTexture(GL.GL_TEXTURE_2D, stTex);
             gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1);
-            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL2ES3.GL_R8UI, s.w, s.h, 0, GL2ES3.GL_RED_INTEGER, GL.GL_UNSIGNED_BYTE, ByteBuffer.wrap(s.data()));
+            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL2ES3.GL_R8UI, s.w, s.h, 0, GL2ES3.GL_RED_INTEGER, GL.GL_UNSIGNED_BYTE, (ByteBuffer) Buffers.newDirectByteBuffer(s.data().length).put(s.data()).flip());
             nearest(gl, GL.GL_TEXTURE_2D);
             stVersion = s.version();
         }
