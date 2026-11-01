@@ -358,6 +358,8 @@ public final class UnderstoryDemo implements GLEventListener {
         caps.setOnscreen(false);
         caps.setFBO(true);
         caps.setDepthBits(24);
+        // einfach gepuffert: gezeichnet wird ohne Tausch (invoke statt display), gelesen wird derselbe Speicher
+        caps.setDoubleBuffered(false);
         GLOffscreenAutoDrawable dr = GLDrawableFactory.getFactory(prof).createOffscreenAutoDrawable(null, caps, null, W, H);
         UnderstoryDemo d = new UnderstoryDemo();
         dr.addGLEventListener(new GLEventListener() {
@@ -383,7 +385,8 @@ public final class UnderstoryDemo implements GLEventListener {
                 ms[v] = d.gpuMs;
                 info[v] = d.ugl.info();
             }
-            img[0] = grab(gl, x.getContext().getDefaultReadFramebuffer(), W, H);
+            gl.glFinish();
+            img[0] = grab(gl, x.getContext().getDefaultDrawFramebuffer(), W, H);
             return true;
         });
         BufferedImage sheet = new BufferedImage(W, H + 70, BufferedImage.TYPE_INT_RGB);

@@ -136,6 +136,8 @@ public final class ForestGpuDemo implements GLEventListener {
         BufferedImage frames(int view, int n, boolean grab) {
             demo.viewIdx = view;
             for (int i = 0; i < n; i++) dr.display();
+            // Zahlen dieser Ansicht (sonst gilt die letzte Lesung alle 30 Bilder, oft noch von der vorigen Ansicht)
+            dr.invoke(true, x -> { demo.scene.forest.readStats(x.getGL().getGL4()); return true; });
             if (!grab) return null;
             BufferedImage[] img = new BufferedImage[1];
             dr.invoke(true, x -> { img[0] = grab(x.getGL().getGL4(), x.getContext().getDefaultReadFramebuffer(), w, h); return true; });

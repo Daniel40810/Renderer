@@ -37,6 +37,7 @@ public final class RouteCheck {
         check(g.nearest(101, 99) == 6, "nächster Knoten");
         phase10();
         phase12();
+        lituya();
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
         System.exit(bad == 0 ? 0 : 1);
     }
@@ -200,6 +201,94 @@ public final class RouteCheck {
         for (int i = 0; i < 1800; i++) c.step(0.1);
         int danach = c.dwelling(g -> g == 2);
         check(los > 40 && danach < 5, String.format("nach dem Ende brechen %d auf, nach 3 min stehen noch %d dort", los, danach));
+    }
+
+    /** Seit LituyaBay1958 Phase 7: Laufzeitgitter (Eikonal als kürzester Weg), Isochronen, Strahlen, Messstrecke. */
+    static void lituya() {
+        System.out.println("Seit LituyaBay1958 Phase 7");
+        java.util.Locale de = java.util.Locale.GERMAN;
+        int[] sizes = {4, 8, 16, 32};
+        boolean st = true;
+        for (int k = 0; k < 4; k++) st &= com.dan.route.TravelGrid.Stencil.values()[k].size() == sizes[k];
+        double e16 = com.dan.route.TravelGrid.Stencil.N16.error(), e32 = com.dan.route.TravelGrid.Stencil.N32.error();
+        check(st && Math.abs(e16 - 0.0275) < 0.0002 && Math.abs(e32 - 0.0076) < 0.0002, String.format(de,
+                "Sterne mit 4, 8, 16, 32 Nachbarn; größte Lücke 16: %.1f°, 32: %.1f°; Fehler 1/cos(θ/2) − 1: %.2f %% und %.2f %% (Werkbuch 9.4)",
+                com.dan.route.TravelGrid.Stencil.N16.maxGapDeg(), com.dan.route.TravelGrid.Stencil.N32.maxGapDeg(), e16 * 100, e32 * 100));
+        // konstanter Grund: h = 100 m, c = √(g h)
+        double c = com.dan.route.TravelGrid.waveSpeed(100, 0);
+        for (com.dan.route.TravelGrid.Stencil s : com.dan.route.TravelGrid.Stencil.values()) {
+            com.dan.route.TravelGrid g = flat(401, 20, c);
+            g.stencil = s;
+            long t0 = System.nanoTime();
+            g.solve(java.util.List.of(new com.dan.route.TravelGrid.Source(200, 200, 0)));
+            double ms = (System.nanoTime() - t0) / 1e6;
+            double cx = g.cx(200), cz = g.cz(200), worst = 0, low = 1;
+            for (int a = 0; a < 720; a++) {
+                double ang = Math.PI * a / 360, L = 3000;
+                double T = g.arrivalAt(cx + L * Math.cos(ang), cz + L * Math.sin(ang)), rel = T / (L / c) - 1;
+                worst = Math.max(worst, rel);
+                low = Math.min(low, rel);
+            }
+            double axis = g.arrivalAt(cx + 3000, cz) / (3000 / c) - 1;
+            boolean ok = worst <= s.error() + 0.002 && worst >= 0.8 * s.error() && low > -0.002 && Math.abs(axis) < 0.001;
+            check(ok, String.format(de, "konstanter Grund, h = 100 m (c = %.2f m/s), 3 km um die Quelle, %d Nachbarn: Laufzeit gegen L/√(gh) %+.2f %% bis %+.2f %% (Grenze %.2f %%), auf der Achse %+.3f %%; %,d Zellen in %.0f ms",
+                    c, s.size(), low * 100, worst * 100, s.error() * 100, axis * 100, g.visited, ms));
+        }
+        // Isochrone T = 60 s auf konstantem Grund ist ein Kreis mit r = 60 c (16 Nachbarn: höchstens 2,75 % größer)
+        com.dan.route.TravelGrid g = flat(401, 20, c);
+        g.solve(java.util.List.of(new com.dan.route.TravelGrid.Source(200, 200, 0)));
+        java.util.List<float[]> iso = g.isochrones(60);
+        double r0 = 60 * c, rmin = 1e9, rmax = 0;
+        for (float[] l : iso) for (int k = 0; k < l.length; k += 2) { double r = Math.hypot(l[k] - g.cx(200), l[k + 1] - g.cz(200)); rmin = Math.min(rmin, r); rmax = Math.max(rmax, r); }
+        float[] l0 = iso.isEmpty() ? new float[2] : iso.get(0);
+        boolean closed = iso.size() == 1 && Math.hypot(l0[0] - l0[l0.length - 2], l0[1] - l0[l0.length - 1]) < 1e-3;
+        check(closed && rmin > r0 / (1 + com.dan.route.TravelGrid.Stencil.N16.error()) * 0.998 && rmax < r0 * 1.002, String.format(de, "Isochrone 60 s (16 Nachbarn): ein geschlossener Zug, Radius %.0f bis %.0f m; Kreis 60 · c = %.0f m, mit 2,75 %% Gitterfehler bis %.0f m innen", rmin, rmax, r0, r0 / (1 + com.dan.route.TravelGrid.Stencil.N16.error())));
+        // zwei Quellen mit Startzeit; Strahl
+        g = flat(201, 20, c);
+        g.solve(java.util.List.of(new com.dan.route.TravelGrid.Source(50, 100, 0), new com.dan.route.TravelGrid.Source(150, 100, 20)));
+        double px = g.cx(120), pz = g.cz(100), want = Math.min(Math.hypot(px - g.cx(50), pz - g.cz(100)) / c, 20 + Math.hypot(px - g.cx(150), pz - g.cz(100)) / c);
+        float[] ray = g.ray(180, 30);
+        boolean mono = true;
+        for (int k = 5; k < ray.length; k += 3) mono &= ray[k] >= ray[k - 3];
+        check(Math.abs(g.arrivalAt(px, pz) - want) < 0.01 && Math.abs(ray[0] - g.cx(150)) < 1e-3 && ray[2] == 20 && mono,
+                String.format(de, "zwei Quellen (Start 0 s und 20 s): bei x = 120 %.2f s = %.2f s; der Strahl von (180, 30) beginnt an der späteren Quelle, Zeiten steigen", g.arrivalAt(px, pz), want));
+        // Insel: die Front läuft herum
+        g = flat(201, 20, c);
+        for (int j = 80; j < 120; j++) for (int i = 90; i < 110; i++) g.speed[j * 201 + i] = 0;
+        g.solve(java.util.List.of(new com.dan.route.TravelGrid.Source(40, 100, 0)));
+        double behind = g.arrival()[100 * 201 + 160], direct = (160 - 40) * 20 / c;
+        double around = (Math.hypot(50 - 0.5, 20.5) + Math.hypot(50 + 0.5, 20.5) + 20) * 20 / c;
+        check(Float.isNaN(g.arrival()[100 * 201 + 100]) && behind > direct * 1.05 && behind < around * 1.03,
+                String.format(de, "Insel 400 × 800 m: dahinter %.1f s statt %.1f s geradeaus, um die Ecken %.1f s", behind, direct, around));
+        // Kanten für ein Netz
+        com.dan.route.TravelGrid sm = flat(10, 20, c);
+        long[] n = new long[1];
+        double[] axisCost = {0};
+        long edges = sm.edges((a, b, len, cost) -> { n[0]++; if (b == a + 1 && a % 10 == 0) axisCost[0] = cost; });
+        long want16 = 0;
+        for (int[] m : new int[][]{{1, 0}, {0, 1}, {1, 1}, {1, -1}, {2, 1}, {1, 2}, {2, -1}, {1, -2}}) want16 += (long) (10 - Math.abs(m[0])) * (10 - Math.abs(m[1]));
+        check(edges == want16 && n[0] == edges && Math.abs(axisCost[0] - 20 / c) < 1e-6,
+                String.format(de, "Kanten des Sterns für ein Netz (10 × 10, 16 Nachbarn): %d, jede einmal; Kosten einer Achskante %.4f s = 20 m / c", edges, axisCost[0]));
+        // Messstrecke
+        com.dan.route.Measure ms = new com.dan.route.Measure(new float[]{0, 0, 300, 0, 300, 400});
+        ms.m0 = 1000;
+        double[] p = ms.locate(1500);
+        com.dan.route.Measure.Projection pr = ms.project(320, 200), pl = ms.project(280, 200);
+        ms.segments.add(new com.dan.route.Measure.Segment("Spurlinie", 1100, 1600, new double[]{1100, 1300, 1600}, new double[]{30, 50, 20}));
+        float[] cl = ms.clip(1200, 1400);
+        double clen = 0;
+        for (int k = 2; k < cl.length; k += 2) clen += Math.hypot(cl[k] - cl[k - 2], cl[k + 1] - cl[k - 1]);
+        check(Math.abs(p[0] - 300) < 1e-9 && Math.abs(p[1] - 200) < 1e-9 && Math.abs(pr.m() - 1500) < 1e-9 && Math.abs(Math.abs(pr.offset()) - 20) < 1e-9
+                        && Math.signum(pr.offset()) == -Math.signum(pl.offset()) && Math.abs(clen - 200) < 1e-6 && Math.abs(ms.valueAt(1200) - 40) < 1e-9
+                        && Double.isNaN(ms.valueAt(1700)) && Math.abs(ms.length() - 700) < 1e-9,
+                String.format(de, "Messstrecke (700 m, ab m = 1000): Maß 1500 liegt bei (%.0f, %.0f), zurück %.0f; Abstand %+.0f / %+.0f m je Seite; Stück 1200–1400 %.0f m lang; Spurlinie bei 1200: %.0f m",
+                        p[0], p[1], pr.m(), pr.offset(), pl.offset(), clen, ms.valueAt(1200)));
+    }
+
+    static com.dan.route.TravelGrid flat(int n, double cell, double c) {
+        com.dan.route.TravelGrid g = new com.dan.route.TravelGrid(n, n, 0, 0, cell);
+        java.util.Arrays.fill(g.speed, (float) c);
+        return g;
     }
 
     static void check(boolean c, String what) {
