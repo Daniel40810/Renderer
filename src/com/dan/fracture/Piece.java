@@ -211,6 +211,23 @@ public final class Piece {
         return new double[]{v[0] + w[1] * rz - w[2] * ry, v[1] + w[2] * rx - w[0] * rz, v[2] + w[0] * ry - w[1] * rx};
     }
 
+    /**
+     * Die Zellen in der Welt als Masse und Geschwindigkeit (seit LituyaBay1958 Phase 8/9, Werkbuch 6.2): je Zelle Mitte
+     * x, y, z, Volumen (m³), Masse (kg), Geschwindigkeit vx, vy, vz (aus Lage und Drehung des Stücks), hintereinander
+     * zu je 8 Werten. Für die Übergabe an einen Strom ({@code landslide}).
+     */
+    public double[] cellsInWorld() {
+        int n = cells.length;
+        double[] out = new double[8 * n];
+        for (int i = 0; i < n; i++) {
+            double[] c = toWorld(ccen[3 * i], ccen[3 * i + 1], ccen[3 * i + 2]), u = velocityAt(c[0], c[1], c[2]);
+            out[8 * i] = c[0]; out[8 * i + 1] = c[1]; out[8 * i + 2] = c[2];
+            out[8 * i + 3] = cvol[i]; out[8 * i + 4] = cvol[i] * material.density;
+            out[8 * i + 5] = u[0]; out[8 * i + 6] = u[1]; out[8 * i + 7] = u[2];
+        }
+        return out;
+    }
+
     /** Bewegungsenergie (J). */
     public double kinetic() {
         double[] wl = Mat.mulT(R, w);

@@ -114,6 +114,18 @@ public final class QuakeCheck {
         ok(rjb < 2 && fw.pga(gx, gz) > 0.4 && fw.pga(gx, gz) < 0.7 && Math.abs(dt2 - 8.1) < 0.3 && g.significantDuration()[0] > 10,
                 f("fairweather1958() am Gilbert Inlet: Rjb %.1f km, PGA %.2f g, tP %.1f s, tS %.1f s, Arias %.2f m/s, D5–95 %.0f s", rjb, fw.pga(gx, gz), fw.tP(gx, gz), fw.tS(gx, gz), g.arias(),
                         g.significantDuration()[0]));
+        // Entfestigung (seit Phase 9): ohne Rest wie bisher; mit Rest sinkt a_c, und der Hang geht durch
+        Slope h0 = QuakeDemo.gilbert(), h1 = QuakeDemo.gilbert();
+        h0.cohesion = h1.cohesion = h0.cohesionFor(1.10);
+        h1.residual = 0.2; h1.softening = 0.3; h1.failAt = 1.0;
+        Slope.Result r0 = h0.newmark(g), r1 = h1.newmark(g);
+        Slope plain = QuakeDemo.gilbert();
+        plain.cohesion = plain.cohesionFor(1.10);
+        plain.residual = 1;
+        ok(Math.abs(h1.cohesionAt(0) - h1.cohesion) < 1e-9 && Math.abs(h1.cohesionAt(1e9) - 0.2 * h1.cohesion) < 1e-6 && h1.acAt(1e9) < 0 && r0.total() == plain.newmark(g).total() && !r0.runaway()
+                        && r1.runaway() && r1.failTime() > 15 && r1.failTime() < 60,
+                f("Entfestigung: c' %.0f → %.0f kPa, a_c %.3f → %.3f g; Gilbert FS 1,10: ohne %.2f m, mit (Rest 20 %%, 0,3 m) geht der Hang nach %.0f s durch",
+                        h1.cohesionAt(0), h1.cohesionAt(1e9), h1.acAt(0) / 9.81, h1.acAt(1e9) / 9.81, r0.total(), r1.failTime()));
         System.out.println(fails == 0 ? "Alles in Ordnung." : fails + " Fehler.");
         if (fails > 0) System.exit(1);
     }

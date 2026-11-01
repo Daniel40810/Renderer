@@ -4,7 +4,7 @@ Ein Erdbeben an einer Störung: Bruch, der vom Herd über die Störung läuft, L
 
 Der Kern braucht nur Java 21; der Ordner `demo/` zusätzlich `FStyle.jar`. Es gibt keinen Ordner `gl/`: Das Beben selbst zeichnet man nicht, es bewegt anderes (Kamera, Boote, Bäume, Hänge). Zum Herauskopieren reicht `src/com/dan/quake/`.
 
-**Stand: LituyaBay1958 Phase 8** (Werkbuch 5.1, 9.1).
+**Stand: LituyaBay1958 Phase 9** (Werkbuch 5.1, 9.1, 9.2): seit Phase 9 Entfestigung im Hang.
 
 ## Was es kann
 
@@ -12,7 +12,7 @@ Der Kern braucht nur Java 21; der Ordner `demo/` zusätzlich `FStyle.jar`. Es gi
 - **Laufzeiten:** `tP`, `tS` vom Herd (vP 6,0 km/s, vS 3,5 km/s [G]); tS − tP ≈ D / 8,4 km/s.
 - **Stärke (`Bssa14`):** Boore, Stewart, Seyhan und Atkinson 2014 (NGA-West2) für PGA, PGV, SA(0,2 s) und SA(1,0 s) mit Mechanismus, Rjb und Vs30 (linearer und nichtlinearer Bodenterm), σ aus τ und φ; `epsilon` verschiebt um Standardabweichungen.
 - **Zeitreihe (`Quake.record`):** Teilflächen alle 1–5 km (Qualität) strahlen, wenn der Bruch sie erreicht, je einen Schwall gefilterten Rauschens ab (P schwach und vor allem senkrecht, S stark), abgeschwächt mit 1/R; die Summe wird auf den Median von BSSA14 skaliert. `accelerationAt(x, z, t)` → Ost, Süd, oben (m/s²); `arias()`, `significantDuration()` (D5–95), `along(t, Azimut)`; gleiche Saat, gleiche Reihe; gemerkt je 100 m.
-- **Hang (`Slope`):** unendlicher Hang, FS = (c' + γ z cos²α tan φ') / (γ z sin α cos α), pseudo-statisch `fs(k)`, a_c = (FS − 1) g sin α, `cohesionFor(FS)`, Newmark-Verschiebung über eine Zeitreihe (nur hangabwärts) mit Zeit des Versagens (10 cm), JIBSON93 als Faustformel.
+- **Hang (`Slope`):** unendlicher Hang, FS = (c' + γ z cos²α tan φ') / (γ z sin α cos α), pseudo-statisch `fs(k)`, a_c = (FS − 1) g sin α, `cohesionFor(FS)`, Newmark-Verschiebung über eine Zeitreihe (nur hangabwärts) mit Zeit des Versagens (10 cm), JIBSON93 als Faustformel. Seit Phase 9 Entfestigung: `residual` (Rest der Kohäsion) und `softening` (m), c(D) = c_r + (c′ − c_r) e^(−D/D_s); fällt a_c auf null, geht der Hang durch (`Result.runaway`, `acMin`).
 - **Bucht (`Basin`):** Eigenperioden nach Merian (geschlossen 2L/(n√(gh)), offen 4L/((2n−1)√(gh))), Anregung der ersten Eigenform als gedämpfter Schwinger durch die Bodenbeschleunigung längs der Achse, Ausschlag am Kopf.
 - **Zittern (`Shake`):** Verschiebung und kleine Drehungen aus der Bodenbewegung am Ort (nachgiebiger Hochpass), `gain` für die Darstellung.
 - **Grollen (`Rumble`):** Schallspur (PCM) aus der Hülle des Schüttelns auf Rauschen von 25 bis 110 Hz, Knacken mit dem Ruck; `wav(...)`.
@@ -54,6 +54,7 @@ Shake s = new Shake(q, augeX, augeZ);             // s.at(t): Zittern der Kamera
 - **Merian:** Lituya Bay 12 km, 130 m → 11,2 min.
 - **Zeitreihe:** still vor der P-Welle, P schwächer als S, Spitze = BSSA14, gleiche Saat gleiche Reihe; Zittern und Grollen.
 - **Preset:** `fairweather1958()` am Gilbert Inlet: Rjb 0,4 km, PGA 0,51 g, tS − tP 8,1 s.
+- **Entfestigung:** ohne Rest wie bisher; mit Rest 20 % und 0,3 m geht die NE-Wand (FS 1,10) während des Bebens durch.
 
 ## Grenzen
 
@@ -65,3 +66,4 @@ Shake s = new Shake(q, augeX, augeZ);             // s.at(t): Zittern der Kamera
 ## Seit welcher Phase
 
 LituyaBay1958 Phase 8 (Werkbuch 5.1): neu.
+- Newmark ist starr-plastisch: Verschiebung entsteht nur, solange es stark schüttelt. Auch mit Entfestigung versagt die Wand am Gilbert Inlet fast immer während des Bebens (22–33 s); die 60–150 s der Zeugen erreicht sie nur auf einer Messerschneide (FS 1,10, Rest 30 %, 1,15 m: 65 s). Ein späteres Versagen braucht Zeit im Stoff (Porenwasser, Kriechen) – die App löst dann von Hand aus.
