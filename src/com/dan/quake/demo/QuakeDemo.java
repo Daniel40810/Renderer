@@ -45,7 +45,7 @@ public final class QuakeDemo {
     static final double X0 = -125_000, X1 = 110_000, Z0 = -165_000, Z1 = 150_000, TMAX = 120;
 
     /** Hang über dem Gilbert Inlet: 40°, Schiefer φ' 35°, Platte 92 m, FS in Ruhe 1,15 [G], hangabwärts nach Südwest. */
-    static Slope gilbert() {
+    public static Slope gilbert() {
         Slope s = new Slope();
         s.name = "NE-Wand des Gilbert Inlet";
         s.alpha = 40; s.phi = 35; s.depth = 92; s.gamma = 27; s.downslopeAzimuth = 225;
@@ -76,8 +76,9 @@ public final class QuakeDemo {
         SwingUtilities.invokeLater(() -> open(q));
     }
 
-    static String text(Quake q) {
-        StringBuilder b = new StringBuilder(String.format(Locale.GERMAN, "fairweather1958(): Mw %.1f, Bruch %.0f km (WELLS94), Herd %.0f km tief, Bruchgeschwindigkeit %.1f km/s%n",
+    /** Die Zahlen des Bogens als Text (für Werkzeuge der Szenen). */
+    public static String text(Quake q) {
+        StringBuilder b = new StringBuilder(String.format(Locale.GERMAN, "Beben: Mw %.1f, Bruch %.0f km (WELLS94), Herd %.0f km tief, Bruchgeschwindigkeit %.1f km/s%n",
                 q.magnitude, (q.fault.rupture(q.magnitude)[1] - q.fault.rupture(q.magnitude)[0]) / 1000, q.fault.hdepth / 1000, q.fault.vr / 1000));
         for (Object[] o : ORTE) {
             double x = (double) o[1], z = (double) o[2];
@@ -99,8 +100,10 @@ public final class QuakeDemo {
     // ------------------------------------------------------------------ Zeichnen
 
     static BufferedImage feld;
+    static Quake feldFuer;
 
-    static void paint(Graphics2D g, Quake q, int w, int h, double t) {
+    /** Der ganze Bogen (Karte, Zeitreihen, Newmark, Seiche) zur Zeit t; die Szenen nehmen ihn für ihre Bilder. */
+    public static void paint(Graphics2D g, Quake q, int w, int h, double t) {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g.setColor(BG);
@@ -114,7 +117,7 @@ public final class QuakeDemo {
         seiche(g, q, rx, 40 + ORTE.length * sh + 164, rw, 140);
         g.setColor(INK);
         g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-        g.drawString(String.format(Locale.GERMAN, "com.dan.quake · fairweather1958(): Mw %.1f, t = %.0f s nach dem ersten Stoß", q.magnitude, t), 12, 26);
+        g.drawString(String.format(Locale.GERMAN, "com.dan.quake · Fairweather-Störung 1958: Mw %.1f, t = %.0f s nach dem ersten Stoß", q.magnitude, t), 12, 26);
         g.setColor(DIM);
         g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
         g.drawString("Karte: größte Beschleunigung nach BSSA14 (Fels, Vs30 760 m/s), Störung aus Qfaults 2020, gebrochener Teil rot (WELLS94, ¾ nach Nordwesten [G]), Bruchfront gelb, P weiß, S orange vom Herd (58,23° N, 136,71° W, 10 km).", 12, h - 40);
@@ -122,7 +125,8 @@ public final class QuakeDemo {
     }
 
     static void karte(Graphics2D g, Quake q, int ox, int oy, int mw, int mh, double t) {
-        if (feld == null) {
+        if (feld == null || feldFuer != q) {
+            feldFuer = q;
             int fw = 235, fh = 315;
             feld = new BufferedImage(fw, fh, BufferedImage.TYPE_INT_RGB);
             for (int j = 0; j < fh; j++)
