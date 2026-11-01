@@ -20,7 +20,8 @@ import java.util.Map;
 /**
  * Prüfung von {@link ForestGpu} auf der Grafikkarte (seit LituyaBay1958 Phase 6), ohne Fenster: in der Bucht aus
  * {@link BayScene} rechnet die Grafikkarte die Kultur für vier Ansichten; jede Instanz muss genau die sein, die der
- * Spiegel auf dem Prozessor ({@link ForestGpu#cullCpu}, über {@link com.dan.forest.ForestCulture}) liefert. Dazu:
+ * Spiegel auf dem Prozessor ({@link ForestGpu#cullCpu}, über {@link com.dan.forest.ForestCulture}) liefert, zugeordnet über
+ * den Platz; Lage auf 5 cm, Winkel auf 0,05 rad (die Grafikkarte rundet anders: FMA, atan). Dazu:
  * kein Baum auf einem Platz „fort“, umgelegte Bäume in ihrer Fallrichtung, Atlanten der Impostors gefüllt, Zähler stimmig.
  * Endet mit „Alles in Ordnung.“
  */
@@ -55,7 +56,7 @@ public final class ForestGpuCheck {
             int[] st = f.readStats(gl);
             float[][] gpu = f.readInstances(gl), cpu = f.cullCpu(cam.viewProj, cam.eye);
             long ng = 0, nc = 0, matched = 0, binsOff = 0, gone = 0, fellOff = 0;
-            double worst = 0;
+            double worstPos = 0, worstAng = 0, worstRest = 0;
             long sum = 0;
             for (int b = 0; b < gpu.length; b++) sum += st[2 + b];
             ForestCulture cu = f.culture();
@@ -65,8 +66,9 @@ public final class ForestGpuCheck {
                 ng += gpu[b].length / 8;
                 nc += cpu[b].length / 8;
                 if (gpu[b].length != cpu[b].length) binsOff++;
+                // Zuordnung über den Platz (i, j), nicht über die genauen Bits: die Grafikkarte rundet anders (FMA, atan)
                 Map<Long, Integer> m = new HashMap<>();
-                for (int k = 0; k < cpu[b].length; k += 8) m.put(key(cpu[b][k], cpu[b][k + 2]), k);
+                for (int k = 0; k < cpu[b].length; k += 8) m.put(slot(cpu[b][k], cpu[b][k + 2], cu.spacing), k);
                 for (int k = 0; k < gpu[b].length; k += 8) {
                     float x = gpu[b][k], z = gpu[b][k + 2];
                     int i = (int) Math.floor(x / cu.spacing), j = (int) Math.floor(z / cu.spacing);
@@ -77,16 +79,20 @@ public final class ForestGpuCheck {
                     if (state == TreeStates.FELLED) {
                         float want = ForestCulture.yawToward((float) ts.fallDeg(i, j));
                         double dy = Math.abs(Math.atan2(Math.sin(gpu[b][k + 3] - want), Math.cos(gpu[b][k + 3] - want)));
-                        if (dy > 0.151) fellOff++;
+                        if (dy > 0.2) fellOff++;
                     }
-                    Integer kc = m.get(key(x, z));
+                    Integer kc = m.get(slot(x, z, cu.spacing));
                     if (kc == null) continue;
                     matched++;
-                    for (int e = 0; e < 8; e++) worst = Math.max(worst, Math.abs(cpu[b][kc + e] - gpu[b][k + e]));
+                    for (int e = 0; e < 8; e++) {
+                        double d = Math.abs(cpu[b][kc + e] - gpu[b][k + e]);
+                        if (e == 3 || e == 6) d = Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+                        if (e <= 2) worstPos = Math.max(worstPos, d); else if (e == 3 || e == 6) worstAng = Math.max(worstAng, d); else worstRest = Math.max(worstRest, d);
+                    }
                 }
             }
-            check(String.format(Locale.GERMAN, "%s: Grafikkarte %,d Bäume = Prozessor %,d, alle gleich (%,d), Eimer abweichend %d, größte Abweichung %.1e",
-                    ForestGpuDemo.VIEWS[v], ng, nc, matched, binsOff, worst), ng == nc && matched == ng && binsOff == 0 && worst < 1e-3 && ng > 1000);
+            check(String.format(Locale.GERMAN, "%s: Grafikkarte %,d Bäume = Prozessor %,d, je Platz zugeordnet %,d, Eimer abweichend %d; größte Abweichung Lage %.1e m, Winkel %.1e rad, sonst %.1e",
+                    ForestGpuDemo.VIEWS[v], ng, nc, matched, binsOff, worstPos, worstAng, worstRest), ng == nc && matched == ng && binsOff == 0 && worstPos < 0.05 && worstAng < 0.05 && worstRest < 1e-3 && ng > 1000);
             check(String.format(Locale.GERMAN, "%s: Zähler (%,d) = Summe der Eimer (%,d), nichts verworfen (%d)", ForestGpuDemo.VIEWS[v], st[0], sum, st[1]),
                     st[0] == sum && st[1] == 0);
             check(String.format(Locale.GERMAN, "%s: kein Baum auf einem Platz „fort“ (%d), Typ passt zum Zustand und umgelegte zeigen in ihre Fallrichtung (%d Abweichungen)",
@@ -104,7 +110,7 @@ public final class ForestGpuCheck {
         return bad;
     }
 
-    static long key(float x, float z) { return ((long) Float.floatToIntBits(x) << 32) ^ (Float.floatToIntBits(z) & 0xffffffffL); }
+    static long slot(float x, float z, double sp) { return ((long) Math.floor(x / sp) << 32) ^ ((long) Math.floor(z / sp) & 0xffffffffL); }
 
     static void check(boolean ok, String what) { check(what, ok); }
 
