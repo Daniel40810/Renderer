@@ -19,7 +19,8 @@ import java.util.Locale;
  * eines Vierecks in Bildpunkten (Shader {@code netview.vert}, {@code netview.frag}). Je Stück liegen drei Stufen im
  * Puffer; je Bild wählt {@link #draw} nach dem Abstand zum Auge und zeichnet eine Ebene mit einem
  * {@code glMultiDrawArraysIndirect}. Die Zeit des Blicks lässt Isolinien erscheinen und Strahlen wachsen (Isochronen,
- * die mit der Welle laufen). Mischung an, Tiefentest an (mit kleinem Versatz zum Auge), Tiefe wird nicht geschrieben.
+ * die mit der Welle laufen). Mischung an, Tiefentest an (mit kleinem Versatz zum Auge, Vergleich wie beim Aufrufer
+ * eingestellt), Tiefe wird nicht geschrieben; {@link #gain} für HDR-Puffer.
  */
 public final class NetviewGl {
     static final int STRIDE = 16;
@@ -38,6 +39,12 @@ public final class NetviewGl {
     public double depthBias = 0.0005;
     /** Wie lange die vorderste Isolinie leuchtet (s). */
     public double front = 8;
+    /**
+     * Faktor auf die Farben (seit LituyaBay1958 Phase 7a): wer in einen HDR-Puffer zeichnet, der danach mit einer
+     * Belichtung multipliziert wird, setzt 1/Belichtung, damit die Linien ihre Farbe behalten. Bei umgekehrter Tiefe
+     * (reversed Z) ist {@link #depthBias} negativ zu setzen; die Vergleichsfunktion der Tiefe setzt der Aufrufer.
+     */
+    public float gain = 1;
     private long drawn;
 
     public void add(NetLayer l) { layers.add(l); up.add(new Uploaded()); }
@@ -133,6 +140,7 @@ public final class NetviewGl {
         gl.glUniform1f(loc(gl, "uTime"), (float) t);
         gl.glUniform1f(loc(gl, "uFront"), (float) front);
         gl.glUniform1f(loc(gl, "uDepthBias"), (float) depthBias);
+        gl.glUniform1f(loc(gl, "uGain"), gain);
         gl.glEnable(GL.GL_BLEND);
         gl.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA);
         gl.glEnable(GL.GL_DEPTH_TEST);

@@ -12,7 +12,7 @@ Der Kern braucht nur Java 21. Der Ordner `gl/` zeichnet mit JOGL (GL 4.3), der O
 - **Breiten in Bildpunkten:** jede Strecke ist ein Viereck um die Weltlage; die Breite bleibt gleich, egal wie weit weg. Tiefentest gegen die Szene mit kleinem Versatz zum Auge, Tiefe wird nicht geschrieben, Mischung an.
 - **Stufen:** je Stück drei Stufen beim Einfügen (`Simplify.keep`, Douglas-Peucker, geschlossene Züge bleiben geschlossen); je Bild nach dem Abstand vom Auge zum Rand der Hülle.
 - **Rampen (`Ramp`):** `TIME` (0 bis 600 s, gelb über Rot zu Violett), `HEIGHT` (0 bis 524 m, blau bis rot); `copy(min, max)`.
-- **Zeichnen (`gl/NetviewGl`):** je Ebene ein Puffer mit allen Stufen (16 Werte je Instanz), je Bild ein `glMultiDrawArraysIndirect` mit einem Befehl je Stück in seiner Stufe; `draw(gl, viewProj, auge, w, h, zeit)`, `drawn()`, `info()`.
+- **Zeichnen (`gl/NetviewGl`):** `gain` (Faktor auf die Farben für HDR-Puffer, seit Phase 7a), je Ebene ein Puffer mit allen Stufen (16 Werte je Instanz), je Bild ein `glMultiDrawArraysIndirect` mit einem Befehl je Stück in seiner Stufe; `draw(gl, viewProj, auge, w, h, zeit)`, `drawn()`, `info()`.
 
 ## Benutzung
 
@@ -63,4 +63,4 @@ Phase 7 hat `NetviewDemo` außerdem mit Mesa (llvmpipe) gezeichnet (`docs/status
 
 ## Seit welcher Phase
 
-LituyaBay1958 Phase 7 (Werkbuch 5.12): neu.
+LituyaBay1958 Phase 7 (Werkbuch 5.12): neu. Phase 7a: `gain` für den Netzblick der App (Linien im HDR-Puffer vor der Belichtung).

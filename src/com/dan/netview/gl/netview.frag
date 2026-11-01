@@ -1,8 +1,9 @@
-// netview.frag — Farbe des Stücks; Punkte rund, Ränder weich (die Ebene wird mit Mischung gezeichnet).
+// netview.frag — Farbe des Stücks; Punkte rund, Ränder weich (die Ebene wird mit Mischung gezeichnet); uGain für HDR.
 in vec4 vCol;
 in vec2 vLocal;
 flat in int vKind;
 out vec4 frag;
+uniform float uGain = 1.0;
 void main() {
     float a = vCol.a;
     if (vKind == 2) {
@@ -12,5 +13,5 @@ void main() {
     } else if (vKind != 1) {
         a *= smoothstep(1.0, 0.6, abs(vLocal.y));
     }
-    frag = vec4(vCol.rgb, a);
+    frag = vec4(vCol.rgb * uGain, a);
 }
