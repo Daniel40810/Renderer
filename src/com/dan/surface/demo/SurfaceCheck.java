@@ -109,55 +109,61 @@ public final class SurfaceCheck {
         System.exit(bad == 0 ? 0 : 1);
     }
 
-    /** Autokorrelation über 1 km, einfach gegen hex-gekachelt. */
+    /**
+     * Autokorrelation über 1 km, einfach gegen hex-gekachelt. Die Helligkeit wird erst auf 64 × 64 und auf 8 × 8 Felder je Kachel
+     * gemittelt (bei 1,6 m 2,5 cm und 20 cm: Steine und Flecken; das feine Korn wäre nur Rauschen). Gemessen
+     * wird auf vier Linien, auf denen sich eine einfache Kachel genau wiederholt (längs, quer, diagonal, Steigung 1/2), bei 1
+     * bis 10 Perioden Abstand. Einfach gekachelt muss das Maß nahe 1 liegen (sonst taugt es nicht), hex unter der Schwelle.
+     */
     static void strand(BufferedImage im, double size, String woher) {
-        int w = im.getWidth(), h = im.getHeight();
-        float[] lum = new float[w * h];
-        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) { int p = im.getRGB(x, y); lum[y * w + x] = (float) (0.2126 * ((p >> 16) & 255) + 0.7152 * ((p >> 8) & 255) + 0.0722 * (p & 255)); }
+        double[] fein = strand(im, size, 64), grob = strand(im, size, 8);
+        double hex = Math.max(fein[0], grob[0]), plain = Math.min(fein[1], grob[1]);
+        check(hex < SCHWELLE && plain > 0.9, String.format(Locale.GERMAN,
+                "1 km Kiesstrand (%s, Kachel %.1f m): Autokorrelation bei 1 … 10 Perioden auf 4 Linien, gemittelt auf 64² und 8² je Kachel: hex höchstens %.2f / %.2f < %.2f, einfach gekachelt mindestens %.2f / %.2f > 0,90",
+                woher, size, fein[0], grob[0], SCHWELLE, fein[1], grob[1]));
+    }
+
+    /** {hex höchstens, einfach mindestens} bei m × m Feldern je Kachel. */
+    static double[] strand(BufferedImage im, double size, int mWanted) {
+        int w = im.getWidth(), h = im.getHeight(), m = Math.min(mWanted, Math.min(w, h));
+        float[] lum = new float[m * m];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                int p = im.getRGB(x, y);
+                lum[(y * m / h) * m + x * m / w] += (float) (0.2126 * ((p >> 16) & 255) + 0.7152 * ((p >> 8) & 255) + 0.0722 * (p & 255));
+            }
         HexTiling.Tex t = (u, v) -> {
-            double fx = (u - Math.floor(u)) * w - 0.5, fy = (v - Math.floor(v)) * h - 0.5;
+            double fx = (u - Math.floor(u)) * m - 0.5, fy = (v - Math.floor(v)) * m - 0.5;
             int x0 = (int) Math.floor(fx), y0 = (int) Math.floor(fy);
             double ax = fx - x0, ay = fy - y0;
-            double p00 = lum[Math.floorMod(y0, h) * w + Math.floorMod(x0, w)], p10 = lum[Math.floorMod(y0, h) * w + Math.floorMod(x0 + 1, w)];
-            double p01 = lum[Math.floorMod(y0 + 1, h) * w + Math.floorMod(x0, w)], p11 = lum[Math.floorMod(y0 + 1, h) * w + Math.floorMod(x0 + 1, w)];
+            double p00 = lum[Math.floorMod(y0, m) * m + Math.floorMod(x0, m)], p10 = lum[Math.floorMod(y0, m) * m + Math.floorMod(x0 + 1, m)];
+            double p01 = lum[Math.floorMod(y0 + 1, m) * m + Math.floorMod(x0, m)], p11 = lum[Math.floorMod(y0 + 1, m) * m + Math.floorMod(x0 + 1, m)];
             return (p00 * (1 - ax) + p10 * ax) * (1 - ay) + (p01 * (1 - ax) + p11 * ax) * ay;
         };
-        double step = 0.02;
-        int n = (int) (1000 / step);
-        double[][] lines = {{1, 0, 0.37}, {Math.cos(0.6), Math.sin(0.6), 0.11}};
+        // Richtung in Kacheln je Periode: die Linie trifft nach einer Periode dieselbe Stelle der Kachel
+        int[][] dirs = {{1, 0}, {0, 1}, {1, 1}, {2, 1}};
         double worstPlain = 1, worstHex = 0;
-        for (double[] ln : lines) {
+        for (int[] d : dirs) {
+            double period = Math.hypot(d[0], d[1]) * size;   // m
+            int per = m * Math.max(Math.abs(d[0]), Math.abs(d[1]));   // Proben je Periode
+            double step = period / per;
+            int n = (int) (1000 / step);
             double[] plain = new double[n], hex = new double[n];
             for (int i = 0; i < n; i++) {
-                double s = i * step / size;
-                double u = s * ln[0], v = ln[2] + s * ln[1];
+                double f = (double) i / per;
+                double u = 0.37 + f * d[0], v = 0.11 + f * d[1];
                 plain[i] = t.at(u, v);
                 hex[i] = HexTiling.sample(t, u, v, true);
             }
-            // Abstand, nach dem die einfache Kachel sich genau wiederholt: entlang x eine Kachel; schräg nimmt man die Spitze nahe einer Kachel
-            double p = 0, hx = 0;
+            double p = 1, hx = 0;
             for (int k = 1; k <= 10; k++) {
-                int lg = (int) Math.round(k * size / step);
-                if (ln[1] != 0) lg = bestLag(plain, lg);
-                p = Math.max(p, ac(plain, lg));
-                hx = Math.max(hx, ac(hex, lg));
+                p = Math.min(p, ac(plain, k * per));
+                hx = Math.max(hx, ac(hex, k * per));
             }
             worstPlain = Math.min(worstPlain, p);
             worstHex = Math.max(worstHex, hx);
         }
-        check(worstHex < SCHWELLE, String.format(Locale.GERMAN, "1 km Kiesstrand (%s, Kachel %.1f m): Autokorrelation bei 1 … 10 Kacheln Abstand hex %.2f < %.2f, einfach gekachelt %.2f",
-                woher, size, worstHex, SCHWELLE, worstPlain));
-    }
-
-    /** Der Abstand nahe lg mit der höchsten Autokorrelation (± 15 %). */
-    static int bestLag(double[] a, int lg) {
-        int best = lg;
-        double bv = -2;
-        for (int d = (int) (lg * 0.85); d <= (int) (lg * 1.15); d += Math.max(1, lg / 200)) {
-            double v = ac(a, d);
-            if (v > bv) { bv = v; best = d; }
-        }
-        return best;
+        return new double[]{worstHex, worstPlain};
     }
 
     static double ac(double[] a, int lag) {

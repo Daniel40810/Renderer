@@ -1,7 +1,10 @@
 package com.dan.forest.demo;
 
 import com.dan.forest.Forest;
+import com.dan.forest.ForestCulture;
 import com.dan.forest.ForestField;
+import com.dan.forest.Octahedral;
+import com.dan.forest.TreeStates;
 import com.dan.forest.ForestPlanter;
 import com.dan.forest.Ground;
 import com.dan.forest.LeafFall;
@@ -211,6 +214,7 @@ public final class ForestCheck {
         check("Wald mit Wind von außen: Richtung und Stärke am Baum (" + String.format(java.util.Locale.GERMAN, "%.1f gegen %.1f m/s, vorher %.1f", a1.speed, a2.speed, a0.speed) + ")",
                 Math.abs(a1.dz - 1) < 1e-5 && Math.abs(a1.speed - 9) < 0.5 && Math.abs(a2.speed - 2) < 0.2 && Math.abs(hq[0] - 110) < 1e-9);
         brocken();
+        lituya();
         System.out.println(fails == 0 ? "Alles in Ordnung." : fails + " Prüfungen fehlgeschlagen.");
         if (fails > 0) System.exit(1);
     }
@@ -301,6 +305,96 @@ public final class ForestCheck {
                 n++;
             }
         check(String.format(java.util.Locale.GERMAN, "ForestField: feste Fallrichtung 60° ± 20° (%d Bäume, größte Abweichung %.1f°)", n, worst), n > 100 && worst <= 20.01);
+    }
+
+    /** Seit LituyaBay1958 Phase 6: Küstenregenwald, Schäden der Welle, Zustände, Kultur, Oktaeder. */
+    private static void lituya() {
+        java.util.Locale de = java.util.Locale.GERMAN;
+        // Arten
+        TreeModel sitka = TreeGenerator.grow(Species.sitkaSpruce(), 11, 1), hem = TreeGenerator.grow(Species.westernHemlock(), 11, 1);
+        check(String.format(de, "Sitka-Fichte: %.1f m hoch (28 bis 50), Kegel mit %d Ästen am Stamm", sitka.height, count(sitka, 1)), sitka.height >= 28 && sitka.height <= 50 && count(sitka, 1) > 80);
+        TreeModel.Branch st = hem.branches.get(0);
+        int last = st.nodes() - 1;
+        float off = (float) Math.hypot(st.x[last] - st.x[last - 2], st.z[last] - st.z[last - 2]), rise = st.y[last] - st.y[last - 2];
+        TreeModel.Branch ss = sitka.branches.get(0);
+        int ls = ss.nodes() - 1;
+        float offS = (float) Math.hypot(ss.x[ls] - ss.x[ls - 2], ss.z[ls] - ss.z[ls - 2]);
+        check(String.format(de, "Hemlocktanne: der Leittrieb nickt (oben %.2f m zur Seite auf %.2f m Steigung; Sitka-Fichte %.2f m)", off, rise, offS), off > 0.6f * rise && offS < 0.3f * (ss.y[ls] - ss.y[ls - 2]));
+        // Schäden
+        Species base = Species.sitkaSpruce();
+        TreeModel br = TreeGenerator.grow(Species.damaged(base, Species.Damage.BROKEN), 11, 1);
+        TreeModel sp = TreeGenerator.grow(Species.damaged(base, Species.Damage.STRIPPED), 11, 1);
+        TreeModel fe = TreeGenerator.grow(Species.damaged(base, Species.Damage.FELLED), 11, 1);
+        check(String.format(de, "Sitka-Fichte, gebrochen: Stumpf %.1f m (ganz %.1f m), ohne Nadeln und Zapfen", br.height, sitka.height),
+                br.height < 0.45f * sitka.height && br.leaves.isEmpty() && br.cones.isEmpty());
+        float[] bark = Species.damaged(base, Species.Damage.STRIPPED).bark;
+        check(String.format(de, "Sitka-Fichte, entrindet: %.1f m, %d Aststummel (lebend %d), Holz hell (%.2f %.2f %.2f)", sp.height, count(sp, 1), count(sitka, 1), bark[0], bark[1], bark[2]),
+                sp.leaves.isEmpty() && count(sp, 1) < 0.25 * count(sitka, 1) && java.util.Arrays.equals(bark, Species.FRESH_WOOD) && sp.height > 0.8f * sitka.height);
+        float yMax = 0;
+        for (TreeModel.Branch b : fe.branches) for (int i = 0; i < b.nodes(); i++) yMax = Math.max(yMax, b.y[i]);
+        check(String.format(de, "Sitka-Fichte, umgelegt: %.1f m lang entlang +x, %.1f m hoch, %d Stummel", fe.length, yMax, count(fe, 1)),
+                fe.length > 20 && yMax < 4 && count(fe, 1) < 0.2 * count(sitka, 1));
+        check("Schäden ändern die Art nicht (Kopie)", base.dead == 0 && base.bark != bark && !base.lying);
+        // Zustände
+        TreeStates ts = TreeStates.covering(-100, -50, 100, 50, 6);
+        ts.setAt(10, 10, TreeStates.FELLED, 247);
+        ts.setAt(-30, 20, TreeStates.GONE, 0);
+        int i10 = ts.slotI(10), j10 = ts.slotJ(10);
+        check(String.format(de, "Zustände: umgelegt nach 247° wird %.2f° (32 Schritte), fort, außerhalb stehend; %d Plätze",
+                ts.fallDeg(i10, j10), ts.w * ts.h), ts.state(i10, j10) == TreeStates.FELLED && Math.abs(ts.fallDeg(i10, j10) - 247.5) < 1e-9
+                && ts.state(ts.slotI(-30), ts.slotJ(20)) == TreeStates.GONE && ts.state(1000, 1000) == TreeStates.STANDING && ts.counts()[TreeStates.GONE] == 1);
+        // Kultur: Hash fest, Dichte trifft, Arten im Verhältnis, Zustände greifen
+        check(String.format("Kultur: PCG-Hash fest (pcg(0) = %d, pcg(1958) = %d)", ForestCulture.pcg(0), ForestCulture.pcg(1958)),
+                ForestCulture.pcg(0) == 129708002 && ForestCulture.pcg(1958) == ForestCulture.pcg(1958));
+        ForestCulture cu = new ForestCulture(2, 3, 6, 1958);
+        cu.density = ForestCulture.Grid.density((x, z, s) -> s == 0 ? 0.2 : 0.1, 2, -1000, -1000, 2000, 64);
+        long[] n = cu.count(-600, -600, 600, 600);
+        long a = 0, b = 0;
+        for (int t = 0; t < n.length; t++) { if ((t / 3) % 2 == 0) a += n[t]; else b += n[t]; }
+        double slots = 1200.0 * 1200 / 36, fill = (a + b) / slots;
+        check(String.format(de, "Kultur: Dichte 0,2 + 0,1 füllt %.3f der Plätze, Arten %.2f : 1", fill, a / (double) b), Math.abs(fill - 0.3) < 0.01 && Math.abs(a / (double) b - 2) < 0.1);
+        ForestCulture.Tree t1 = new ForestCulture.Tree(), t2 = new ForestCulture.Tree();
+        boolean same = true;
+        for (int i = -50; i < 50; i++) { boolean p = cu.at(i, 7, t1), q = cu.at(i, 7, t2); same &= p == q && (!p || (t1.x == t2.x && t1.yaw == t2.yaw && t1.type == t2.type)); }
+        check("Kultur: derselbe Platz, derselbe Baum", same);
+        cu.density = ForestCulture.Grid.density((x, z, s) -> s == 0 ? 1 : 0, 2, -1000, -1000, 2000, 64);
+        cu.states = ts;
+        int felled = 0, gone = 0, yawOk = 0;
+        for (int j = ts.j0; j < ts.j0 + ts.h; j++)
+            for (int i = ts.i0; i < ts.i0 + ts.w; i++) {
+                boolean has = cu.at(i, j, t1);
+                if (ts.state(i, j) == TreeStates.GONE && has) gone++;
+                if (ts.state(i, j) == TreeStates.FELLED && has) {
+                    felled++;
+                    double d = Math.atan2(Math.sin(t1.yaw - ForestCulture.yawToward(247.5f)), Math.cos(t1.yaw - ForestCulture.yawToward(247.5f)));
+                    if (Math.abs(d) <= 0.15 + 1e-6 && t1.state == TreeStates.FELLED && t1.type >= 3 * 2 * 3) yawOk++;
+                }
+            }
+        check(String.format(de, "Kultur mit Zuständen: fort bleibt leer (%d), umgelegt liegt in seiner Richtung ± 0,15 rad (%d von %d)", gone, yawOk, felled), gone == 0 && felled == 1 && yawOk == 1);
+        // Oktaeder
+        double worst = 0, ortho = 0;
+        java.util.Random r = new java.util.Random(5);
+        for (int k = 0; k < 2000; k++) {
+            float x = (float) r.nextGaussian(), y = (float) Math.abs(r.nextGaussian()), z = (float) r.nextGaussian();
+            float l = (float) Math.sqrt(x * x + y * y + z * z);
+            x /= l; y /= l; z /= l;
+            float[] e = Octahedral.encode(x, y, z), d = Octahedral.decode(e[0], e[1]);
+            worst = Math.max(worst, Math.abs(d[0] - x) + Math.abs(d[1] - y) + Math.abs(d[2] - z));
+        }
+        for (int fy = 0; fy < 8; fy++)
+            for (int fx = 0; fx < 8; fx++) {
+                float[] d = Octahedral.frameDir(fx, fy, 8);
+                float[][] ru = Octahedral.frameBasis(d);
+                float[] u = ru[1], rr = ru[0];
+                ortho = Math.max(ortho, Math.abs(rr[0] * u[0] + rr[1] * u[1] + rr[2] * u[2]) + Math.abs(rr[0] * d[0] + rr[2] * d[2]) + Math.abs(u[0] * d[0] + u[1] * d[1] + u[2] * d[2]));
+            }
+        check(String.format(de, "Oktaeder: Hin und zurück auf %.1e genau, 64 Ansichten mit senkrechten Achsen (%.1e)", worst, ortho), worst < 1e-5 && ortho < 1e-5);
+    }
+
+    private static int count(TreeModel m, int level) {
+        int n = 0;
+        for (TreeModel.Branch b : m.branches) if (b.level == level) n++;
+        return n;
     }
 
     private static void check(String what, boolean ok) {

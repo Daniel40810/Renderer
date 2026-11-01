@@ -37,6 +37,11 @@ public final class TreeGenerator {
             r[i] = (float) (r0 * (1 - 0.8 * Math.pow(t, 0.9)) * (1 + 0.5 * Math.exp(-t * 25)));
             if (sp.trunkEnd < 1) r[i] = (float) (r0 * (1 - 0.45 * t) * (1 + 0.5 * Math.exp(-t * 25)));
             dx += (rnd.nextDouble() - 0.5) * sp.trunkWobble; dz += (rnd.nextDouble() - 0.5) * sp.trunkWobble;
+            if (sp.leaderDroop > 0 && cut >= 1 && t > 0.86f) {
+                // nickender Leittrieb (seit LituyaBay1958 Phase 6): die Spitze biegt sich zur Seite, ohne Zufall
+                double k = sp.leaderDroop * (t - 0.86f) / 0.14f;
+                dx += Math.cos(seed * 0.7) * k * 2.0; dz += Math.sin(seed * 0.7) * k * 2.0; dy = Math.max(0.1, dy - k * 1.2);
+            }
             double l = Math.sqrt(dx * dx + dy * dy + dz * dz);
             px += dx / l * step; py += dy / l * step; pz += dz / l * step;
         }
@@ -95,7 +100,8 @@ public final class TreeGenerator {
         if (level > levels(sp)) return;
         float[] q = new float[7];
         int count = Math.round(sp.count[level] * (level == 1 ? (0.6f + 0.4f * age) : (0.45f + 0.55f * p.rel)) * (0.85f + 0.3f * rnd.nextFloat())
-                * (sp.dead >= 2 && level >= 2 ? 0.4f : 1));   // lange tot: wenige dürre Zweige bleiben
+                * (sp.dead >= 2 && level >= 2 ? 0.4f : 1)   // lange tot: wenige dürre Zweige bleiben
+                * (level == 1 ? sp.branchKeep : 1));        // entrindet: nur wenige Stummel (seit LituyaBay1958 Phase 6)
         if (count <= 0) return;
         // Ansatzbereich auf dem Elternast
         float t0 = level == 1 ? Math.max(sp.start[1], Math.min(0.95f, sp.crownBase * H / p.length)) : sp.start[level];

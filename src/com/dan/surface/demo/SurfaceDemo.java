@@ -91,7 +91,7 @@ public final class SurfaceDemo implements GLEventListener {
                 vec2 ndc = vUV * 2.0 - 1.0;
                 vec3 cam, fwd;
                 if (uMode == 0) { cam = vec3(0.0, 1.7, 3.6); fwd = normalize(vec3(0.0, -0.35, -1.0)); }
-                else { cam = vec3(0.0, 1.7, 0.0); fwd = normalize(vec3(1.0, -0.06, 0.0)); }
+                else { cam = vec3(0.0, 4.0, 0.0); fwd = normalize(vec3(1.0, -0.24, 0.0)); }   // 4 m über dem Strand, Kimm im oberen Viertel
                 vec3 right = normalize(cross(fwd, vec3(0, 1, 0))), up = cross(right, fwd);
                 float tn = tan(radians(uMode == 0 ? 30.0 : 25.0));
                 vec3 d = normalize(fwd + ndc.x * tn * uAspect * right + ndc.y * tn * up);
@@ -206,7 +206,7 @@ public final class SurfaceDemo implements GLEventListener {
     }
 
     record Layout(int cw, int ch, int sh) {
-        static Layout of(int w, int h, int rows) { return new Layout(w / COLS, (int) (h * 0.7 / rows), (int) (h * 0.15)); }
+        static Layout of(int w, int h, int rows) { return new Layout(w / COLS, (int) (h * 0.64 / rows), (int) (h * 0.15)); }
     }
 
     @Override public void display(GLAutoDrawable d) { sheet(d.getGL().getGL4(), d.getSurfaceWidth(), d.getSurfaceHeight(), d.getContext().getDefaultDrawFramebuffer()); }

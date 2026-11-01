@@ -106,6 +106,29 @@ public final class Species {
     public float flagging;
     public float flagFromDeg = 250;
 
+    // ------------------------------------------------------------ seit LituyaBay1958 Phase 6: Küstenregenwald und Flutschäden
+
+    /** Anteil der Äste erster Ordnung, die wachsen (1 = alle; entrindete Stämme behalten nur wenige Stummel). */
+    public float branchKeep = 1;
+    /**
+     * Nickender Leittrieb (Hemlocktanne): 0 = aufrecht; 1 = die obersten rund 8 % des Stamms biegen sich bis fast
+     * waagerecht zur Seite. Der Baum bleibt so hoch, wie er gewachsen ist; nur die Spitze neigt sich.
+     */
+    public float leaderDroop;
+
+    /** Schäden durch Flut, Sturm oder Lawine (seit LituyaBay1958 Phase 6), siehe {@link #damaged}. */
+    public enum Damage {
+        /** gebrochen: ein Stumpf von 20 bis 40 % der Höhe, Rinde noch dran, wenige Aststummel */
+        BROKEN,
+        /** entrindet: der ganze Stamm steht, ohne Rinde (helles Holz) und fast ohne Äste */
+        STRIPPED,
+        /** umgelegt: liegt entlang +x, entrindet, fast ohne Äste; die Drehung der Instanz gibt die Richtung */
+        FELLED
+    }
+
+    /** Frisches Holz ohne Rinde (linear): hell gelbbraun, wie die entrindeten Stämme an der Spurlinie [G]. */
+    public static final float[] FRESH_WOOD = {0.40f, 0.31f, 0.20f};
+
     /** Eine Kopie unter neuem Namen (alle Werte, Felder kopiert), etwa als Grundlage einer abgestorbenen Form. */
     public Species copy(String newName, String newLatin) {
         Species c = new Species(newName, newLatin);
@@ -531,14 +554,112 @@ public final class Species {
         return s;
     }
 
-    /** Alle fertigen Arten: erst die drei aus Yellowstone, dann Eiche, Buche, Birke, Fichte, dann die weiteren Nadelbäume, die Schwarzerle, zuletzt die drei Südbuchen aus Glacier. */
+    // ------------------------------------------------------------ seit LituyaBay1958 Phase 6: Küstenregenwald Südostalaskas
+
+    /**
+     * Sitka-Fichte (Picea sitchensis): der große Baum des Küstenregenwalds, in Lituya Bay 30 bis 50 m [G]; kegelförmig,
+     * dichte Quirle, die Äste waagerecht, die Zweige hängen; steife, stechende Nadeln, oben grün, unten silbrig, im Bestand
+     * blaugrün; dünne, graubraune Schuppenrinde; Stammfuß breit. Hängende Zapfen 6 bis 10 cm im oberen Drittel.
+     */
+    public static Species sitkaSpruce() {
+        Species s = new Species("Sitka-Fichte", "Picea sitchensis");
+        s.conifer = true; s.heightMin = 28; s.heightMax = 50; s.trunkRatio = 0.03f; s.crownBase = 0.28f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.012f; s.trunkSegments = 16; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 165, 7}; s.angle = new float[]{0, 84, 65}; s.lengthRatio = new float[]{0, 0.17f, 0.38f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.025f, -0.32f}; s.radiusRatio = new float[]{0, 0.3f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 5.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.4f;
+        s.flexTrunk = 0.45f; s.flexBranch = 0.85f; s.flutter = 0.3f;
+        s.bark = new float[]{0.13f, 0.105f, 0.09f};
+        s.summer = new float[]{0.024f, 0.064f, 0.052f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.23f, 0.12f};
+        s.leafOut = 150;
+        s.cones = 2.2f; s.coneSize = 0.08f; s.coneColor = new float[]{0.26f, 0.17f, 0.09f}; s.coneZone = 0.35f;
+        return s;
+    }
+
+    /**
+     * Westliche Hemlocktanne (Tsuga heterophylla): schmaler Kegel, 25 bis 45 m [G], der Leittrieb nickt ({@link #leaderDroop}),
+     * die Zweige hängen weich herab; kurze, flache, dunkelgelbgrüne Nadeln; rotbraune, gefurchte Rinde; viele kleine hängende
+     * Zapfen (2 bis 3 cm). Schattenbaum: wächst unter der Fichte auf und bildet mit ihr den Wald an der Bucht.
+     */
+    public static Species westernHemlock() {
+        Species s = new Species("Westliche Hemlocktanne", "Tsuga heterophylla");
+        s.conifer = true; s.heightMin = 24; s.heightMax = 44; s.trunkRatio = 0.024f; s.crownBase = 0.2f; s.crown = Crown.NARROW;
+        s.trunkWobble = 0.02f; s.trunkSegments = 16; s.levels = 2; s.whorl = 0;
+        s.count = new float[]{0, 120, 8}; s.angle = new float[]{0, 78, 55}; s.angleVar = new float[]{0, 12, 18};
+        s.lengthRatio = new float[]{0, 0.17f, 0.42f}; s.start = new float[]{0, 0, 0.1f};
+        s.tropism = new float[]{0, -0.04f, -0.45f}; s.radiusRatio = new float[]{0, 0.32f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 6.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.3f;
+        s.flexTrunk = 0.6f; s.flexBranch = 1.1f; s.flutter = 0.35f;
+        s.bark = new float[]{0.12f, 0.066f, 0.045f};
+        s.summer = new float[]{0.022f, 0.055f, 0.020f}; s.spring = s.summer; s.shoots = new float[]{0.09f, 0.20f, 0.06f};
+        s.leafOut = 150;
+        s.cones = 4; s.coneSize = 0.025f; s.coneColor = new float[]{0.22f, 0.14f, 0.08f}; s.coneZone = 0.6f;
+        s.leaderDroop = 0.7f;
+        return s;
+    }
+
+    /** Junge Sitka-Fichte (Verjüngung im Unterstand und auf Totholz): 2 bis 8 m, bis zum Boden beastet. */
+    public static Species sitkaSpruceYoung() {
+        Species s = sitkaSpruce().copy("Sitka-Fichte, jung", "Picea sitchensis");
+        s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
+        s.count = new float[]{0, 60, 5}; s.lengthRatio = new float[]{0, 0.28f, 0.35f}; s.cones = 0;
+        return s;
+    }
+
+    /** Junge Hemlocktanne: 2 bis 8 m, schattenfest, mit nickender Spitze. */
+    public static Species westernHemlockYoung() {
+        Species s = westernHemlock().copy("Westliche Hemlocktanne, jung", "Tsuga heterophylla");
+        s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
+        s.count = new float[]{0, 50, 6}; s.lengthRatio = new float[]{0, 0.3f, 0.42f}; s.cones = 0;
+        return s;
+    }
+
+    /**
+     * Roterle (Alnus rubra): Pionier an Ufern, auf Schwemmfächern und im Vorfeld, 12 bis 24 m; glatte, hellgraue Rinde mit
+     * weißen Flechtenflecken; eiförmige, gesägte Blätter, im Herbst kaum gefärbt. Grundlage ist die Schwarzerle.
+     */
+    public static Species redAlder() {
+        Species s = alder().copy("Roterle", "Alnus rubra");
+        s.heightMin = 12; s.heightMax = 24; s.trunkRatio = 0.018f; s.crown = Crown.OVOID;
+        s.bark = new float[]{0.30f, 0.30f, 0.27f}; s.barkMarks = 0.3f; s.barkMark = new float[]{0.55f, 0.56f, 0.52f};
+        s.leaf = Leaf.OVAL; s.leafSize = 0.1f; s.leafAspect = 0.65f;
+        s.leafOut = 125; s.colorStart = 280; s.colorFull = 300; s.bare = 315;
+        return s;
+    }
+
+    /**
+     * Eine geschädigte Form der Art (seit LituyaBay1958 Phase 6): gebrochen, entrindet oder umgelegt, wie im Band der Welle
+     * 1958 (FRITZ01: gebrochen, entrindet, bis 10 m über die Spurlinie geschleudert). Alle Formen sind lange tot (ohne
+     * Nadeln oder Blätter); gebrochene behalten die Rinde, entrindete und umgelegte zeigen frisches Holz ({@link #FRESH_WOOD}).
+     */
+    public static Species damaged(Species base, Damage d) {
+        Species s = base.copy(base.name + switch (d) { case BROKEN -> ", gebrochen"; case STRIPPED -> ", entrindet"; case FELLED -> ", umgelegt"; },
+                base.latin);
+        s.dead = 2;
+        s.cones = 0;
+        s.flexTrunk = 0.3f; s.flexBranch = 0.3f;
+        s.shoots = null;
+        s.barkTop = null;
+        s.barkMarks = 0;
+        switch (d) {
+            case BROKEN -> { s.snag = 0.3f; s.branchKeep = 0.5f; }
+            case STRIPPED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.15f; }
+            case FELLED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.1f; s.lying = true; }
+        }
+        return s;
+    }
+
+    /** Alle fertigen Arten: erst die drei aus Yellowstone, dann Eiche, Buche, Birke, Fichte, dann die weiteren Nadelbäume, die Schwarzerle, die drei Südbuchen aus Glacier, der Bergwald des Brockens, zuletzt der Küstenregenwald aus LituyaBay1958 mit Schäden der Welle. */
     public static final List<java.util.function.Supplier<Species>> ALL = List.of(Species::lodgepolePine, Species::aspen, Species::douglasFir,
             Species::oak, Species::beech, Species::birch, Species::spruce,
             Species::engelmannSpruce, Species::subalpineFir, Species::whitebarkPine,
             Species::silverFir, Species::scotsPine, Species::larch, Species::stonePine, Species::alder,
             Species::lenga, Species::nire, Species::guindo,
             Species::spruceRed, Species::spruceDead, Species::spruceSnag, Species::spruceLog, Species::spruceYoung, Species::spruceFlag,
-            Species::rowan, Species::downyBirch);
+            Species::rowan, Species::downyBirch,
+            Species::sitkaSpruce, Species::westernHemlock, Species::sitkaSpruceYoung, Species::westernHemlockYoung, Species::redAlder,
+            () -> damaged(sitkaSpruce(), Damage.BROKEN), () -> damaged(sitkaSpruce(), Damage.STRIPPED), () -> damaged(sitkaSpruce(), Damage.FELLED),
+            () -> damaged(westernHemlock(), Damage.BROKEN));
 
     /** Die Art mit diesem deutschen oder lateinischen Namen (oder null). */
     public static Species byName(String n) {

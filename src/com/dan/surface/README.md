@@ -93,7 +93,7 @@ Alle Sätze: CC0 1.0 (https://docs.ambientcg.com/license/), Seiten `https://ambi
 - Katalog: 14 Materialien, Kurznamen eindeutig, je Material Quelle und Lizenz
 - Backen: vier Karten, Höhe im Alpha, Normale DirectX zu OpenGL (Abweichung 1/255), Tönung des Eises, Seetang aus Moos (Rot/Grün 0,50 → 0,76)
 - `MaterialSet` mit fehlenden Materialien, Mip-Stufen mit kürzeren Normalen
-- **1 km Kiesstrand ohne Wiederholung:** Autokorrelation der Helligkeit bei 1 bis 10 Kacheln Abstand. Hex 0,02, einfach gekachelt 0,71; Schwelle 0,3.
+- **1 km Kiesstrand ohne Wiederholung:** Helligkeit auf 64² und 8² Felder je Kachel gemittelt, Autokorrelation auf vier Linien, auf denen sich eine einfache Kachel genau wiederholt, bei 1 bis 10 Perioden. Einfach gekachelt 1,00 (sonst taugt das Maß nicht), hex 0,04 (Probe) bzw. 0,03 (echter Strandkies Gravel041); Schwelle 0,3. Seit Phase 6; das erste Maß (Phase 5) lief schräg, wo sich keine Kachel wiederholt, und gab mit echtem Kies auch einfach gekachelt nur 0,02.
 - Budget: 14 Materialien à 2048² gepackt mit Mip-Stufen 235 MB (≤ 600 MB), à 1024² 59 MB
 
 Phase 5 hat den Baustein außerdem mit Mesa (llvmpipe) gezeichnet: 14 Schichten à 512², gepackt BC7/BC5 beim Hochladen, in 0,5 s geladen; Kontaktbogen wie erwartet.
