@@ -1,6 +1,6 @@
 # com.dan.succession – Störung und Wiederbewaldung
 
-**Stand: Kern (LituyaBay1958 Phase 14).** Was eine Welle (oder ein Sturm, ein Hang, ein Gletscher) mit einem Wald macht und wie er in Jahrzehnten wiederkommt: ein Zellautomat auf dem Pflanzgitter des Walds (ein Platz je 6 m wie `forest.TreeStates`), je Platz ein Hauptbaum und einer im Unterstand. Das Package kennt keine App und kein anderes Package; Gelände, höchster Wasserstand und Altbestand kommen über kleine Schnittstellen, die Ausgabe geht Platz für Platz an eine `Ausgabe` (die App setzt daraus `TreeStates` mit Nachwuchs). Der Kern braucht nur Java 21. Später für Brocken (Windwurf, Borkenkäfer) und Glacier (Gletschervorfeld).
+**Stand: Kern (LituyaBay1958 Phase 14, Zugriffe auf den Altbaum seit 14a).** Was eine Welle (oder ein Sturm, ein Hang, ein Gletscher) mit einem Wald macht und wie er in Jahrzehnten wiederkommt: ein Zellautomat auf dem Pflanzgitter des Walds (ein Platz je 6 m wie `forest.TreeStates`), je Platz ein Hauptbaum und einer im Unterstand. Das Package kennt keine App und kein anderes Package; Gelände, höchster Wasserstand und Altbestand kommen über kleine Schnittstellen, die Ausgabe geht Platz für Platz an eine `Ausgabe` (die App setzt daraus `TreeStates` mit Nachwuchs). Der Kern braucht nur Java 21. Später für Brocken (Windwurf, Borkenkäfer) und Glacier (Gletschervorfeld).
 
 Zum Herauskopieren reicht `src/com/dan/succession/`.
 
@@ -16,7 +16,8 @@ Zum Herauskopieren reicht `src/com/dan/succession/`.
   - Fels verwittert zu Mineralboden (4 % je Jahr), Mineralboden unter Kronen wird Waldboden (3 %) [G].
   - Alles zufällig mit festem Startwert (PCG je Platz und Jahr): zwei Läufe gleich.
 - **Arten** (`Art`, alle Felder öffentlich): Roterle (Pionier, 11 m nach 10 Jahren, lebt 90 Jahre, Samen weit), Sitka-Fichte (35 m nach 54 Jahren, mäßig schattentolerant), Westliche Hemlocktanne (Schattenbaum, keimt auf Waldboden) [G nach Lehrbuchwerten; Abgleich am DSM 2012 in LituyaBay1958 Phase 14a].
-- **Ausgabe:** Verlauf je Jahr (Art und Höhe des Hauptbaums, Boden) im Speicher, 3 Bytes je Platz und Jahr; `zustand(jahr, Ausgabe)`, `platz(i, j, jahr)`, `statistik(jahr)` (Deckung, Höhen im Band und außerhalb, Anteile der Arten), `zeile(jahr)`.
+- **Ausgabe:** Verlauf je Jahr (Art und Höhe des Hauptbaums, Boden) im Speicher, 3 Bytes je Platz und Jahr; `zustand(jahr, Ausgabe)`, `platz(i, j, jahr)`, `statistik(jahr)` (Deckung, Höhen im Band und außerhalb, Anteile der Arten), `zeile(jahr)`; je Band-Platz k `lage(k)`, `folge(k)`, `altArt(k)` und `altHoehe(k)` (der Baum vor der Welle, etwa für Treibgut), `hoehe(k, jahr)`, `art(k, jahr)`, `bodenArt(k, jahr)`.
+- **Abgleich in LituyaBay1958 (Phase 14a):** Kronenhöhe ArcticDEM − IfSAR-Gelände im Band 1958 gegen außerhalb, Jahr 53: die App setzt die Rate k aller Arten ×1,69 (die Vorgaben hier bleiben).
 
 ## Benutzung
 

@@ -405,6 +405,12 @@ public final class Succession {
         }
     }
 
+    /** Art des Altbaums am Band-Platz k vor der Welle (−1: keiner). */
+    public int altArt(int k) { return altArt[k]; }
+
+    /** Höhe des Altbaums am Band-Platz k vor der Welle (m). */
+    public double altHoehe(int k) { return altH[k]; }
+
     /** Art (−1 keine) und Höhe des Hauptbaums am Platz (i, j) im Jahr, NaN außerhalb des Bands. */
     public double[] platz(int i, int j, int jahr) {
         int ii = i - i0, jj = j - j0;
