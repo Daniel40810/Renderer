@@ -30,8 +30,8 @@ import java.util.Locale;
  * setzt sich ab. Links von oben (Gelände, Wasser, optische Dicke der Wolke, Ablagerung), rechts der Schnitt durch die
  * Rinne (Oberkante der Wolke), die Bilanz und die Sichtweite. Fenster mit Zeitregler; {@code --bild datei.png [t]}.
  */
-public final class DustDemo {
-    private DustDemo() { }
+public final class DustcloudDemo {
+    private DustcloudDemo() { }
 
     static final Color BG = new Color(11, 17, 24), INK = new Color(230, 234, 238), DIM = new Color(140, 156, 170), ACC = new Color(240, 200, 110);
     static final double T_END = 600, X0 = 0, Z0 = 0, W = 8000, H = 5000;
@@ -90,7 +90,7 @@ public final class DustDemo {
             System.out.println("Bild: " + a[1] + " (t = " + fmt("%.0f", f.at(t).t()) + " s)");
             return;
         }
-        SwingUtilities.invokeLater(DustDemo::open);
+        SwingUtilities.invokeLater(DustcloudDemo::open);
     }
 
     public static String text(Film f) {
@@ -203,7 +203,7 @@ public final class DustDemo {
         JPanel view = new JPanel() {
             @Override protected void paintComponent(Graphics gr) {
                 if (film[0] == null) { gr.setColor(BG); gr.fillRect(0, 0, getWidth(), getHeight()); gr.setColor(INK); gr.drawString("rechnet …", 40, 40); return; }
-                DustDemo.paint((Graphics2D) gr, film[0], time[0], getWidth(), getHeight());
+                DustcloudDemo.paint((Graphics2D) gr, film[0], time[0], getWidth(), getHeight());
             }
         };
         view.setPreferredSize(new Dimension(1700, 950));
