@@ -1,6 +1,6 @@
 # com.dan.vessel – Kutter, Anker und Kette
 
-**Stand: Kern (LituyaBay1958 Phase 15).** Fischkutter der 1950er als Starrkörper mit sechs Freiheiten auf beliebigem Wasser, mit einer Ankerkette aus Massenpunkten. Gebaut für die drei Troller von Lituya Bay 1958 (Edrie, Badger, Sunmore), die eine Welle von 15 bis 23 m an ihren Ankerplätzen erlebten. Das Package kennt kein anderes. Wasser, Welle und Grund kommen über die kleine Schnittstelle `Water`. Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL. `demo/` braucht nur den eigenen Ordner `gl/` und JOGL. Später für Timmendorf (Niendorfer Hafen), Lighthouse und Kiel.
+**Stand: Kern (LituyaBay1958 Phase 15), Abspielen und Autopilot (15a).** Fischkutter der 1950er als Starrkörper mit sechs Freiheiten auf beliebigem Wasser, mit einer Ankerkette aus Massenpunkten. Gebaut für die drei Troller von Lituya Bay 1958 (Edrie, Badger, Sunmore), die eine Welle von 15 bis 23 m an ihren Ankerplätzen erlebten. Das Package kennt kein anderes. Wasser, Welle und Grund kommen über die kleine Schnittstelle `Water`. Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL. `demo/` braucht nur den eigenen Ordner `gl/` und JOGL. Später für Timmendorf (Niendorfer Hafen), Lighthouse und Kiel.
 
 Zum Herauskopieren reicht `src/com/dan/vessel/`.
 
@@ -37,7 +37,8 @@ Zum Herauskopieren reicht `src/com/dan/vessel/`.
   - Rumpf aus den Spanten, unter Wasser kupferrot, schwarzer Wasserpass, weißes Freibord, grüner Schergang.
   - Deck aus Holz, Spiegel, Schanzkleid, Steuerhaus mit Fensterband.
   - Mast mit Topplicht, zwei aufgeholte Trollstangen, Ankerwinde.
-- **`gl/VesselGl`:** Netze hochladen und mit der Modellmatrix des Boots zeichnen, Ketten als Linienzug, beliebige weitere Netze (auch durchscheinend mit Glanz). Licht wie `forest` und `buoyancy`; Ausgabe linear oder mit ACES.
+- **Abspielen und Steuern (15a):** `Boat.pose(pos, quat)` setzt Lage und Drehung einer vorgerechneten Bahn, `orientation()` gibt die Drehung; `steuern(x, z)` ist ein Autopilot (Ruder voll bei 30° Abweichung). Befund 15a: das Ruder drehte verkehrt herum (die Seitenkraft am Heck zeigte nach Steuerbord); jetzt dreht Ruder nach Steuerbord den Bug nach Steuerbord, und `VesselCheck` zählt die Drehung über 180° hinaus.
+- **`gl/VesselGl`:** Netze hochladen und mit der Modellmatrix des Boots zeichnen, Ketten als Linienzug (auch aus abgespielten Knoten), beliebige weitere Netze (auch durchscheinend mit Glanz). Licht wie `forest` und `buoyancy`; Ausgabe linear oder mit ACES.
 
 ## Benutzung
 

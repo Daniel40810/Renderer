@@ -121,13 +121,21 @@ public final class VesselGl {
 
     /** Zeichnet eine Kette als Linienzug (dunkler Stahl; gerissen bleiben beide Stücke). */
     public void draw(GL4 gl, Chain c, View v, Light l) {
-        int n = c.nodes();
+        double[][] nd = new double[c.nodes()][];
+        for (int i = 0; i < nd.length; i++) nd[i] = c.node(i);
+        draw(gl, nd, c.brokenAt(), v, l);
+    }
+
+    /** Zeichnet Kettenglieder aus Knoten (Welt) als Linien; das Glied cut (−1: keins) fehlt. */
+    public void draw(GL4 gl, double[][] nodes, int cut, View v, Light l) {
+        int n = nodes.length;
+        if (n < 2) return;
         float[] pts = new float[(n - 1) * 2 * Mesh.STRIDE];
         int k = 0;
         for (int i = 0; i + 1 < n; i++) {
-            if (c.brokenAt() == i) continue;
+            if (cut == i) continue;
             for (int e = 0; e < 2; e++) {
-                double[] p = c.node(i + e);
+                double[] p = nodes[i + e];
                 pts[k++] = (float) p[0]; pts[k++] = (float) p[1]; pts[k++] = (float) p[2];
                 pts[k++] = 0; pts[k++] = 1; pts[k++] = 0;
                 pts[k++] = 0.05f; pts[k++] = 0.045f; pts[k++] = 0.04f;
