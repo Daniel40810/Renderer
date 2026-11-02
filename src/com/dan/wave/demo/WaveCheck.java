@@ -1,5 +1,7 @@
 package com.dan.wave.demo;
 
+import com.dan.wave.Bay;
+import com.dan.wave.BayGrid;
 import com.dan.wave.Wave;
 
 import java.util.Locale;
@@ -8,7 +10,10 @@ import java.util.Locale;
  * Prüfklasse ohne Fenster (Paketvertrag Punkt 10). Endet mit „Alles in Ordnung.“ oder mit den Verstößen
  * (Rückgabewert 1). Seit Phase 8 gegen Handrechnungen: Tempo gegen √(g·h), Erhaltung des Volumens, Auflaufhöhe einer
  * Einzelwelle am flachen Strand gegen Synolakis (1987), Reflexion an einer Wand, Dämpfung am Rand und der Übergang
- * zwischen feinem und grobem Gitter.
+ * zwischen feinem und grobem Gitter. Seit LituyaBay1958 Phase 11 dazu der Löser {@link Bay} (HLL, geschachtelte Gitter):
+ * ruhender See über steilem Grund mit trockener Insel über die Gittergrenze, Dammbruch nach Stoker, Auflauf nach Synolakis,
+ * Volumen über drei Gitter, Welle über die Gittergrenze gegen ein durchgehend feines Gitter, Einlass, Laborfall Lituya
+ * (Messwelle FRITZ01, Auflauf 526 ± 50 m), zwei gleiche Läufe. Die alten Zeilen bleiben, wie sie waren.
  */
 public final class WaveCheck {
     private static int bad, all;
@@ -34,6 +39,8 @@ public final class WaveCheck {
         nested();
         System.out.println("Deichbruch mit gehaltenem Meer (seit Rungholt Phase 12)");
         dambreak();
+        System.out.println("Bucht: HLL auf geschachtelten Gittern (seit LituyaBay1958 Phase 11)");
+        bay();
 
         System.out.printf(Locale.GERMAN, "%d Prüfungen, %.1f s%n", all, (System.nanoTime() - t0) / 1e9);
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
@@ -207,6 +214,127 @@ public final class WaveCheck {
         double v = 0;
         for (double x = x0 + 0.5; x < 200; x += 1) for (double z = 0.5; z < 40; z += 1) v += water(w, x, z, 2);
         return v;
+    }
+
+
+    // ------------------------------------------------------------------ Bay (seit LituyaBay1958 Phase 11)
+
+    static void bay() {
+        // ruhender See über steilem, welligem Grund mit trockener Insel, zwei Gitter
+        {
+            Bay s = new Bay(0, 0, 100, 80, 10);
+            s.nest(30, 25, 30, 25, 4);
+            s.build((x, z) -> -20 + 15 * Math.sin(x / 40) * Math.cos(z / 55) + 30 * Math.exp(-((x - 500) * (x - 500) + (z - 400) * (z - 400)) / 8000.0), 0, null);
+            for (int i = 0; i < 200; i++) s.step();
+            double vmax = 0;
+            for (BayGrid g : s.grids()) for (int j = 0; j < g.nz; j++) for (int i = 0; i < g.nx; i++) { double[] v = g.velocity(i, j); vmax = Math.max(vmax, Math.hypot(v[0], v[1])); }
+            check(vmax < 1e-10 && Math.abs(s.volume() / s.initialVolume() - 1) < 1e-12,
+                    String.format(Locale.GERMAN, "ruhender See über welligem Grund (±15 m) mit trockener Insel über die Gittergrenze (10 und 2,5 m): nach %.0f s höchstens %.1e m/s, Volumen genau", s.time(), vmax));
+        }
+        // Dammbruch nach Stoker
+        {
+            Bay d = new Bay(0, 0, 2000, 3, 1);
+            d.manning = 0;
+            d.build((x, z) -> 0, 0, new Bay.Init() { public double eta(double x, double z) { return x < 1000 ? 10 : 2; } });
+            d.run(40);
+            double hl = 10, hr = 2, g = 9.81, hm = 4;
+            for (int it = 0; it < 100; it++) {
+                double f = stoker(hm, hl, hr, g), f1 = stoker(hm + 1e-6, hl, hr, g);
+                hm -= f / ((f1 - f) / 1e-6);
+            }
+            double num = d.grids().get(0).depth(1250, 1);
+            check(Math.abs(num / hm - 1) < 0.01 && Math.abs(d.volume() / d.initialVolume() - 1) < 1e-12,
+                    String.format(Locale.GERMAN, "Dammbruch 10 auf 2 m (Stoker): Tiefe zwischen Schwall und Verdünnung %.3f m, genau %.3f m; Volumen genau", num, hm));
+        }
+        // Auflauf nach Synolakis
+        {
+            double d = 10, hh = 0.019 * d, k = Math.sqrt(3 * hh / (4 * d * d * d)), c = Math.sqrt(9.81 * (d + hh)), xb = 600, x0 = xb - 5 / k, xs = x0 - 6 / k, dx = 0.5;
+            int nx = (int) Math.ceil((xb + 2.5 * d * 19.85 - xs) / dx);
+            Bay s = new Bay(xs, 0, nx, 3, dx);
+            s.manning = 0;
+            s.edge(Bay.W, BayGrid.Edge.OPEN);
+            s.build((x, z) -> x < xb ? -d : -d + (x - xb) / 19.85, 0, new Bay.Init() {
+                public double eta(double x, double z) { double ch = 1 / Math.cosh(k * (x - x0)); return hh * ch * ch; }
+                public double[] q(double x, double z) { return new double[]{c * eta(x, z), 0}; }
+            });
+            s.run(100);
+            double r = s.runup(xb, -1, 1e9, 1e9) / d, hand = 2.831 * Math.sqrt(19.85) * Math.pow(0.019, 1.25);
+            check(Math.abs(r / hand - 1) < 0.06, String.format(Locale.GERMAN, "Einzelwelle H/d = 0,019 auf einem Strand 1:19,85: Auflauf R/d %.4f, Synolakis 2,831 √cot β (H/d)^1,25 = %.4f", r, hand));
+        }
+        // drei Gitter: Volumen; Welle über die Grenze gegen ein durchgehend feines Gitter
+        {
+            Bay.Init hump = new Bay.Init() { public double eta(double x, double z) { return 3 * Math.exp(-((x - 300) * (x - 300) + (z - 500) * (z - 500)) / (2 * 40 * 40)); } };
+            Bay n = new Bay(0, 0, 125, 125, 8);
+            n.manning = 0;
+            n.nest(50, 40, 40, 45, 4).nest(40, 40, 60, 60, 2);
+            n.build((x, z) -> -30 + 25 * Math.max(0, (x - 700) / 300.0), 0, hump);
+            Bay f = new Bay(0, 0, 500, 500, 2);
+            f.manning = 0;
+            f.build((x, z) -> -30 + 25 * Math.max(0, (x - 700) / 300.0), 0, hump);
+            Bay.Gauge gn = n.gauge("520", 520, 500), gf = f.gauge("520", 520, 500), gn2 = n.gauge("650", 650, 500), gf2 = f.gauge("650", 650, 500);
+            n.run(30);
+            f.run(30);
+            check(Math.abs(n.volume() / n.initialVolume() - 1) < 1e-12 && n.clipped() < 1e-9,
+                    String.format(Locale.GERMAN, "drei Gitter (8, 2, 1 m) mit Unterschritten und Abgleich der Flüsse: Volumen nach 30 s %.12f, nichts abgeschnitten", n.volume() / n.initialVolume()));
+            check(Math.abs(gn.max() / gf.max() - 1) < 0.08 && Math.abs(gn2.max() / gf2.max() - 1) < 0.08,
+                    String.format(Locale.GERMAN, "Welle über die Grenze ins feine Gitter: bei 520 m %.3f m (durchgehend 2 m: %.3f), bei 650 m %.3f m (%.3f); der Rest ist der Weg über das 8-m-Gitter",
+                            gn.max(), gf.max(), gn2.max(), gf2.max()));
+        }
+        // Fjordbucht der Demo: drei Gitter, Trockenfronten über die Gittergrenzen, 50 s
+        {
+            Bay f = BayDemo.fjordBay();
+            f.run(50);
+            double dv = (f.volume() - f.initialVolume()) / f.initialVolume();
+            Bay.Gauge arm = f.gauges().get(0), stamm = f.gauges().get(1);
+            check(Math.abs(dv) < 5e-5 && f.steps() < 800 && arm.max() > 10 && arm.max() < 60 && stamm.max() > 1,
+                    String.format(Locale.GERMAN, "Fjordbucht der Demo (20, 5, 2,5 m), Hügel 100 m im Arm, 50 s: Pegel Arm %.1f m nach %.1f s, Stamm %.1f m nach %.1f s; %d Schritte (stabil), Volumen %+.1e",
+                            arm.max(), arm.timeOfMax(), stamm.max(), stamm.timeOfMax(), f.steps(), dv));
+            if (Math.abs(dv) > 1e-12)
+                System.out.println(String.format(Locale.GERMAN, "  HINWEIS Volumen %+.1e (%.0f m³): an Trockenfronten über Gittergrenzen zieht das feine Gitter mehr, als die grobe Zelle davor hat; abgeschnitten und gezählt (Rückgabe an die feinen Randzellen machte die Bucht instabil)", dv, f.clipped()));
+        }
+        // Einlass und Laborfall Lituya
+        {
+            double h = 122, hh = 152, c = Math.sqrt(9.81 * (h + hh)), k = Math.sqrt(3 * hh / (4 * h * h * h)), dx = 2, xa = 885, foot = 1220, top = 650;
+            int nx = (int) Math.ceil((1342 + top + 50 - xa) / dx);
+            Bay s = new Bay(xa, 0, nx, 3, dx);
+            s.inlet(Bay.W, (t, x, z) -> { double ch = 1 / Math.cosh(k * c * (t - 16)); double e = hh * ch * ch; return new double[]{e, c * e}; });
+            s.build((x, z) -> x < foot ? -h : Math.min(top, -h + (x - foot)), 0, null);
+            s.run(25);
+            double dv = s.volume() - s.initialVolume();
+            check(Math.abs(dv / s.inflowVolume() - 1) < 1e-9 && s.inflowVolume() > 30000,
+                    String.format(Locale.GERMAN, "Einlass: %.0f m³ je 2 m Breite herein, im Gitter %.0f m³ mehr (genau)", s.inflowVolume(), dv));
+            s.run(50);
+            double r = s.runup(foot, -1, 1e9, 1e9);
+            check(Math.abs(r - 526) <= 50, String.format(Locale.GERMAN, "Laborfall Lituya (FRITZ01): Einzelwelle 152 m auf 122 m bei 885 m nach 16 s als Einlass, Gegenhang 45° ab 1 220 m: Auflauf %.0f m (FRITZ01 526 ± 50 m, Hall-Watts 524 m)", r));
+            Bay s2 = new Bay(xa, 0, nx, 3, dx);
+            s2.inlet(Bay.W, (t, x, z) -> { double ch = 1 / Math.cosh(k * c * (t - 16)); double e = hh * ch * ch; return new double[]{e, c * e}; });
+            s2.build((x, z) -> x < foot ? -h : Math.min(top, -h + (x - foot)), 0, null);
+            s2.run(10);
+            Bay s3 = new Bay(xa, 0, nx, 3, dx);
+            s3.inlet(Bay.W, (t, x, z) -> { double ch = 1 / Math.cosh(k * c * (t - 16)); double e = hh * ch * ch; return new double[]{e, c * e}; });
+            s3.build((x, z) -> x < foot ? -h : Math.min(top, -h + (x - foot)), 0, null);
+            s3.run(10);
+            boolean same = s2.steps() == s3.steps();
+            BayGrid g2 = s2.grids().get(0), g3 = s3.grids().get(0);
+            for (int i = 0; same && i < g2.nx; i++) same = g2.depth(i, 1) == g3.depth(i, 1);
+            check(same, String.format(Locale.GERMAN, "zwei Läufe gleich (%d Schritte, Zelle für Zelle)", s2.steps()));
+        }
+        // Rechenzeit
+        {
+            Bay big = new Bay(0, 0, 512, 512, 4);
+            big.build((x, z) -> -100, 0, new Bay.Init() { public double eta(double x, double z) { return 5 * Math.exp(-((x - 1024) * (x - 1024) + (z - 1024) * (z - 1024)) / (2 * 200 * 200.0)); } });
+            big.step();
+            long t0 = System.nanoTime();
+            for (int i = 0; i < 10; i++) big.step();
+            double ms = (System.nanoTime() - t0) / 1e6 / 10;
+            System.out.println(String.format(Locale.GERMAN, "  HINWEIS Rechenzeit auf dem Prozessor: 512² zu 4 m bei 100 m Tiefe %.0f ms je Schritt (%.0f ns je Zelle), %.2f s Welle je Sekunde Rechnung; die Grafikkarte folgt mit Phase 11b",
+                    ms, ms * 1e6 / (512 * 512), big.time() / big.steps() / (ms / 1000)));
+        }
+    }
+
+    static double stoker(double hm, double hl, double hr, double g) {
+        double um = 2 * (Math.sqrt(g * hl) - Math.sqrt(g * hm)), s = Math.sqrt(g * hm * (hm + hr) / (2 * hr));
+        return um - s * (1 - hr / hm);
     }
 
     static void check(boolean c, String what) {
