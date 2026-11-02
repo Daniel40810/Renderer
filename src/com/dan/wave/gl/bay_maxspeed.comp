@@ -4,13 +4,15 @@ layout(local_size_x = 64) in;
 layout(std430, binding = 0) readonly buffer Bed { float b[]; };
 layout(std430, binding = 1) readonly buffer State { float u[]; };
 layout(std430, binding = 2) buffer Stats { uint stats[]; };
-uniform int nx, nz;
+uniform int nx, nz, si0, sj0, sni, snj;   // Zellen unter dem feineren Gitter auslassen (sni = 0: keins)
 uniform float g, hDry, hVel;
 
 void main() {
     int t = int(gl_GlobalInvocationID.x);
     if (t >= nx * nz) return;
-    int px = nx + 4, N = px * (nz + 4), c = (t / nx + 2) * px + t % nx + 2;
+    int ii = t % nx, jj = t / nx;
+    if (ii >= si0 && ii < si0 + sni && jj >= sj0 && jj < sj0 + snj) return;
+    int px = nx + 4, N = px * (nz + 4), c = (jj + 2) * px + ii + 2;
     float hh = u[c];
     if (b[c] > 1e29 || hh <= hDry) return;
     float vx = hh > hVel ? abs(u[N + c] / hh) : 0.0, vz = hh > hVel ? abs(u[2 * N + c] / hh) : 0.0;

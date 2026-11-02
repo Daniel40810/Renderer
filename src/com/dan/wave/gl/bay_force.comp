@@ -1,0 +1,21 @@
+// bay_force.comp — Einlass im Inneren für wave.Bay auf der Grafikkarte (LituyaBay1958 Phase 13): Bay.force in float.
+// Ein Faden je Zelle einer Linie; VALS je Zelle {Wasserstand, Durchfluss x, Durchfluss z}, vom Prozessor zur Zeit der
+// Stufe gefüllt (Wasserstand 1e30: frei). Tiefe = max(0, Wasserstand − Grund), Durchfluss nur über hVel.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Bed { float b[]; };
+layout(std430, binding = 1) buffer State { float u[]; };   // h | hu | hv
+layout(std430, binding = 2) readonly buffer Cells { int cells[]; };
+layout(std430, binding = 3) readonly buffer Vals { float vals[]; };
+uniform int count, n;
+uniform float hVel;
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= count) return;
+    if (vals[3 * t] > 1e29) return;   // Linie frei
+    int c = cells[t];
+    float hh = max(0.0, vals[3 * t] - b[c]);
+    u[c] = hh;
+    u[n + c] = hh > hVel ? vals[3 * t + 1] : 0.0;
+    u[2 * n + c] = hh > hVel ? vals[3 * t + 2] : 0.0;
+}

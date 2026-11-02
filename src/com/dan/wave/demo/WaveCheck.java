@@ -12,7 +12,8 @@ import java.util.Locale;
  * Einzelwelle am flachen Strand gegen Synolakis (1987), Reflexion an einer Wand, Dämpfung am Rand und der Übergang
  * zwischen feinem und grobem Gitter. Seit LituyaBay1958 Phase 11 dazu der Löser {@link Bay} (HLL, geschachtelte Gitter):
  * ruhender See über steilem Grund mit trockener Insel über die Gittergrenze, Dammbruch nach Stoker, Auflauf nach Synolakis,
- * Volumen über drei Gitter, Welle über die Gittergrenze gegen ein durchgehend feines Gitter, Einlass, Laborfall Lituya
+ * Volumen über drei Gitter, Welle über die Gittergrenze gegen ein durchgehend feines Gitter, Einlass (am Rand und seit
+ * Phase 13 über eine Linie im Inneren), Laborfall Lituya
  * (Messwelle FRITZ01, Auflauf 526 ± 50 m), zwei gleiche Läufe. Die alten Zeilen bleiben, wie sie waren.
  */
 public final class WaveCheck {
@@ -306,6 +307,13 @@ public final class WaveCheck {
             s.run(50);
             double r = s.runup(foot, -1, 1e9, 1e9);
             check(Math.abs(r - 526) <= 50, String.format(Locale.GERMAN, "Laborfall Lituya (FRITZ01): Einzelwelle 152 m auf 122 m bei 885 m nach 16 s als Einlass, Gegenhang 45° ab 1 220 m: Auflauf %.0f m (FRITZ01 526 ± 50 m, Hall-Watts 524 m)", r));
+            // dieselbe Welle über eine Linie im Inneren (seit Phase 13): davor 40 m Fels, die Linie bei 886 m
+            Bay li = new Bay(xa - 40, 0, nx + 20, 3, dx);
+            li.line(xa + 1, -10, xa + 1, 20, 1, 0, (t, x, z) -> { double ch = 1 / Math.cosh(k * c * (t - 16)); double e = hh * ch * ch; return new double[]{e, c * e}; });
+            li.build((x, z) -> x < xa ? Double.NaN : x < foot ? -h : Math.min(top, -h + (x - foot)), 0, null);
+            li.run(50);
+            double rl = li.runup(foot, -1, 1e9, 1e9);
+            check(Math.abs(rl - r) <= 0.02 * r && li.forcedCells(0).length == 3, String.format(Locale.GERMAN, "dieselbe Welle über eine Linie im Inneren (Bay.line, %d Zellen, Fels davor): Auflauf %.0f m gegen %.0f m über den Rand", li.forcedCells(0).length, rl, r));
             Bay s2 = new Bay(xa, 0, nx, 3, dx);
             s2.inlet(Bay.W, (t, x, z) -> { double ch = 1 / Math.cosh(k * c * (t - 16)); double e = hh * ch * ch; return new double[]{e, c * e}; });
             s2.build((x, z) -> x < foot ? -h : Math.min(top, -h + (x - foot)), 0, null);
