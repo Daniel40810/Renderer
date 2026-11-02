@@ -9,7 +9,7 @@ import java.util.Locale;
  * Ferguson-Church, Absetzen einer ruhenden Schicht gegen e<sup>−wt/h</sup>, Schleuse gegen das Kastenmodell nach Huppert
  * und Simpson, Hang ins Wasser, Wind, Sichtweite, Bilanz des Staubs, zwei Läufe gleich. Endet mit „Alles in Ordnung.“
  */
-public final class DustCheck {
+public final class DustcloudCheck {
     static int bad, all;
 
     public static void main(String[] a) {

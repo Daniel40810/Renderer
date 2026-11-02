@@ -31,7 +31,7 @@ double tau = c.opticalDepth(x, z), sicht = c.visibility(x, z), oben = c.top(x, z
 double[] bilanz = c.budget();   // Luft, Land, Wasser, Rand, abgeschnitten, eingebracht (m³ Feststoff)
 ```
 
-## Prüfung (`demo/DustCheck`), Stand 02.11.2026
+## Prüfung (`demo/DustcloudCheck`), Stand 02.11.2026
 
 | Prüfung | Ergebnis | Soll |
 |---|---|---|
@@ -49,4 +49,4 @@ double[] bilanz = c.budget();   // Luft, Land, Wasser, Rand, abgeschnitten, eing
 
 ## Demo
 
-`demo/DustDemo.java` → Run File: Felssturz an einer Fjordflanke, 30 s Staub; von oben die optische Dicke und die Ablagerung, der Schnitt durch die Rinne, die Bilanz und die Sicht. Ohne Fenster: `DustDemo --bild datei.png [t]`.
+`demo/DustcloudDemo.java` → Run File: Felssturz an einer Fjordflanke, 30 s Staub; von oben die optische Dicke und die Ablagerung, der Schnitt durch die Rinne, die Bilanz und die Sicht. Ohne Fenster: `DustcloudDemo --bild datei.png [t]`.
