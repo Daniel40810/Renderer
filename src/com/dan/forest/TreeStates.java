@@ -10,6 +10,11 @@ import java.util.Arrays;
  * Gitter als Textur und zeichnet jeden Baum in seiner Form.
  * <p>
  * Byte: Bit 0–2 Zustand, Bit 3–7 Fallrichtung in 32 Schritten zu 11,25° (Kompass: 0 = Nord = −z, 90 = Ost = +x).
+ * <p>
+ * Seit LituyaBay1958 Phase 14 dazu ein zweites Byte je Platz für den <b>Nachwuchs</b> ({@link #setGrowth}): Bit 0–3 Art + 1
+ * (0 = keine Vorgabe, dann würfelt die Kultur Art und Dichte wie bisher), Bit 4–7 Größenklasse c, Größe (c + 1)/16 der
+ * ausgewachsenen Art. Ein Platz mit Vorgabe trägt immer einen Baum dieser Art (ohne Wurf auf die Dichte); so zeichnet
+ * {@code com.dan.succession} junge Erlen und Fichten im Band. Ohne Vorgabe bleibt alles wie vorher.
  */
 public final class TreeStates {
     public static final int STANDING = 0, BROKEN = 1, STRIPPED = 2, FELLED = 3, GONE = 4;
@@ -19,6 +24,7 @@ public final class TreeStates {
     /** Erster Platz (i0, j0) und Größe des Gitters in Plätzen. */
     public final int i0, j0, w, h;
     private final byte[] data;
+    private byte[] growth;
     private int version;
 
     public TreeStates(double spacing, int i0, int j0, int w, int h) {
@@ -61,8 +67,27 @@ public final class TreeStates {
     /** Wie {@link #set}, für den Platz unter (x, z). */
     public void setAt(double x, double z, int state, double fallDeg) { set(slotI(x), slotJ(z), state, fallDeg); }
 
-    /** Alle Plätze stehend. */
-    public void clear() { Arrays.fill(data, (byte) 0); version++; }
+    /** Nachwuchs des Platzes: 0 keine Vorgabe, sonst Bit 0–3 Art + 1, Bit 4–7 Größenklasse. */
+    public int growth(int i, int j) { return growth == null || !contains(i, j) ? 0 : growth[(j - j0) * w + (i - i0)] & 0xff; }
+
+    /** Setzt den Nachwuchs: Art (0..14, −1 = keine Vorgabe) und Größe als Anteil der ausgewachsenen Art (1/16 … 1). */
+    public void setGrowth(int i, int j, int species, double size) {
+        if (!contains(i, j)) return;
+        if (species > 14) throw new IllegalArgumentException("Art " + species + " (höchstens 14)");
+        if (growth == null) { if (species < 0) return; growth = new byte[data.length]; }
+        int c = (int) Math.max(0, Math.min(15, Math.round(size * 16 - 1)));
+        growth[(j - j0) * w + (i - i0)] = species < 0 ? 0 : (byte) ((species + 1) | (c << 4));
+        version++;
+    }
+
+    /** Größe (Anteil der ausgewachsenen Art) aus dem Byte des Nachwuchses. */
+    public static float growthSize(int g) { return ((g >> 4) + 1) / 16f; }
+
+    /** Die Bytes des Nachwuchses (null, solange keiner gesetzt ist); nicht ändern. */
+    public byte[] growthData() { return growth; }
+
+    /** Alle Plätze stehend, ohne Nachwuchs. */
+    public void clear() { Arrays.fill(data, (byte) 0); growth = null; version++; }
 
     /** Die Bytes, Zeile für Zeile (j), für die Grafikkarte; nicht ändern. */
     public byte[] data() { return data; }

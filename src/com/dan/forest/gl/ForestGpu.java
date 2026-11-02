@@ -444,7 +444,13 @@ public final class ForestGpu {
         if (s != null && s.version() != stVersion) {
             gl.glBindTexture(GL.GL_TEXTURE_2D, stTex);
             gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1);
-            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL2ES3.GL_R8UI, s.w, s.h, 0, GL2ES3.GL_RED_INTEGER, GL.GL_UNSIGNED_BYTE, (ByteBuffer) Buffers.newDirectByteBuffer(s.data().length).put(s.data()).flip());
+            // seit LituyaBay1958 Phase 14: 16 Bit je Platz, oben der Nachwuchs (TreeStates.setGrowth)
+            byte[] dat = s.data(), gro = s.growthData();
+            java.nio.ShortBuffer sb = Buffers.newDirectShortBuffer(dat.length);
+            for (int k = 0; k < dat.length; k++) sb.put((short) ((dat[k] & 0xff) | (gro == null ? 0 : (gro[k] & 0xff) << 8)));
+            sb.flip();
+            gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 2);
+            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL2ES3.GL_R16UI, s.w, s.h, 0, GL2ES3.GL_RED_INTEGER, GL.GL_UNSIGNED_SHORT, sb);
             nearest(gl, GL.GL_TEXTURE_2D);
             stVersion = s.version();
         }

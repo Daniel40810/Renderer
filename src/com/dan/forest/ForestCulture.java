@@ -130,22 +130,28 @@ public final class ForestCulture {
         float sp = (float) spacing;
         float x = (i + 0.1f + 0.8f * u01(h, 1)) * sp, z = (j + 0.1f + 0.8f * u01(h, 2)) * sp;
         float roll = u01(h, 3);
-        float sum = 0;
-        for (int s = 0; s < species; s++) {
-            float v = density == null ? (s == 0 ? 1 : 0) : density.sample(s, x, z);
-            d[s] = v < 0 ? 0 : v > 1 ? 1 : v;
-            sum += d[s];
-        }
-        if (sum <= 1e-6f) return false;
-        float m = Math.min(1, sum);
-        if (roll >= m) return false;
-        float pick = roll / m * sum;
-        int s = 0;
-        while (s < species - 1 && pick > d[s]) { pick -= d[s]; s++; }
         int st = states == null ? 0 : states.state(i, j);
         if (st == TreeStates.GONE) return false;
+        int gr = states == null ? 0 : states.growth(i, j);
+        int s;
+        if (gr != 0 && (gr & 15) - 1 < species) s = (gr & 15) - 1;    // Nachwuchs (seit Phase 14): Art vorgegeben, immer ein Baum
+        else {
+            gr = 0;
+            float sum = 0;
+            for (int k = 0; k < species; k++) {
+                float v = density == null ? (k == 0 ? 1 : 0) : density.sample(k, x, z);
+                d[k] = v < 0 ? 0 : v > 1 ? 1 : v;
+                sum += d[k];
+            }
+            if (sum <= 1e-6f) return false;
+            float m = Math.min(1, sum);
+            if (roll >= m) return false;
+            float pick = roll / m * sum;
+            s = 0;
+            while (s < species - 1 && pick > d[s]) { pick -= d[s]; s++; }
+        }
         int v = Math.min(variants - 1, (int) (u01(h, 7) * variants));
-        float scale = (0.62f + 0.45f * u01(h, 4)) * (float) sizeFactor[s];
+        float scale = (0.62f + 0.45f * u01(h, 4)) * (float) sizeFactor[s] * (gr != 0 ? TreeStates.growthSize(gr) : 1f);
         float rot = u01(h, 5) * 6.2831853f;
         float yw = Double.isNaN(yaw[s]) ? rot : (float) yaw[s] + (rot / 3.14159265f - 1) * (float) yawSpread[s];
         if (st == TreeStates.FELLED) yw = yawToward((float) states.fallDeg(i, j)) + (rot / 3.14159265f - 1) * 0.15f;
