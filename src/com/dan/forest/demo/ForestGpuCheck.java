@@ -22,7 +22,8 @@ import java.util.Map;
  * {@link BayScene} rechnet die Grafikkarte die Kultur für vier Ansichten; jede Instanz muss genau die sein, die der
  * Spiegel auf dem Prozessor ({@link ForestGpu#cullCpu}, über {@link com.dan.forest.ForestCulture}) liefert, zugeordnet über
  * den Platz; Lage auf 5 cm, Winkel auf 0,05 rad (die Grafikkarte rundet anders: FMA, atan). Dazu:
- * kein Baum auf einem Platz „fort“, umgelegte Bäume in ihrer Fallrichtung, Atlanten der Impostors gefüllt, Zähler stimmig.
+ * kein Baum auf einem Platz „fort“, umgelegte Bäume in ihrer Fallrichtung, Atlanten der Impostors gefüllt, Zähler stimmig;
+ * seit LituyaBay1958 Phase 14 ein fünfter Blick mit Nachwuchs ({@link TreeStates#setGrowth}): Art und Größe wie vorgegeben.
  * Endet mit „Alles in Ordnung.“
  */
 public final class ForestGpuCheck {
@@ -50,13 +51,21 @@ public final class ForestGpuCheck {
         f.init(gl);
         f.setSeason(190, 0);
         f.awaitBake();
-        for (int v = 0; v < 4; v++) {
-            ForestGl.View cam = ForestGpuDemo.camera(v, 1920, 1080);
+        for (int v = 0; v < 5; v++) {
+            if (v == 4) {
+                // seit LituyaBay1958 Phase 14: Nachwuchs im Band (Erlen auf jedem zweiten Platz „fort“, ein Drittel groß)
+                TreeStates ts0 = f.culture().states;
+                for (int j = ts0.j0; j < ts0.j0 + ts0.h; j++)
+                    for (int i = ts0.i0; i < ts0.i0 + ts0.w; i++)
+                        if (ts0.state(i, j) == TreeStates.GONE && ((i + j) & 1) == 0) { ts0.set(i, j, TreeStates.STANDING, 0); ts0.setGrowth(i, j, 2, 0.33); }
+            }
+            ForestGl.View cam = ForestGpuDemo.camera(v % 4, 1920, 1080);
             f.update(gl, cam);
             int[] st = f.readStats(gl);
             float[][] gpu = f.readInstances(gl), cpu = f.cullCpu(cam.viewProj, cam.eye);
             long ng = 0, nc = 0, matched = 0, binsOff = 0, gone = 0, fellOff = 0;
             double worstPos = 0, worstAng = 0, worstRest = 0;
+            long nach = 0, nachOff = 0;
             long sum = 0;
             for (int b = 0; b < gpu.length; b++) sum += st[2 + b];
             ForestCulture cu = f.culture();
@@ -75,6 +84,12 @@ public final class ForestGpuCheck {
                     int state = ts == null ? 0 : ts.state(i, j);
                     if (state == TreeStates.GONE) gone++;
                     int type = b % T;
+                    int gr = ts == null ? 0 : ts.growth(i, j);
+                    if (gr != 0) {
+                        nach++;
+                        float gs = TreeStates.growthSize(gr) * (float) cu.sizeFactor[(gr & 15) - 1];
+                        if ((type % SV) / f.variants() != (gr & 15) - 1 || gpu[b][k + 4] > 1.07f * gs + 1e-4f || gpu[b][k + 4] < 0.62f * gs - 1e-4f) nachOff++;
+                    }
                     if (type / SV != state) fellOff++;
                     if (state == TreeStates.FELLED) {
                         float want = ForestCulture.yawToward((float) ts.fallDeg(i, j));
@@ -92,11 +107,12 @@ public final class ForestGpuCheck {
                 }
             }
             check(String.format(Locale.GERMAN, "%s: Grafikkarte %,d Bäume = Prozessor %,d, je Platz zugeordnet %,d, Eimer abweichend %d; größte Abweichung Lage %.1e m, Winkel %.1e rad, sonst %.1e",
-                    ForestGpuDemo.VIEWS[v], ng, nc, matched, binsOff, worstPos, worstAng, worstRest), ng == nc && matched == ng && binsOff == 0 && worstPos < 0.05 && worstAng < 0.05 && worstRest < 1e-3 && ng > 1000);
-            check(String.format(Locale.GERMAN, "%s: Zähler (%,d) = Summe der Eimer (%,d), nichts verworfen (%d)", ForestGpuDemo.VIEWS[v], st[0], sum, st[1]),
+                    name(v), ng, nc, matched, binsOff, worstPos, worstAng, worstRest), ng == nc && matched == ng && binsOff == 0 && worstPos < 0.05 && worstAng < 0.05 && worstRest < 1e-3 && ng > 1000);
+            if (v == 4) check(String.format(Locale.GERMAN, "%s: %,d Bäume aus dem Nachwuchs, Art und Größe wie vorgegeben (%d Abweichungen)", name(v), nach, nachOff), nach > 100 && nachOff == 0);
+            check(String.format(Locale.GERMAN, "%s: Zähler (%,d) = Summe der Eimer (%,d), nichts verworfen (%d)", name(v), st[0], sum, st[1]),
                     st[0] == sum && st[1] == 0);
             check(String.format(Locale.GERMAN, "%s: kein Baum auf einem Platz „fort“ (%d), Typ passt zum Zustand und umgelegte zeigen in ihre Fallrichtung (%d Abweichungen)",
-                    ForestGpuDemo.VIEWS[v], gone, fellOff), gone == 0 && fellOff == 0);
+                    name(v), gone, fellOff), gone == 0 && fellOff == 0);
         }
         // Atlanten: Deckung je Schicht (Anteil der Bildpunkte mit Baum)
         double[] cov = f.atlasCoverage(gl);
@@ -109,6 +125,8 @@ public final class ForestGpuCheck {
         f.dispose(gl);
         return bad;
     }
+
+    static String name(int v) { return ForestGpuDemo.VIEWS[v % 4] + (v == 4 ? " mit Nachwuchs" : ""); }
 
     static long slot(float x, float z, double sp) { return ((long) Math.floor(x / sp) << 32) ^ ((long) Math.floor(z / sp) & 0xffffffffL); }
 

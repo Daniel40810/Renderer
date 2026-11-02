@@ -80,31 +80,37 @@ void main() {
     float x = (float(i) + 0.1 + 0.8 * u01(h, 1u)) * uSpacing, z = (float(j) + 0.1 + 0.8 * u01(h, 2u)) * uSpacing;
     float roll = u01(h, 3u);
     int S = uSV.x, V = uSV.y;
-    float d[16];
-    float sum = 0.0;
-    for (int s = 0; s < S; s++) {
-        float v = uDenOn == 1 ? denAt(s, x, z) : (s == 0 ? 1.0 : 0.0);
-        d[s] = clamp(v, 0.0, 1.0);
-        sum += d[s];
-    }
-    if (sum <= 1e-6) return;
-    float m = min(1.0, sum);
-    if (roll >= m) return;
-    float pick = roll / m * sum;
-    int s = 0;
-    while (s < S - 1 && pick > d[s]) { pick -= d[s]; s++; }
-    int st = 0, dir = 0;
+    // Zustand und Nachwuchs (seit LituyaBay1958 Phase 14: R16UI, Bit 8–15 Art + 1 und Größenklasse)
+    int st = 0, dir = 0, gr = 0;
     if (uStOn == 1) {
         int li = i - uStRect.x, lj = j - uStRect.y;
         if (li >= 0 && lj >= 0 && li < uStRect.z && lj < uStRect.w) {
             uint b = texelFetch(uStates, ivec2(li, lj), 0).r;
             st = int(b & 7u);
             dir = int((b >> 3u) & 31u);
+            gr = int((b >> 8u) & 255u);
         }
     }
     if (st >= 4) return;
+    int s = 0;
+    if (gr != 0 && (gr & 15) - 1 < S) s = (gr & 15) - 1;
+    else {
+        gr = 0;
+        float d[16];
+        float sum = 0.0;
+        for (int k = 0; k < S; k++) {
+            float v = uDenOn == 1 ? denAt(k, x, z) : (k == 0 ? 1.0 : 0.0);
+            d[k] = clamp(v, 0.0, 1.0);
+            sum += d[k];
+        }
+        if (sum <= 1e-6) return;
+        float m = min(1.0, sum);
+        if (roll >= m) return;
+        float pick = roll / m * sum;
+        while (s < S - 1 && pick > d[s]) { pick -= d[s]; s++; }
+    }
     int v = min(V - 1, int(u01(h, 7u) * float(V)));
-    float scale = (0.62 + 0.45 * u01(h, 4u)) * uSize[s];
+    float scale = (0.62 + 0.45 * u01(h, 4u)) * uSize[s] * (gr != 0 ? float((gr >> 4) + 1) / 16.0 : 1.0);
     float rot = u01(h, 5u) * 6.2831853;
     float yaw = uYawOn[s] > 0.5 ? uYaw[s] + (rot / 3.14159265 - 1.0) * uYawSpread[s] : rot;
     if (st == 3) {

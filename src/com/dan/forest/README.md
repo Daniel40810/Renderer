@@ -186,7 +186,7 @@ Grenzen: die Fahne ist ein Versatz der Ecken, keine neue Geometrie; feine Nadeln
   - `BROKEN`: ein Stumpf von 20 bis 40 % der Höhe, Rinde noch dran.
   - `STRIPPED`: steht in voller Höhe, entrindet (helles Holz `Species.FRESH_WOOD`), nur wenige Stummel (`Species.branchKeep`).
   - `FELLED`: liegt entlang +x, entrindet.
-- **Zustand je Baum** (`TreeStates`): ein Byte je Platz des Pflanzgitters, mit dem Zustand stehend, gebrochen, entrindet, umgelegt oder fort. Für umgelegte Bäume dazu die Fallrichtung in 32 Schritten. Wer den Zustand rechnet (Welle, `succession`), schreibt ihn hinein. Die Grafikkarte übernimmt Änderungen im nächsten Bild.
+- **Zustand je Baum** (`TreeStates`): ein Byte je Platz des Pflanzgitters, mit dem Zustand stehend, gebrochen, entrindet, umgelegt oder fort. Für umgelegte Bäume dazu die Fallrichtung in 32 Schritten. Wer den Zustand rechnet (Welle, `succession`), schreibt ihn hinein. Die Grafikkarte übernimmt Änderungen im nächsten Bild. Seit LituyaBay1958 Phase 14 dazu ein zweites Byte je Platz für den **Nachwuchs** (`setGrowth(i, j, art, größe)`): Art (0–14) und Größe als Anteil der ausgewachsenen Art in 16 Stufen. Ein Platz mit Nachwuchs trägt immer einen Baum dieser Art, ohne Wurf auf die Dichte (junge Erlen und Fichten im Band); auf der Grafikkarte als R16UI. `ForestGpuCheck` prüft das in einem fünften Blick.
 - **Kultur** (`ForestCulture`): wo jeder Baum steht, aus Dichte je Art, Startwert und Zustand. Gespeichert wird dafür nichts.
   - Je Platz (i, j) eines Gitters mit `spacing` steht höchstens ein Baum.
   - Ausgewürfelt wird mit einem PCG-Hash, in Java und GLSL gleich. Dichte und Höhe liegen als Gitter vor (`ForestCulture.Grid`); abgetastet wird von Hand bilinear.
@@ -234,7 +234,7 @@ wald.draw(gl4, view, licht, t);
 
 | Klasse | Aufgabe |
 |---|---|
-| `TreeStates` | Zustand je Platz, Fallrichtung, Zähler |
+| `TreeStates` | Zustand je Platz, Fallrichtung, Nachwuchs (Art und Größe, seit Phase 14), Zähler |
 | `ForestCulture` | Kultur auf dem Prozessor: Hash, Gitter (Dichte, Höhe), Baum je Platz, Zählen |
 | `Octahedral` | Halb-Oktaeder: Richtung ↔ Quadrat, Ansicht und ihre Achsen |
 | `gl/ForestGpu` | Formen je Zustand, Netze backen (Hintergrund), Impostors backen, Kultur, Zeichnen, Prüfhilfen (`cullCpu`, `readInstances`, `atlasCoverage`) |
