@@ -151,8 +151,8 @@ public final class VesselCheck {
             double kn = Math.hypot(v[0], v[2]) / 0.5144;
             double h0 = m.heading();
             m.rudder = 0.6;
-            for (int i = 0; i < 3000; i++) m.step(tief, 0.01);
-            double dh = ((m.heading() - h0) + 540) % 360 - 180;
+            double dh = 0, hv = h0;
+            for (int i = 0; i < 3000; i++) { m.step(tief, 0.01); double hn = m.heading(); dh += ((hn - hv) + 540) % 360 - 180; hv = hn; }   // aufsummiert (über 180° hinaus)
             check(kn > 6 && kn < 10 && dh > 30, "voraus %.0f kN: %.1f kn nach 60 s (Rumpfgeschwindigkeit %.1f kn); Ruder 0,6 nach Steuerbord: %+.0f° in 30 s gedreht", m.maxThrust / 1000, kn, 1.34 * Math.sqrt(m.hull.loa * 0.92 / 0.3048), dh);
         }
 

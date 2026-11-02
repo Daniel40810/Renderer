@@ -334,6 +334,25 @@ public final class BayGpu {
         return out;
     }
 
+    /**
+     * Strömung je Zelle von Gitter k (seit LituyaBay1958 Phase 15a, für Treibgut und Boote auf der Vorrechnung):
+     * {u nach +x, w nach +z} (Achsen der Bucht) über die Tiefe gemittelt (m/s), je nx · nz Zeile für Zeile; 0 wo trocken (unter 5 cm) oder Fels.
+     */
+    public float[][] velocities(GL4 gl, int k) {
+        Grid q = grids.get(k);
+        float[] st = readFloats(gl, q.a, 3 * q.n), b = readFloats(gl, q.bed, q.n);
+        float[] u = new float[q.nx * q.nz], w = new float[q.nx * q.nz];
+        for (int j = 0; j < q.nz; j++)
+            for (int i = 0; i < q.nx; i++) {
+                int c = (j + 2) * q.px + i + 2;
+                float h = st[c];
+                if (b[c] > 1e29f || h <= 0.05f) continue;
+                u[j * q.nx + i] = st[q.n + c] / h;
+                w[j * q.nx + i] = st[2 * q.n + c] / h;
+            }
+        return new float[][]{u, w};
+    }
+
     /** Höchster Stand je Zelle von Gitter k bisher (nx · nz), NaN wo nie nass. */
     public float[] maxSurface(GL4 gl, int k) {
         Grid q = grids.get(k);

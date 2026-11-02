@@ -298,7 +298,8 @@ public final class Boat {
             double uf = up[0] * fw[0] + up[1] * fw[1] + up[2] * fw[2];
             double thrust = maxThrust * throttle;
             double wash = Math.max(0, thrust) / (rho * 0.5);   // Schraubenstrahl (m²/s²) [G]
-            double side = 0.5 * rho * rudderArea * (uf * uf + wash * 0.02) * 2 * Math.PI * Math.toRadians(35) * Math.max(-1, Math.min(1, rudder));
+            // Ruder nach Steuerbord: Kraft am Heck nach Backbord, der Bug dreht nach Steuerbord (Kurs wächst)
+            double side = -0.5 * rho * rudderArea * (uf * uf + wash * 0.02) * 2 * Math.PI * Math.toRadians(35) * Math.max(-1, Math.min(1, rudder));
             double gx = thrust * fw[0] + side * sw[0], gy = thrust * fw[1] + side * sw[1], gz = thrust * fw[2] + side * sw[2];
             double rx = prw[0] - o[0], ry = prw[1] - o[1], rz = prw[2] - o[2];
             fx += gx; fy += gy; fz += gz;
@@ -383,6 +384,27 @@ public final class Boat {
 
     /** Schwerpunkt in der Welt. */
     public double[] position() { return o.clone(); }
+
+    /** Drehung als Quaternion {w, x, y, z} (Achsenkreuz des Rumpfs → Welt, mit {@link #cg} um den Schwerpunkt). */
+    public double[] orientation() { return q.clone(); }
+
+    /**
+     * Setzt Lage und Drehung von außen (zum Abspielen einer vorgerechneten Bahn): Schwerpunkt o, Quaternion q {w, x, y, z};
+     * Geschwindigkeiten bleiben.
+     */
+    public void pose(double[] pos, double[] quat) {
+        double l = Math.sqrt(quat[0] * quat[0] + quat[1] * quat[1] + quat[2] * quat[2] + quat[3] * quat[3]);
+        setRotation(quat[0] / l, quat[1] / l, quat[2] / l, quat[3] / l);
+        o[0] = pos[0]; o[1] = pos[1]; o[2] = pos[2];
+    }
+
+    /** Autopilot: Ruder auf den Kurs zum Punkt (x, z), voll bei 30° Abweichung; gibt den Abstand zurück (m). */
+    public double steuern(double x, double z) {
+        double h = Math.toDegrees(Math.atan2(x - o[0], -(z - o[2])));
+        double d = ((h - heading()) + 540) % 360 - 180;
+        rudder = Math.max(-1, Math.min(1, d / 30));
+        return Math.hypot(x - o[0], z - o[2]);
+    }
 
     public double[] velocity() { return v.clone(); }
 
