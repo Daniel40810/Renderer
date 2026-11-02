@@ -22,6 +22,12 @@ public final class BayGrid {
     public final int nx, nz, px;
     public final double dx, x0, z0;
     public double gravity = 9.81, manning = 0.03, hDry = 1e-6, hVel = 1e-3, frictionDepth = 1e9;
+    /**
+     * Höchste Geschwindigkeit (m/s) nach jeder Stufe [G, seit LituyaBay1958 Phase 13a]: dünne Filme hoch am Hang können in
+     * float (Grafikkarte) durch Auslöschung in η − b Geschwindigkeiten von 10⁵ m/s bekommen und den Lauf sprengen. 150 m/s
+     * liegt weit über allem Wirklichen (Felssturz 110 m/s, Welle im Inlet 50–100 m/s).
+     */
+    public double maxVelocity = 150;
     final Edge[] edge = {Edge.WALL, Edge.WALL, Edge.WALL, Edge.WALL};
     final Bay.Inlet[] inlet = new Bay.Inlet[4];
 
@@ -354,8 +360,10 @@ public final class BayGrid {
                 double nh, nu, nv;
                 if (stage == 1) { nh = h[c] + dt * dh[c]; nu = hu[c] + dt * dhu[c]; nv = hv[c] + dt * dhv[c]; }
                 else { nh = 0.5 * (h0[c] + h[c] + dt * dh[c]); nu = 0.5 * (hu0[c] + hu[c] + dt * dhu[c]); nv = 0.5 * (hv0[c] + hv[c] + dt * dhv[c]); }
-                if (nh < 0) { cut -= nh; nh = 0; }
-                if (nh <= hDry) { nu = nv = 0; }
+                if (!(nh >= 0)) { cut -= Double.isNaN(nh) ? 0 : nh; nh = 0; }
+                if (nh <= hDry || !(Math.abs(nu) < Double.MAX_VALUE) || !(Math.abs(nv) < Double.MAX_VALUE)) { nu = nv = 0; }
+                double sp = Math.hypot(nu, nv), lim = maxVelocity * nh;
+                if (sp > lim) { nu *= lim / sp; nv *= lim / sp; }
                 h[c] = nh; hu[c] = nu; hv[c] = nv;
             }
             cl[j] = cut;
