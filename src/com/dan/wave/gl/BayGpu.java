@@ -283,7 +283,7 @@ public final class BayGpu {
         run(gl, "flux", q.nx * (q.nz + 1), "nx", q.nx, "nz", q.nz, "mode", 1, "stage", stage, "g", (float) g.gravity, "hDry", (float) g.hDry, "hVel", (float) g.hVel);
         bind(gl, q.bed, src, dst, q.flux, q.eta, q.stats);
         run(gl, "update", q.nx * q.nz, "nx", q.nx, "nz", q.nz, "stage", stage, "g", (float) g.gravity, "hDry", (float) g.hDry, "hVel", (float) g.hVel,
-                "dt", (float) dt, "dx", (float) g.dx, "manning", (float) g.manning);
+                "dt", (float) dt, "dx", (float) g.dx, "manning", (float) g.manning, "maxVelocity", (float) g.maxVelocity);
     }
 
     // ------------------------------------------------------------------ Rückholen

@@ -11,7 +11,7 @@ layout(std430, binding = 3) readonly buffer Flux { float f[]; };
 layout(std430, binding = 4) buffer EtaMax { float etaMax[]; };
 layout(std430, binding = 5) buffer Stats { uint stats[]; };
 uniform int nx, nz, stage;
-uniform float g, hDry, hVel, dt, dx, manning;
+uniform float g, hDry, hVel, dt, dx, manning, maxVelocity;
 
 int px() { return nx + 4; }
 int n() { return px() * (nz + 4); }
@@ -48,8 +48,11 @@ void main() {
     float nh, nu, nv;
     if (stage == 1) { nh = hc + dt * mass; nu = u[N + c] + dt * mx; nv = u[2 * N + c] + dt * mz; }
     else { nh = 0.5 * (w[c] + hc + dt * mass); nu = 0.5 * (w[N + c] + u[N + c] + dt * mx); nv = 0.5 * (w[2 * N + c] + u[2 * N + c] + dt * mz); }
-    if (nh < 0.0) { atomicAdd(stats[1], 1u); atomicAdd(stats[2], uint(-nh * 1e6)); nh = 0.0; }
-    if (nh <= hDry) { nu = 0.0; nv = 0.0; }
+    if (!(nh >= 0.0)) { atomicAdd(stats[1], 1u); if (nh < 0.0) atomicAdd(stats[2], uint(-nh * 1e6)); nh = 0.0; }
+    if (nh <= hDry || isinf(nu) || isinf(nv) || isnan(nu) || isnan(nv)) { nu = 0.0; nv = 0.0; }
+    // höchste Geschwindigkeit wie BayGrid.maxVelocity (dünne Filme in float)
+    float sp = sqrt(nu * nu + nv * nv), lim = maxVelocity * nh;
+    if (sp > lim) { nu *= lim / sp; nv *= lim / sp; }
     if (stage == 2) {
         // Reibung nach Manning (halb implizit) und höchster Stand
         if (nh > hVel && manning > 0.0) {
