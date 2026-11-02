@@ -311,6 +311,34 @@ public final class BayGrid {
 
     public long stepCount() { return stepCount; }
 
+    // ------------------------------------------------------------------ für den Rechner auf der Grafikkarte (wave.gl)
+
+    /** Grund je Zelle samt Rand (NaN: Fels), unmittelbar, nicht kopiert: für {@code wave.gl.BayGpu}. */
+    public double[] bedCells() { return b; }
+
+    /** Tiefe je Zelle samt Rand, unmittelbar. */
+    public double[] depthCells() { return h; }
+
+    /** Durchfluss in x je Zelle samt Rand, unmittelbar. */
+    public double[] qxCells() { return hu; }
+
+    /** Durchfluss in z je Zelle samt Rand, unmittelbar. */
+    public double[] qzCells() { return hv; }
+
+    /** Höchster Stand je Zelle (NaN: nie nass), unmittelbar. */
+    public double[] etaMaxCells() { return etaMax; }
+
+    /** Einlass einer Seite (null: keiner). */
+    public Bay.Inlet inlet(int side) { return inlet[side]; }
+
+    /** Was die Grafikkarte für dieses Gitter gerechnet hat: abgeschnittenes Volumen, Zufluss (m³), Schritte, Rechenzeit. */
+    public void addGpu(double clippedVolume, double inflow, long steps, long ns) {
+        clipped += clippedVolume;
+        inflowVolume += inflow;
+        stepCount += steps;
+        busyNs += ns;
+    }
+
     /** Stufe 1: U = U0 + dt L; Stufe 2: U = (U0 + U + dt L)/2. */
     void apply(double dt, int stage) {
         final double[] cl = new double[nz];

@@ -40,7 +40,20 @@ b.run(60);
 double r = b.runup(xa, za, xb, zb);
 ```
 
-Prüfung (neuer Abschnitt in `WaveCheck`): ruhender See über welligem Grund mit trockener Insel über die Gittergrenze (1,8e-14 m/s), Dammbruch nach Stoker (5,079 m genau), Synolakis (R/d 0,0917 gegen 0,0890), drei Gitter mit genauem Volumen, Welle über die Grenze gegen ein durchgehend feines Gitter (3–4 %), Fjordbucht der Demo über 50 s stabil, Einlass genau, **Laborfall Lituya: Messwelle FRITZ01 als Einlass, Auflauf 542 m (526 ± 50 m)**, zwei Läufe gleich. Rechenzeit auf dem Prozessor rund 200 ns je Zelle und Schritt (zwei Kerne); die Grafikkarte folgt mit Phase 11b.
+Prüfung (neuer Abschnitt in `WaveCheck`): ruhender See über welligem Grund mit trockener Insel über die Gittergrenze (1,8e-14 m/s), Dammbruch nach Stoker (5,079 m genau), Synolakis (R/d 0,0917 gegen 0,0890), drei Gitter mit genauem Volumen, Welle über die Grenze gegen ein durchgehend feines Gitter (3–4 %), Fjordbucht der Demo über 50 s stabil, Einlass genau, **Laborfall Lituya: Messwelle FRITZ01 als Einlass, Auflauf 542 m (526 ± 50 m)**, zwei Läufe gleich. Rechenzeit auf dem Prozessor rund 200 ns je Zelle und Schritt (zwei Kerne).
+
+### Auf der Grafikkarte (seit LituyaBay1958 Phase 11b)
+
+`gl/BayGpu` rechnet dieselbe Bucht in float als Compute Shader (`gl/bay_*.comp`, GLSL 430): Flüsse je Kante, Stufen nach Heun mit Reibung und Höchststand, Ränder und Einlass, Randzellen aus dem gröberen Gitter, Unterschritte, Rückgabe ans gröbere und Abgleich der Flüsse – alles auf der Karte. Der Prozessor baut die Bucht (`build`), danach je Schritt eine Rückfrage (größte Geschwindigkeit für den Zeitschritt); die Pegel lesen im Takt der Bucht ab (zwei kleine Rückfragen je Pegel). `sync` holt den Stand in die Felder der Gitter, dann gelten alle Abfragen von `Bay`. Einlasswerte rechnet der Prozessor je Stufe (eine Spalte Randzellen). Zeiten je Gitter über Abfragen der Karte (`info()`, `gpuMs(k)`).
+
+```java
+BayGpu g = new BayGpu(b);      // b gebaut
+g.upload(gl);                  // im GL-Faden
+g.run(gl, 60);                 // oder je Bild g.step(gl)
+g.sync(gl);                    // dann b.runup(…), b.volume() …
+```
+
+Prüfung `demo/BayGpuCheck` (ohne Fenster): Prozessor (double) gegen Grafikkarte (float) mit denselben Zeitschritten. Ruhe mit Insel und Stoker auf 1 mm (Mesa: 4e-6 und 2e-5 m), Fjordbucht in drei Gittern Auflauf auf 1 % (gleich bis 1 cm), Median der Tiefe 1e-4 m, einzelne Zellen an der Trockenfront bis Meter; Laborfall bis 50 s Auflauf 542,2 m wie der Prozessor, Volumen 2,6e-6 des Anfangs (Spielraum mit Einlass 1e-5: in 140 m Wasser ist ein float-Schritt 15 µm). Dazu die Rechenzeiten je Gitter.
 
 Demo: `demo/BayDemo` (Fjordbucht in drei Gittern, Laborfall im Schnitt, Pegel, Rechenzeit je Gitter; `--bild datei.png [t]`).
 

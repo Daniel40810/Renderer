@@ -22,7 +22,8 @@ import java.util.Locale;
  * Brechfronten für {@code spray}.</li>
  * </ul>
  * Das bisherige {@link Wave} bleibt unverändert (Rungholt, Glacier, Edersee); dieser Löser steht daneben (Paketvertrag
- * 14). Reines Java, parallel und wiederholbar; die Rechnung auf der Grafikkarte folgt in Phase 11b.
+ * 14). Reines Java, parallel und wiederholbar; derselbe Löser in float auf der Grafikkarte: {@code wave.gl.BayGpu} (seit
+ * Phase 11b), der Prozessor baut die Bucht und fragt danach ab.
  */
 public final class Bay {
     /** Höhe des Grundes (m über dem Bezug); NaN: Fels. */
@@ -371,6 +372,37 @@ public final class Bay {
     public double clipped() { double s = refluxClip; for (BayGrid g : grids) s += g.clipped; return s; }
 
     public double time() { return time; }
+
+    /** Lage des feineren Gitters k + 1 im Gitter k: {i0, j0, ni, nj, r} (Kopie; für {@code wave.gl.BayGpu}). */
+    public int[] placement(int k) { return place.get(k).clone(); }
+
+    /** Ob {@link #build} gelaufen ist. */
+    public boolean built() { return built; }
+
+    /**
+     * Übernimmt den Stand nach einer Rechnung auf der Grafikkarte ({@code wave.gl.BayGpu}, die Felder der Gitter sind
+     * schon geschrieben): Zeit, Schritte, Rechenzeit und wann die Pegel das nächste Mal ablesen.
+     */
+    public synchronized void takeOver(double time, long steps, double busyMs, double nextSample) {
+        this.time = time;
+        this.steps = steps;
+        this.busyMs = busyMs;
+        this.nextSample = nextSample;
+    }
+
+    /** Wann die Pegel das nächste Mal ablesen (s). */
+    public double nextSample() { return nextSample; }
+
+    /** Für {@code wave.gl.BayGpu}: je Pegel ein Stand über dem Spiegel zur Zeit t (NaN: trocken), Reihenfolge wie {@link #gauges}. */
+    public void record(double t, double[] eta) {
+        for (int k = 0; k < gauges.size(); k++) {
+            Gauge g = gauges.get(k);
+            synchronized (g) {
+                g.series.add(new double[]{t, eta[k]});
+                if (!Double.isNaN(eta[k]) && eta[k] > g.max) { g.max = eta[k]; g.tMax = t; }
+            }
+        }
+    }
 
     public long steps() { return steps; }
 

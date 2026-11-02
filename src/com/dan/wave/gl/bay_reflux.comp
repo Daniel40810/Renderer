@@ -1,0 +1,42 @@
+// bay_reflux.comp — Abgleich der Flüsse an der Grenze eines feineren Gitters (wave.Bay auf der Grafikkarte, LituyaBay1958
+// Phase 11b): Bay.reflux in float. Ein Faden je Kante der Grenze (2 nj + 2 ni); die Zelle des gröberen vor der Kante verliert,
+// was das feinere wirklich aufnahm, nicht was sie selbst rechnete; zu wenig Wasser wird abgeschnitten und gezählt.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer PBed { float pb[]; };
+layout(std430, binding = 1) buffer PState { float pu[]; };
+layout(std430, binding = 2) readonly buffer PMassFlux { float mf[]; };
+layout(std430, binding = 3) readonly buffer Acc { float acc[]; };
+layout(std430, binding = 4) buffer Stats { uint stats[]; };
+uniform int pnx, pnz, cnx, cnz, i0, j0, ni, nj, r;
+uniform float pdx, dtp, hDry;
+
+void adjust(int c, float dh) {
+    if (pb[c] > 1e29) return;
+    int pN = (pnx + 4) * (pnz + 4);
+    float nh = pu[c] + dh;
+    if (nh < 0.0) { atomicAdd(stats[3], uint(-nh * pdx * pdx * 1e3)); nh = 0.0; }
+    if (nh <= hDry) { pu[pN + c] = 0.0; pu[2 * pN + c] = 0.0; }
+    pu[c] = nh;
+}
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x), ppx = pnx + 4, nfx = (pnx + 1) * pnz;
+    float area = pdx * pdx;
+    if (t < 2 * nj) {
+        int pj = t % nj;
+        bool west = t < nj;
+        float vc = 0.0;
+        for (int s = 0; s < r; s++) vc += acc[(west ? 0 : cnz) + pj * r + s];
+        int f = (j0 + pj) * (pnx + 1) + (west ? i0 : i0 + ni);
+        float vp = (west ? 1.0 : -1.0) * mf[f] * dtp * pdx;
+        adjust((j0 + pj + 2) * ppx + (west ? i0 - 1 : i0 + ni) + 2, (vp - vc) / area);
+    } else if (t < 2 * nj + 2 * ni) {
+        int k = t - 2 * nj, pi = k % ni;
+        bool south = k < ni;
+        float vc = 0.0;
+        for (int s = 0; s < r; s++) vc += acc[2 * cnz + (south ? 0 : cnx) + pi * r + s];
+        int f = nfx + (south ? j0 : j0 + nj) * pnx + i0 + pi;
+        float vp = (south ? 1.0 : -1.0) * mf[f] * dtp * pdx;
+        adjust((south ? j0 - 1 : j0 + nj) * ppx + 2 * ppx + i0 + pi + 2, (vp - vc) / area);
+    }
+}

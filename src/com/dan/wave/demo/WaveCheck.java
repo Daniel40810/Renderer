@@ -327,7 +327,7 @@ public final class WaveCheck {
             long t0 = System.nanoTime();
             for (int i = 0; i < 10; i++) big.step();
             double ms = (System.nanoTime() - t0) / 1e6 / 10;
-            System.out.println(String.format(Locale.GERMAN, "  HINWEIS Rechenzeit auf dem Prozessor: 512² zu 4 m bei 100 m Tiefe %.0f ms je Schritt (%.0f ns je Zelle), %.2f s Welle je Sekunde Rechnung; die Grafikkarte folgt mit Phase 11b",
+            System.out.println(String.format(Locale.GERMAN, "  HINWEIS Rechenzeit auf dem Prozessor: 512² zu 4 m bei 100 m Tiefe %.0f ms je Schritt (%.0f ns je Zelle), %.2f s Welle je Sekunde Rechnung; die Grafikkarte: BayGpuCheck (seit Phase 11b)",
                     ms, ms * 1e6 / (512 * 512), big.time() / big.steps() / (ms / 1000)));
         }
     }

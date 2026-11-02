@@ -1,0 +1,45 @@
+// bay_edges.comp — Randzellen einer Seite des gröbsten Gitters für wave.Bay auf der Grafikkarte (LituyaBay1958 Phase
+// 11b): BayGrid.fillEdges in float. Ein Faden je Randzelle der Seite (Länge + 4) · 2. Wand: Grund und Tiefe der
+// gespiegelten Zelle, Normalimpuls umgekehrt; offen: wie die nächste Zelle; Einlass: Wasserstand und Durchfluss aus AUX
+// (je Randzelle zwei Werte, vom Prozessor zur Zeit der Stufe gefüllt).
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer Bed { float b[]; };
+layout(std430, binding = 1) buffer State { float u[]; };
+layout(std430, binding = 2) readonly buffer Aux { float aux[]; };
+uniform int nx, nz, side, kind;   // side: 0 W, 1 E, 2 S, 3 N; kind: 0 Wand, 1 offen, 2 Einlass
+uniform float hDry, hVel;
+
+int px() { return nx + 4; }
+int n() { return px() * (nz + 4); }
+int id(int i, int j) { return (j + 2) * px() + i + 2; }
+bool solid(int c) { return b[c] > 1e29; }
+
+void main() {
+    bool xs = side == 0 || side == 1;
+    int m = xs ? nz : nx;
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= (m + 4) * 2) return;
+    int k = t / 2 - 2, l = t % 2 + 1;
+    int gi, gj, ii, jj;
+    if (side == 0) { gi = -l; gj = k; ii = l - 1; jj = k; }
+    else if (side == 1) { gi = nx - 1 + l; gj = k; ii = nx - l; jj = k; }
+    else if (side == 2) { gi = k; gj = -l; ii = k; jj = l - 1; }
+    else { gi = k; gj = nz - 1 + l; ii = k; jj = nz - l; }
+    if ((xs && (k < 0 || k >= nz)) || (!xs && (k < 0 || k >= nx))) { ii = clamp(ii, 0, nx - 1); jj = clamp(jj, 0, nz - 1); }
+    int g = id(gi, gj), c = id(ii, jj), N = n();
+    if (kind == 2 && !solid(g)) {
+        float e = aux[2 * t], q = aux[2 * t + 1];
+        float hh = max(0.0, e - b[g]);
+        float qn = hh > hVel ? q : 0.0, sg = (side == 0 || side == 2) ? 1.0 : -1.0;
+        u[g] = hh;
+        if (xs) { u[N + g] = sg * qn; u[2 * N + g] = 0.0; } else { u[2 * N + g] = sg * qn; u[N + g] = 0.0; }
+        return;
+    }
+    b[g] = b[c];
+    if (solid(g)) { u[g] = 0.0; u[N + g] = 0.0; u[2 * N + g] = 0.0; return; }
+    u[g] = u[c];
+    float qx = solid(c) ? 0.0 : u[N + c], qz = solid(c) ? 0.0 : u[2 * N + c];
+    if (kind == 0) { if (xs) qx = -qx; else qz = -qz; }
+    if (u[g] <= hDry) { qx = 0.0; qz = 0.0; }
+    u[N + g] = qx; u[2 * N + g] = qz;
+}
