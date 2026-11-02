@@ -1,0 +1,29 @@
+// forestgpu_scan.comp — aus den Zählern je Eimer die Zeichenbefehle (DrawElementsIndirectCommand: Indizes, Instanzen,
+// erster Index, Basisecke, erste Instanz) und die Plätze im Instanzpuffer; danach stehen die Zähler wieder auf 0 für den
+// Schreiblauf. Ein Faden, die Eimer der Reihe nach (einige hundert). stats: sichtbar, verworfen (Puffer voll).
+layout(local_size_x = 1) in;
+layout(std430, binding = 0) buffer Counts { uint cnt[]; };
+layout(std430, binding = 1) buffer Cmds { uint cmd[]; };
+layout(std430, binding = 4) readonly buffer Mesh { uint mesh[]; };   // je Eimer: Indizes, erster Index, Basisecke
+layout(std430, binding = 5) buffer Stats { uint stats[]; };
+uniform uint uBins, uCap;
+
+void main() {
+    uint off = 0u, seen = 0u, lost = 0u;
+    for (uint b = 0u; b < uBins; b++) {
+        uint n = cnt[b];
+        uint take = mesh[3u * b] == 0u ? 0u : min(n, uCap - off);
+        seen += n;
+        lost += mesh[3u * b] == 0u ? 0u : n - take;
+        cmd[5u * b] = mesh[3u * b];
+        cmd[5u * b + 1u] = take;
+        cmd[5u * b + 2u] = mesh[3u * b + 1u];
+        cmd[5u * b + 3u] = mesh[3u * b + 2u];
+        cmd[5u * b + 4u] = off;
+        off += take;
+        cnt[b] = 0u;
+        stats[2u + b] = n;
+    }
+    stats[0] = seen;
+    stats[1] = lost;
+}

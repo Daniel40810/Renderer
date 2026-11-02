@@ -1,6 +1,6 @@
 # com.dan.fracture – Bruch und Starrkörper
 
-**Stand: Engine (Glacier Phase 6), seit Sylt Phase 11 mit Lockergestein** (Kohäsion, Feuchte, Unterspülung, Zerfall zu Sand), seit Sylt Phase 12 mit dem Bestand (`Solid.stabilize`). Eis, Fels, Beton und Klei rechnen wie zuvor: Die neuen Wege sind nur für Stoffe mit Feuchtemodell oder Zerfall an (Prüfung: die Gletscherfront der Vorführung bricht Stück für Stück wie vor Phase 11).
+**Stand: Engine (Glacier Phase 6), seit Sylt Phase 11 mit Lockergestein** (Kohäsion, Feuchte, Unterspülung, Zerfall zu Sand), seit Sylt Phase 12 mit dem Bestand (`Solid.stabilize`), seit LituyaBay1958 Phase 9 mit der Übergabe an einen Strom (`handOver`, `Piece.cellsInWorld`, `releaseZone`). Eis, Fels, Beton und Klei rechnen wie zuvor: Die neuen Wege sind nur für Stoffe mit Feuchtemodell oder Zerfall an (Prüfung: die Gletscherfront der Vorführung bricht Stück für Stück wie vor Phase 11).
 
 Ein Körper bricht, weil die Spannung die Festigkeit übersteigt – nicht nach Drehbuch. Das Package kennt kein Eis, kein Wasser und keinen Fels: Dichte, Festigkeit, Boden und die Höhe des Wassers kommen von außen. Darum taugt es genauso für eine Gletscherfront, einen Felssturz, eine Staumauer, ein einstürzendes Haus oder einen Eisgang. Der Kern braucht nur Java 21; die Demo zeichnet in Java2D und braucht keine Grafikkarte.
 
@@ -33,6 +33,7 @@ Fester Schritt 1/120 s. Gleicher `seed`, gleiche Zellen, gleicher Riss, gleicher
 | `onBreak(piece, volume, mass)` | ein Stück ist frei |
 | `onImpact(x, y, z, volume, speed, water)` | Aufschlag: ins Wasser je Schritt mit dem verdrängten Volumen, auf festen Grund mit dem Volumen des Stücks |
 | `onSettle(piece)` | ruht auf dem Wasser, Übergabe |
+| `handOver(piece)` (seit LituyaBay1958 Phase 9) | nimmt das Stück heraus und gibt je Zelle x, y, z, Volumen, Masse, vx, vy, vz – für einen Strom (`landslide`); `handedOverVolume()` zählt mit. `releaseZone(...)` ist eine `Density` mit feinen Zellen an der Abrissfläche |
 
 ## Für die App (Phase 7)
 

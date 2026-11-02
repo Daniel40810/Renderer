@@ -1,0 +1,146 @@
+// forestgpu_cull.comp — die Kultur des Walds auf der Grafikkarte (seit LituyaBay1958 Phase 6): je Platz des Pflanzgitters
+// im Fenster um das Auge ein Faden. Er würfelt den Baum aus (gleiche Rechnung wie com.dan.forest.ForestCulture), prüft
+// Reichweite, Ausdünnung und Sichtkegel, wählt die Stufe und zählt (Modus 0) oder schreibt (Modus 1) die Instanz in ihren
+// Eimer (Stufe · Typen + Typ). Zwischen beiden Läufen legt forestgpu_scan.comp die Zeichenbefehle an.
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(std430, binding = 0) buffer Counts { uint cnt[]; };
+layout(std430, binding = 1) buffer Cmds { uint cmd[]; };
+layout(std430, binding = 2) buffer Inst { vec4 inst[]; };
+layout(std430, binding = 3) readonly buffer Types { vec4 tinfo[]; };   // Größe (m), Hüllradius (m), Mitte über dem Fuß (m), 0
+
+uniform ivec4 uWin;          // erster Platz i, j; Fensterkante in Plätzen; Modus (0 zählen, 1 schreiben)
+uniform float uSpacing;
+uniform uint uSeed;
+uniform ivec2 uSV;           // Arten, Varianten
+uniform vec3 uEye;
+uniform vec4 uPlanes[4];     // links, rechts, unten, oben (normiert)
+uniform vec4 uRange;         // Reichweite, Beginn der Ausdünnung (Anteil), Stufe 0 und 1 (je 20 m Baumhöhe)
+uniform float uLod2;         // Stufe 2 bis (m), danach Impostor oder Gerippe
+uniform sampler2DArray uDensity;
+uniform vec4 uDenRect;       // x0, z0, Kante (m), n
+uniform int uDenOn;
+uniform sampler2D uHeight;
+uniform vec4 uHgtRect;
+uniform int uHgtOn;
+uniform usampler2D uStates;
+uniform ivec4 uStRect;       // i0, j0, w, h
+uniform int uStOn;
+uniform float uYaw[16], uYawSpread[16], uYawOn[16], uSize[16];
+
+uint pcg(uint v) {
+    uint s = v * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+uint slotHash(int i, int j) { return pcg(uint(i) * 1597334677u ^ uint(j) * 3812015801u ^ uSeed); }
+float u01(uint h, uint k) { return float(pcg(h + k * 0x9E3779B9u) >> 8u) * (1.0 / 16777216.0); }
+
+int clampi(int i, int n) { return i < 0 ? 0 : (i >= n ? n - 1 : i); }
+
+float denAt(int layer, float x, float z) {
+    int n = int(uDenRect.w);
+    float fx = (x - uDenRect.x) / uDenRect.z * float(n) - 0.5, fz = (z - uDenRect.y) / uDenRect.z * float(n) - 0.5;
+    float flx = floor(fx), flz = floor(fz);
+    float tx = fx - flx, tz = fz - flz;
+    int ix = int(flx), iz = int(flz);
+    float a = texelFetch(uDensity, ivec3(clampi(ix, n), clampi(iz, n), layer), 0).r;
+    float b = texelFetch(uDensity, ivec3(clampi(ix + 1, n), clampi(iz, n), layer), 0).r;
+    float c = texelFetch(uDensity, ivec3(clampi(ix, n), clampi(iz + 1, n), layer), 0).r;
+    float d = texelFetch(uDensity, ivec3(clampi(ix + 1, n), clampi(iz + 1, n), layer), 0).r;
+    float ab = a + (b - a) * tx, cd = c + (d - c) * tx;
+    return ab + (cd - ab) * tz;
+}
+
+float hgtAt(float x, float z) {
+    int n = int(uHgtRect.w);
+    float fx = (x - uHgtRect.x) / uHgtRect.z * float(n) - 0.5, fz = (z - uHgtRect.y) / uHgtRect.z * float(n) - 0.5;
+    float flx = floor(fx), flz = floor(fz);
+    float tx = fx - flx, tz = fz - flz;
+    int ix = int(flx), iz = int(flz);
+    float a = texelFetch(uHeight, ivec2(clampi(ix, n), clampi(iz, n)), 0).r;
+    float b = texelFetch(uHeight, ivec2(clampi(ix + 1, n), clampi(iz, n)), 0).r;
+    float c = texelFetch(uHeight, ivec2(clampi(ix, n), clampi(iz + 1, n)), 0).r;
+    float d = texelFetch(uHeight, ivec2(clampi(ix + 1, n), clampi(iz + 1, n)), 0).r;
+    float ab = a + (b - a) * tx, cd = c + (d - c) * tx;
+    return ab + (cd - ab) * tz;
+}
+
+float smooth3(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+
+void main() {
+    ivec2 g = ivec2(gl_GlobalInvocationID.xy);
+    if (g.x >= uWin.z || g.y >= uWin.z) return;
+    int i = uWin.x + g.x, j = uWin.y + g.y;
+    // grob vorab: Mitte des Platzes außerhalb der Reichweite
+    float cx = (float(i) + 0.5) * uSpacing - uEye.x, cz = (float(j) + 0.5) * uSpacing - uEye.z;
+    if (cx * cx + cz * cz > (uRange.x + uSpacing) * (uRange.x + uSpacing)) return;
+
+    uint h = slotHash(i, j);
+    float x = (float(i) + 0.1 + 0.8 * u01(h, 1u)) * uSpacing, z = (float(j) + 0.1 + 0.8 * u01(h, 2u)) * uSpacing;
+    float roll = u01(h, 3u);
+    int S = uSV.x, V = uSV.y;
+    float d[16];
+    float sum = 0.0;
+    for (int s = 0; s < S; s++) {
+        float v = uDenOn == 1 ? denAt(s, x, z) : (s == 0 ? 1.0 : 0.0);
+        d[s] = clamp(v, 0.0, 1.0);
+        sum += d[s];
+    }
+    if (sum <= 1e-6) return;
+    float m = min(1.0, sum);
+    if (roll >= m) return;
+    float pick = roll / m * sum;
+    int s = 0;
+    while (s < S - 1 && pick > d[s]) { pick -= d[s]; s++; }
+    int st = 0, dir = 0;
+    if (uStOn == 1) {
+        int li = i - uStRect.x, lj = j - uStRect.y;
+        if (li >= 0 && lj >= 0 && li < uStRect.z && lj < uStRect.w) {
+            uint b = texelFetch(uStates, ivec2(li, lj), 0).r;
+            st = int(b & 7u);
+            dir = int((b >> 3u) & 31u);
+        }
+    }
+    if (st >= 4) return;
+    int v = min(V - 1, int(u01(h, 7u) * float(V)));
+    float scale = (0.62 + 0.45 * u01(h, 4u)) * uSize[s];
+    float rot = u01(h, 5u) * 6.2831853;
+    float yaw = uYawOn[s] > 0.5 ? uYaw[s] + (rot / 3.14159265 - 1.0) * uYawSpread[s] : rot;
+    if (st == 3) {
+        float a = radians(float(dir) * 11.25);
+        yaw = atan(-cos(a), sin(a)) + (rot / 3.14159265 - 1.0) * 0.15;
+    }
+    float gy = uHgtOn == 1 ? hgtAt(x, z) : 0.0;
+    float y = st == 3 ? gy : gy - 0.2 * scale;
+    int T = 4 * S * V;
+    int type = (st * S + s) * V + v;
+
+    // Reichweite, Ausdünnung (wie ForestField), Sichtkegel
+    vec4 ti = tinfo[type];
+    float dx = x - uEye.x, dy = y + 8.0 - uEye.y, dz = z - uEye.z;
+    float dist = sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist > uRange.x) return;
+    float widen = 1.0;
+    float thin0 = uRange.x * uRange.y;
+    if (dist > thin0) {
+        float p = 1.0 - smooth3(thin0, uRange.x, dist) * 0.75;
+        if (u01(h, 9u) > p) return;
+        widen = min(1.7, 1.0 / sqrt(p));
+    }
+    vec3 c = vec3(x, y + ti.z * scale, z);
+    float rad = ti.y * scale * widen + 1.0;
+    for (int k = 0; k < 4; k++) if (dot(uPlanes[k].xyz, c) + uPlanes[k].w < -rad) return;
+    float hf = ti.x * scale / 20.0;
+    float e = dist / max(0.6, hf);
+    int lod = e < uRange.z ? 0 : (e < uRange.w ? 1 : (dist < uLod2 ? 2 : 3));
+    uint bin = uint(lod * T + type);
+    if (uWin.w == 0) { atomicAdd(cnt[bin], 1u); return; }
+    uint k = atomicAdd(cnt[bin], 1u);
+    if (k >= cmd[5u * bin + 1u]) return;
+    uint o = cmd[5u * bin + 4u] + k;
+    // Impostor (Stufe 3 stehender Bäume): statt der Phase der Typ, für die Schicht des Atlas
+    float ph = (lod == 3 && st == 0) ? float(type) : u01(h, 8u) * 6.2831853;
+    inst[2u * o] = vec4(x, y, z, yaw);
+    inst[2u * o + 1u] = vec4(scale, u01(h, 6u), ph, widen);
+}

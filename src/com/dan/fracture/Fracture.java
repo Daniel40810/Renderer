@@ -248,6 +248,39 @@ public final class Fracture {
     }
 
     public synchronized void remove(Piece p) { pieces.remove(p); publish(); }
+
+    /**
+     * Übergabe an einen Strom (seit LituyaBay1958 Phase 9, Werkbuch 6.2): nimmt das Stück heraus und gibt seine Zellen
+     * als Masse und Geschwindigkeit zurück ({@link Piece#cellsInWorld()}: je Zelle x, y, z, Volumen, Masse, vx, vy, vz).
+     * Ab hier rechnet der Strom ({@code landslide}) weiter; das Package kennt ihn nicht.
+     */
+    public synchronized double[] handOver(Piece p) {
+        double[] cells = p.cellsInWorld();
+        if (p.restApplied) for (Object[] r : p.rest) ((Solid) r[0]).restLoad((Integer) r[1], (double[]) r[2], -1);
+        p.restApplied = false;
+        p.handedOver = true;
+        pieces.remove(p);
+        handedOverVolume += p.volume();
+        publish();
+        return cells;
+    }
+
+    private double handedOverVolume;
+    /** Volumen, das bisher an einen Strom übergeben wurde (m³). */
+    public double handedOverVolume() { return handedOverVolume; }
+
+    /**
+     * Dichte der Zellen für einen Abbruch (seit LituyaBay1958 Phase 9): 1 in der Zone um die Fläche durch (px, py, pz)
+     * mit der Normalen (nx, ny, nz) bis zum Abstand width (m), außen auf base fallend. Feine Zellen dort, wo sich die
+     * Platte löst und später als Strom weiterläuft.
+     */
+    public static Density releaseZone(double px, double py, double pz, double nx, double ny, double nz, double width, double base) {
+        double l = Math.sqrt(nx * nx + ny * ny + nz * nz), ux = nx / l, uy = ny / l, uz = nz / l;
+        return (x, y, z) -> {
+            double d = Math.abs((x - px) * ux + (y - py) * uy + (z - pz) * uz) / Math.max(1e-9, width);
+            return d >= 1 ? base : base + (1 - base) * (1 - d) * (1 - d);
+        };
+    }
     public synchronized void clear() { solids.clear(); pieces.clear(); staticDirty = true; time = 0; publish(); }
 
     public List<Solid> solids() { return Collections.unmodifiableList(solids); }

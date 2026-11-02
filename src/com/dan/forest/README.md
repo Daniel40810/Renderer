@@ -171,3 +171,92 @@ wald.yawSpread[3] = Math.toRadians(35);
 `ForestGl.setRime(dicke, art, woherGrad, base, full)` legt einen Belag aus Eis auf alle Bäume, ohne dass das Package ein Eis-Modell kennt (die Dicke rechnet die App, etwa mit `com.dan.rime`): Art 0 keins, 1 Raueis, 2 Raureif, 3 Klareis; unter der Höhe `base` kein Eis, ab `full` die volle Dicke (Raueis wächst in der Wolke, also oben). Raueis schiebt Krone und obere Zweige auf der Luvseite als Fahne gegen den Wind (auch in der Schattenkarte), färbt sie weiß in Federn und drückt die Äste mit der Last nach unten; Raureif und Klareis legen sich rundum. Der Stamm bekommt nur Farbe, keine Form. `ForestGlDemo` hat einen Regler „Raueis“ (0 bis 20 cm, Wind aus 250°), ohne Fenster `-Draueis=cm`.
 
 Grenzen: die Fahne ist ein Versatz der Ecken, keine neue Geometrie; feine Nadeln, die das Netz nicht hat, tragen kein eigenes Eis. Die Last biegt nur das Netz, Bäume brechen nicht.
+
+## Seit LituyaBay1958 Phase 6: Küstenregenwald, Millionen Bäume auf der Grafikkarte, Zustand je Baum
+
+**Was es kann.**
+
+- **Neue Arten** [G, nach Wuchsbeschreibungen]:
+  - `Species.sitkaSpruce()`: Sitka-Fichte, 28 bis 50 m, Kegel, hängende Zweige, blaugrün.
+  - `Species.westernHemlock()`: Westliche Hemlocktanne, 24 bis 44 m, schmal, weiche hängende Zweige. Der Leittrieb nickt (`Species.leaderDroop`).
+  - die jungen Formen beider (2 bis 8 m).
+  - `Species.redAlder()`: Roterle, hellgraue Rinde mit Flechten, an Ufern.
+  - Alle stehen am Ende von `Species.ALL`. Die Formen aller älteren Arten sind unverändert (gleiche Netze bei gleichem Startwert, geprüft).
+- **Schäden** (`Species.damaged(art, Damage)`): Jede Art bekommt drei geschädigte Formen. Alle sind lange tot, also ohne Nadeln und Zapfen.
+  - `BROKEN`: ein Stumpf von 20 bis 40 % der Höhe, Rinde noch dran.
+  - `STRIPPED`: steht in voller Höhe, entrindet (helles Holz `Species.FRESH_WOOD`), nur wenige Stummel (`Species.branchKeep`).
+  - `FELLED`: liegt entlang +x, entrindet.
+- **Zustand je Baum** (`TreeStates`): ein Byte je Platz des Pflanzgitters, mit dem Zustand stehend, gebrochen, entrindet, umgelegt oder fort. Für umgelegte Bäume dazu die Fallrichtung in 32 Schritten. Wer den Zustand rechnet (Welle, `succession`), schreibt ihn hinein. Die Grafikkarte übernimmt Änderungen im nächsten Bild.
+- **Kultur** (`ForestCulture`): wo jeder Baum steht, aus Dichte je Art, Startwert und Zustand. Gespeichert wird dafür nichts.
+  - Je Platz (i, j) eines Gitters mit `spacing` steht höchstens ein Baum.
+  - Ausgewürfelt wird mit einem PCG-Hash, in Java und GLSL gleich. Dichte und Höhe liegen als Gitter vor (`ForestCulture.Grid`); abgetastet wird von Hand bilinear.
+  - `at(i, j, baum)` gibt den Baum eines Platzes, `count(...)` die Bäume je Typ in einem Rechteck.
+- **Wald auf der Grafikkarte** (`gl/ForestGpu`, neben `gl/ForestGl`; `ForestGl` und seine Shader sind unverändert):
+  - `forestgpu_cull.comp` würfelt je Bild jeden Platz in Reichweite aus, wie `ForestCulture`. Danach prüft es Ausdünnung und Sichtkegel und wählt die Stufe:
+    - 0 und 1: wie `ForestField`
+    - 2: grobe Büschel bis `lod2`
+    - 3: für stehende Bäume ein Impostor, für geschädigte ihr Gerippe
+  - Die Instanzen landen in Eimern (Stufe · Typen + Typ). `forestgpu_scan.comp` legt daraus die Zeichenbefehle an.
+  - Gezeichnet wird mit drei `glMultiDrawElementsIndirect`: Netze mit `forest.vert`/`forest.frag`, die Impostors mit eigenen Shadern. Es gibt weder Kacheln noch einen Speicher je Baum, und je Bild wird nichts hochgeladen.
+- **Oktaeder-Impostors** (`Octahedral`): Für jeden stehenden Typ werden 8 × 8 Ansichten der oberen Halbkugel gebacken, mit Farbe (sRGB) und Normale (Modellraum). Gebacken wird beim Laden und bei jedem neuen Tag im Jahr.
+  - Das Viereck zum Auge mischt die vier nächsten Ansichten bilinear. Jede Ecke wird in die Bildachsen jeder Ansicht projiziert, damit der Atlas ohne Versatz getroffen wird.
+  - Das Licht ist das der nahen Bäume (Sonne, Himmel, Durchscheinen, Dunst, Schatten).
+- **Qualität** (`ForestGpu.Quality`):
+
+  | Stufe | Reichweite | Stufe 2 bis | Bildpunkte je Ansicht | Instanzen höchstens |
+  |---|---|---|---|---|
+  | LOW | 2 km | 100 m | 64 | 0,6 Mio. |
+  | MEDIUM | 3 km | 150 m | 96 | 1,2 Mio. |
+  | HIGH | 4,5 km | 220 m | 128 | 2 Mio. |
+  | ULTRA | 6 km | 300 m | 160 | 3 Mio. |
+
+**Benutzung.**
+
+```java
+ForestGpu wald = new ForestGpu(List.of(Species.sitkaSpruce(), Species.westernHemlock(), Species.redAlder()), 3, 6.0, 1958);
+wald.apply(ForestGpu.Quality.HIGH);
+wald.setTerrain(gelaende::hoehe, x0, z0, kante, 2048);          // oder setTerrain(ForestCulture.Grid)
+wald.setDensity((x, z, art) -> dichte(x, z, art), x0, z0, kante, 1024);
+TreeStates zustand = TreeStates.covering(x0, z0, x1, z1, 6.0);
+wald.setStates(zustand);                                         // zustand.set(i, j, TreeStates.FELLED, 180) usw.
+wald.init(gl4);
+wald.setSeason(190, 0);
+// je Bild:
+wald.setWind(nachX, nachZ, mProS, boeigkeit);
+wald.update(gl4, view);                                          // Kultur auf der Grafikkarte
+wald.drawShadow(gl4, lichtMatrix, t);                            // optional: nahe Bäume in die Schattenkarte
+wald.draw(gl4, view, licht, t);
+```
+
+`wald.culture()` beantwortet Fragen der App ohne Grafikkarte, etwa „steht auf Platz (i, j) ein Baum, welcher, wie hoch“. `readStats` gibt Zähler, `info()` eine Zeile für das HUD.
+
+**Aufbau.**
+
+| Klasse | Aufgabe |
+|---|---|
+| `TreeStates` | Zustand je Platz, Fallrichtung, Zähler |
+| `ForestCulture` | Kultur auf dem Prozessor: Hash, Gitter (Dichte, Höhe), Baum je Platz, Zählen |
+| `Octahedral` | Halb-Oktaeder: Richtung ↔ Quadrat, Ansicht und ihre Achsen |
+| `gl/ForestGpu` | Formen je Zustand, Netze backen (Hintergrund), Impostors backen, Kultur, Zeichnen, Prüfhilfen (`cullCpu`, `readInstances`, `atlasCoverage`) |
+| `gl/forestgpu_cull.comp`, `gl/forestgpu_scan.comp` | Kultur und Zeichenbefehle |
+| `gl/forestgpu_imp.vert`, `gl/forestgpu_imp.frag`, `gl/forestgpu_bake.*` | Impostors zeichnen und backen |
+| `demo/BayScene`, `demo/ForestGpuDemo` | Gerechnete Fjordbucht (16 × 12 km, rund 2 Mio. Bäume, Band der Welle am Nordufer). Vier Ansichten mit Fenster, `--bild datei.png [qualität]` und `--zeiten` (die fps-Tabelle je Qualität und Ansicht) |
+| `demo/ForestGpuCheck` | Prüfung auf der Grafikkarte: jede Instanz gleich dem Spiegel auf dem Prozessor (vier Ansichten), Zähler, nichts auf „fort“, Fallrichtung, Atlanten gefüllt |
+
+**Prüfung.** `ForestCheck` prüft zusätzlich:
+- die neuen Arten (Höhe, nickender Leittrieb) und die drei Schäden
+- die Zustände (Fallrichtung auf 11,25°)
+- die Kultur: fester Hash, Dichte 0,2 + 0,1 füllt 0,298 der Plätze, Arten 1,92 : 1, „fort“ bleibt leer
+- den Halb-Oktaeder (hin und zurück 3e-7)
+
+`ForestGpuCheck` lief hier mit Mesa (llvmpipe): in vier Ansichten 12 687 bis 58 166 Bäume, Grafikkarte = Prozessor ohne Abweichung (größte Abweichung 1e-6), die Atlanten zu 10 bis 21 % gedeckt.
+
+**Grenzen.**
+- Die Impostors haben keine Tiefe je Bildpunkt; Schnitte mit dem Gelände sind die des Vierecks.
+- Zwischen den Ansichten blendet das Bild; aus der Nähe wirkt der Übergang weich.
+- Im Impostor bewegt sich nichts im Wind.
+- Nur stehende Bäume werden Impostors. Geschädigte bleiben bis zur Reichweite Netze (das Gerippe der Stufe 3, um 100 Dreiecke).
+- Eine Schattenkarte zeichnet `drawShadow` nur aus den Stufen 0 und 1 der Bäume im Blick.
+- Bis 16 Arten. Die Dichte kommt mit 8 Bit, die Höhe ist bilinear im Gitter, nicht im Gelände der App (am Hang kann ein Baum etwas schweben).
+- Die Arten aus LituyaBay1958 sind nach Beschreibungen gebaut, nicht vermessen [G].
+

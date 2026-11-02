@@ -238,6 +238,33 @@ public final class FractureCheck {
         section("Lockergestein (seit Sylt Phase 11)");
         lockergestein();
 
+        section("Übergabe an einen Strom (seit LituyaBay1958 Phase 9)");
+        {
+            Fracture f = Fracture.rock();
+            double a = Math.toRadians(40);
+            f.ground = (x, z) -> -Math.tan(a) * x;
+            Piece q = f.addPiece(Shape.box(-3, 3, -2, 3, 5, 2), 12);
+            for (int i = 0; i < 120; i++) f.step(DT);
+            double mass = q.mass(), hvol = q.volume();
+            double[] v = q.velocity().clone(), pos = q.position().clone();
+            double[] hc = f.handOver(q);
+            double hsv = 0, sm = 0, px = 0, py = 0, pz = 0, cx = 0, cy = 0, cz = 0;
+            for (int i = 0; i < hc.length; i += 8) {
+                hsv += hc[i + 3]; sm += hc[i + 4];
+                px += hc[i + 4] * hc[i + 5]; py += hc[i + 4] * hc[i + 6]; pz += hc[i + 4] * hc[i + 7];
+                cx += hc[i + 4] * hc[i]; cy += hc[i + 4] * hc[i + 1]; cz += hc[i + 4] * hc[i + 2];
+            }
+            double dp = Math.sqrt(Math.pow(px - mass * v[0], 2) + Math.pow(py - mass * v[1], 2) + Math.pow(pz - mass * v[2], 2)) / Math.max(1e-9, mass * Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+            double dc = Math.sqrt(Math.pow(cx / sm - pos[0], 2) + Math.pow(cy / sm - pos[1], 2) + Math.pow(cz / sm - pos[2], 2));
+            check(Math.abs(hsv / hvol - 1) < 1e-9 && Math.abs(sm / mass - 1) < 1e-9 && dp < 1e-6 && dc < 1e-6 && !f.pieces().contains(q) && Math.abs(f.handedOverVolume() - hvol) < 1e-9,
+                    fmt("handOver: %d Zellen tragen Volumen, Masse, Impuls und Schwerpunkt des Stücks (%.1f m³, %.2f m/s; Fehler %.1e)", hc.length / 8, hvol,
+                            Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), Math.max(dp, dc)));
+            Solid zone = Fracture.rock().addSolid(Shape.box(0, 0, 0, 20, 10, 4), 400, Fracture.releaseZone(0, 2, 0, 0, 1, 0, 2, 0.15), null);
+            int near = 0;
+            for (int i = 0; i < zone.cells(); i++) if (Math.abs(zone.center(i)[1] - 2) < 2) near++;
+            check(near > zone.cells() * 0.4, fmt("releaseZone: %d von %d Zellen im Fünftel um die Abrissfläche", near, zone.cells()));
+        }
+
         section("Wiederholbarkeit und Leistung");
         {
             double[] h = new double[2];
