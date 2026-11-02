@@ -1,0 +1,16 @@
+// bay_accum.comp — Volumina über die Ränder eines feineren Gitters nach jedem seiner Unterschritte (wave.Bay auf der
+// Grafikkarte, LituyaBay1958 Phase 11b): Bay.accumulate in float. ACC: West (nz), Ost (nz), Süd (nx), Nord (nx), je ins
+// Gitter hinein.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer MassFlux { float mf[]; };
+layout(std430, binding = 1) buffer Acc { float acc[]; };
+uniform int nx, nz;
+uniform float dt, dx;
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x), nfx = (nx + 1) * nz;
+    if (t < nz) acc[t] += mf[t * (nx + 1)] * dt * dx;
+    else if (t < 2 * nz) { int j = t - nz; acc[t] -= mf[j * (nx + 1) + nx] * dt * dx; }
+    else if (t < 2 * nz + nx) { int i = t - 2 * nz; acc[t] += mf[nfx + i] * dt * dx; }
+    else if (t < 2 * nz + 2 * nx) { int i = t - 2 * nz - nx; acc[t] -= mf[nfx + nz * nx + i] * dt * dx; }
+}

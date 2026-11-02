@@ -1,0 +1,33 @@
+// bay_restrict.comp — das gröbere Gitter bekommt unter dem feineren dessen Mittel (wave.Bay auf der Grafikkarte,
+// LituyaBay1958 Phase 11b): Bay.restrict in float, ein Faden je bedeckter Zelle des gröberen (ni · nj). Halb trocken: Grund
+// so, dass der Stand dem der nassen feinen Zellen gleicht.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) buffer PBed { float pb[]; };
+layout(std430, binding = 1) buffer PState { float pu[]; };
+layout(std430, binding = 2) readonly buffer CBed { float cb[]; };
+layout(std430, binding = 3) readonly buffer CState { float cu[]; };
+uniform int pnx, pnz, cnx, cnz, i0, j0, ni, nj, r;
+uniform float hDry;
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= ni * nj) return;
+    int pi = t % ni, pj = t / ni;
+    int ppx = pnx + 4, pN = ppx * (pnz + 4), cpx = cnx + 4, cN = cpx * (cnz + 4);
+    float sh = 0.0, su = 0.0, sv = 0.0, se = 0.0, sb = 0.0;
+    int wet = 0, rock = 0;
+    for (int bb = 0; bb < r; bb++)
+        for (int a = 0; a < r; a++) {
+            int cc = (pj * r + bb + 2) * cpx + pi * r + a + 2;
+            if (cb[cc] > 1e29) { rock++; continue; }
+            sh += cu[cc]; su += cu[cN + cc]; sv += cu[2 * cN + cc]; sb += cb[cc];
+            if (cu[cc] > hDry) { se += cu[cc] + cb[cc]; wet++; }
+        }
+    int pc = (j0 + pj + 2) * ppx + i0 + pi + 2;
+    if (pb[pc] > 1e29) return;
+    float w = 1.0 / float(r * r);
+    pu[pc] = sh * w; pu[pN + pc] = su * w; pu[2 * pN + pc] = sv * w;
+    int open = r * r - rock;
+    if (wet > 0 && wet < open) pb[pc] = se / float(wet) - pu[pc];
+    else if (open > 0) pb[pc] = sb / float(open);
+}

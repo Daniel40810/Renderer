@@ -1,6 +1,6 @@
 # com.dan.wave – eine Welle, die läuft
 
-**Stand: Löser (Phase 8).** Eine Welle aus einem Einschlag läuft über ein Gewässer, läuft am Ufer auf, wird an einer Wand zurückgeworfen und klingt ab. Anders als die Ringwellen in `com.dan.ocean` kennt sie Tiefe und Ufer. Das Package kennt keine App und kein anderes Package. Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL, `demo/WaveDemo` zusätzlich `FStyle.jar`. Wiederverwendbar für einen Felssturz in den Edersee, einen Dammbruch, eine Welle im Noor oder im Hafen.
+**Stand: Löser (Phase 8); dazu `Bay`, HLL auf geschachtelten Gittern (LituyaBay1958 Phase 11).** Eine Welle aus einem Einschlag läuft über ein Gewässer, läuft am Ufer auf, wird an einer Wand zurückgeworfen und klingt ab. Anders als die Ringwellen in `com.dan.ocean` kennt sie Tiefe und Ufer. Das Package kennt keine App und kein anderes Package. Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL, `demo/WaveDemo` zusätzlich `FStyle.jar`. Wiederverwendbar für einen Felssturz in den Edersee, einen Dammbruch, eine Welle im Noor oder im Hafen.
 
 Zum Herauskopieren reicht `src/com/dan/wave/`.
 
@@ -20,6 +20,42 @@ Zum Herauskopieren reicht `src/com/dan/wave/`.
 ## Gehaltener Wasserstand (seit Rungholt Phase 12)
 
 `hold(Hold)`: Zellen, für die `held(x, z)` gilt, stehen nach jedem Schritt des feinen Gitters auf `eta(t)` (über dem Ruhespiegel, nie unter dem Grund) – etwa das offene Meer vor einem Deichbruch, das nicht leerläuft, während das Wasser durch die Bresche stürzt. `heldCount()` zählt sie. `WaveCheck` prüft den Dammbruch nach Ritter: 2 m Meer, festgehalten, trockener Grund dahinter.
+
+## Bucht: HLL auf geschachtelten Gittern (seit LituyaBay1958 Phase 11)
+
+`Bay` ist ein zweiter Löser neben `Wave`; `Wave` bleibt unverändert (Rungholt, Glacier, Edersee). Für Wellen, die viel höher sind als das Wasser tief ist (Lituya: H/h bis 1,3), Bores und Auflauf an steilen Hängen.
+
+- **`BayGrid`:** finite Volumen mit den Werten in der Zellmitte (h, hu, hv), Flüsse nach HLL, zweite Ordnung (MUSCL mit minmod, Heun), hydrostatische Rekonstruktion nach Audusse: Ein ruhender See über steilem Grund bleibt genau in Ruhe, Ufer werden ohne Sonderfälle nass und trocken. Manning halb implizit. Seiten: Wand, offen, Einlass, Rand zum gröberen Gitter; NaN als Grund ist Fels. Anders als in Werkbuch 6.1 geplant (Arakawa C): HLL rechnet man natürlich auf zellzentrierten Werten.
+- **`Bay`:** beliebig viele geschachtelte Gitter (für Lituya 16 / 4 / 2 m). Das feinere rechnet in Unterschritten, seine Randzellen kommen aus dem gröberen (nur nasse Zellen, Ort bilinear, Zeit linear); danach bekommt das gröbere dessen Mittel, und an der Grenze werden die Flüsse abgeglichen. Volumen über alle Gitter genau, außer an Trockenfronten, die über eine Gittergrenze laufen (`clipped()`, Fjordbucht der Demo 1,4e-5 nach 50 s).
+- **Einlass** (`Bay.Inlet`: Wasserstand und Durchfluss je Randzelle) für eine Welle aus dem Nahfeld; die App koppelt `Impact.Far` daran.
+- **Abfragen:** `gauge`, `heightAt`, `depthAt`, `velocityAt`, `maxAt`, `runup(Rechteck)`, `volume`, `bores(Steigung)` für `spray`.
+
+```java
+Bay b = new Bay(x0, z0, nx, nz, 16)                 // grob
+        .nest(xa, za, xb, zb, 4)                   // mittel 4 m
+        .nest(xc, zc, xd, zd, 2);                  // fein 2 m
+b.inlet(Bay.W, (t, x, z) -> new double[]{eta, q}); // optional
+b.build((x, z) -> grund(x, z), spiegel, null);
+b.run(60);
+double r = b.runup(xa, za, xb, zb);
+```
+
+Prüfung (neuer Abschnitt in `WaveCheck`): ruhender See über welligem Grund mit trockener Insel über die Gittergrenze (1,8e-14 m/s), Dammbruch nach Stoker (5,079 m genau), Synolakis (R/d 0,0917 gegen 0,0890), drei Gitter mit genauem Volumen, Welle über die Grenze gegen ein durchgehend feines Gitter (3–4 %), Fjordbucht der Demo über 50 s stabil, Einlass genau, **Laborfall Lituya: Messwelle FRITZ01 als Einlass, Auflauf 542 m (526 ± 50 m)**, zwei Läufe gleich. Rechenzeit auf dem Prozessor rund 200 ns je Zelle und Schritt (zwei Kerne).
+
+### Auf der Grafikkarte (seit LituyaBay1958 Phase 11b)
+
+`gl/BayGpu` rechnet dieselbe Bucht in float als Compute Shader (`gl/bay_*.comp`, GLSL 430): Flüsse je Kante, Stufen nach Heun mit Reibung und Höchststand, Ränder und Einlass, Randzellen aus dem gröberen Gitter, Unterschritte, Rückgabe ans gröbere und Abgleich der Flüsse – alles auf der Karte. Der Prozessor baut die Bucht (`build`), danach je Schritt eine Rückfrage (größte Geschwindigkeit für den Zeitschritt); die Pegel lesen im Takt der Bucht ab (zwei kleine Rückfragen je Pegel). `sync` holt den Stand in die Felder der Gitter, dann gelten alle Abfragen von `Bay`. Einlasswerte rechnet der Prozessor je Stufe (eine Spalte Randzellen). Zeiten je Gitter über Abfragen der Karte (`info()`, `gpuMs(k)`).
+
+```java
+BayGpu g = new BayGpu(b);      // b gebaut
+g.upload(gl);                  // im GL-Faden
+g.run(gl, 60);                 // oder je Bild g.step(gl)
+g.sync(gl);                    // dann b.runup(…), b.volume() …
+```
+
+Prüfung `demo/BayGpuCheck` (ohne Fenster): Prozessor (double) gegen Grafikkarte (float) mit denselben Zeitschritten. Ruhe mit Insel und Stoker auf 1 mm (Mesa: 4e-6 und 2e-5 m), Fjordbucht in drei Gittern Auflauf auf 1 % (gleich bis 1 cm), Median der Tiefe 1e-4 m, einzelne Zellen an der Trockenfront bis Meter; Laborfall bis 50 s Auflauf 542,2 m wie der Prozessor, Volumen 2,6e-6 des Anfangs (Spielraum mit Einlass 1e-5: in 140 m Wasser ist ein float-Schritt 15 µm). Dazu die Rechenzeiten je Gitter.
+
+Demo: `demo/BayDemo` (Fjordbucht in drei Gittern, Laborfall im Schnitt, Pegel, Rechenzeit je Gitter; `--bild datei.png [t]`).
 
 ## Benutzung
 

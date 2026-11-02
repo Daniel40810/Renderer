@@ -1,0 +1,99 @@
+// bay_flux.comp — Flüsse je Kante für wave.Bay auf der Grafikkarte (LituyaBay1958 Phase 11b): dieselbe Rechnung wie
+// BayGrid.rates (erster Teil) in float. MUSCL mit minmod auf h, η, u, v, hydrostatische Rekonstruktion nach Audusse, HLL.
+// Ein Faden je Kante; mode 0: Kanten in x ((nx + 1) · nz), mode 1: Kanten in z (nx · (nz + 1)). Schreibt je Kante
+// {Masse, Normalimpuls, Tangentialimpuls, Normalimpuls + Druckkorrektur links, … rechts} und mittelt den Massenfluss über
+// die beiden Stufen nach MF. Fels: Grund über 1e29.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Bed { float b[]; };
+layout(std430, binding = 1) readonly buffer State { float u[]; };   // h | hu | hv
+layout(std430, binding = 2) buffer Flux { float f[]; };              // 5 je Kante, erst x, dann z
+layout(std430, binding = 3) buffer MassFlux { float mf[]; };         // je Kante, erst x, dann z
+uniform int nx, nz, mode, stage;
+uniform float g, hDry, hVel;
+
+int px() { return nx + 4; }
+int n() { return px() * (nz + 4); }
+int id(int i, int j) { return (j + 2) * px() + i + 2; }
+bool solid(int c) { return b[c] > 1e29; }
+float H(int c) { return u[c]; }
+float QX(int c) { return u[n() + c]; }
+float QZ(int c) { return u[2 * n() + c]; }
+float vel(float q, float hh) { return hh > hVel ? q / hh : 0.0; }
+float mm(float a, float c) { return a * c <= 0.0 ? 0.0 : (abs(a) < abs(c) ? a : c); }
+
+// Steigungen (h, η, u, v) der Zelle c in Richtung s (1: x, px: z)
+vec4 slope(int c, int s) {
+    if (solid(c)) return vec4(0.0);
+    int l = c - s, r = c + s;
+    if (solid(l) || solid(r)) return vec4(0.0);
+    float hc = H(c), ec = hc + b[c];
+    float uc = vel(QX(c), hc), vc = vel(QZ(c), hc);
+    vec4 o;
+    o.x = mm(hc - H(l), H(r) - hc);
+    o.y = mm(ec - H(l) - b[l], H(r) + b[r] - ec);
+    o.z = mm(uc - vel(QX(l), H(l)), vel(QX(r), H(r)) - uc);
+    o.w = mm(vc - vel(QZ(l), H(l)), vel(QZ(r), H(r)) - vc);
+    if (hc <= hVel) { o.z = 0.0; o.w = 0.0; }
+    return o;
+}
+
+// HLL über eine Kante: Zustand links (h, η, Normal-, Tangentialgeschwindigkeit) und rechts → {Masse, Normal-, Tangential-
+// impuls, Druckkorrektur links, rechts}
+void hll(float hL, float eL, float unL, float utL, float hR, float eR, float unR, float utR, out float o[5]) {
+    float bL = eL - hL, bR = eR - hR, bf = max(bL, bR);
+    float hLs = max(0.0, eL - bf), hRs = max(0.0, eR - bf);
+    if (hLs <= hDry && hRs <= hDry) { o[0] = 0.0; o[1] = 0.0; o[2] = 0.0; }
+    else {
+        float cL = sqrt(g * hLs), cR = sqrt(g * hRs), sl, sr;
+        if (hLs <= hDry) { sl = unR - 2.0 * cR; sr = unR + cR; }
+        else if (hRs <= hDry) { sl = unL - cL; sr = unL + 2.0 * cL; }
+        else { sl = min(unL - cL, unR - cR); sr = max(unL + cL, unR + cR); }
+        float qL = hLs * unL, qR = hRs * unR;
+        float fL0 = qL, fL1 = qL * unL + 0.5 * g * hLs * hLs, fL2 = qL * utL;
+        float fR0 = qR, fR1 = qR * unR + 0.5 * g * hRs * hRs, fR2 = qR * utR;
+        if (sl >= 0.0) { o[0] = fL0; o[1] = fL1; o[2] = fL2; }
+        else if (sr <= 0.0) { o[0] = fR0; o[1] = fR1; o[2] = fR2; }
+        else {
+            float inv = 1.0 / (sr - sl);
+            o[0] = (sr * fL0 - sl * fR0 + sl * sr * (hRs - hLs)) * inv;
+            o[1] = (sr * fL1 - sl * fR1 + sl * sr * (qR - qL)) * inv;
+            o[2] = (sr * fL2 - sl * fR2 + sl * sr * (hRs * utR - hLs * utL)) * inv;
+        }
+    }
+    o[3] = 0.5 * g * (hL * hL - hLs * hLs);
+    o[4] = 0.5 * g * (hR * hR - hRs * hRs);
+}
+
+void put(int fi, float m, float a, float t, float pl, float pr) {
+    f[5 * fi] = m; f[5 * fi + 1] = a; f[5 * fi + 2] = t; f[5 * fi + 3] = pl; f[5 * fi + 4] = pr;
+    if (stage == 1) mf[fi] = 0.5 * m; else mf[fi] += 0.5 * m;
+}
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    int nfx = (nx + 1) * nz;
+    int a, c, fi, s;
+    if (mode == 0) {
+        if (t >= nfx) return;
+        int i = t % (nx + 1) - 1, j = t / (nx + 1);
+        a = id(i, j); c = a + 1; fi = t; s = 1;
+    } else {
+        if (t >= nx * (nz + 1)) return;
+        int i = t % nx, j = t / nx - 1;
+        a = id(i, j); c = a + px(); fi = nfx + t; s = px();
+    }
+    bool sa = solid(a), sc = solid(c);
+    if (sa && sc) { put(fi, 0.0, 0.0, 0.0, 0.0, 0.0); return; }
+    vec4 ka = slope(a, s), kc = slope(c, s);
+    float hA = H(a), hC = H(c);
+    float unA = mode == 0 ? vel(QX(a), hA) : vel(QZ(a), hA), utA = mode == 0 ? vel(QZ(a), hA) : vel(QX(a), hA);
+    float unC = mode == 0 ? vel(QX(c), hC) : vel(QZ(c), hC), utC = mode == 0 ? vel(QZ(c), hC) : vel(QX(c), hC);
+    float snA = mode == 0 ? ka.z : ka.w, stA = mode == 0 ? ka.w : ka.z, snC = mode == 0 ? kc.z : kc.w, stC = mode == 0 ? kc.w : kc.z;
+    float hL = hA + 0.5 * ka.x, eL = hA + b[a] + 0.5 * ka.y, uL = unA + 0.5 * snA, vL = utA + 0.5 * stA;
+    float hR = hC - 0.5 * kc.x, eR = hC + b[c] - 0.5 * kc.y, uR = unC - 0.5 * snC, vR = utC - 0.5 * stC;
+    if (sc) { put(fi, 0.0, 0.0, 0.0, 0.5 * g * hL * hL, 0.0); return; }
+    if (sa) { put(fi, 0.0, 0.0, 0.0, 0.0, 0.5 * g * hR * hR); return; }
+    float o[5];
+    hll(hL, eL, uL, vL, hR, eR, uR, vR, o);
+    put(fi, o[0], o[1], o[2], o[1] + o[3], o[1] + o[4]);
+}

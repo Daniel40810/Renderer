@@ -1,0 +1,18 @@
+// bay_maxspeed.comp — größte Wellengeschwindigkeit max(|u|, |v|) + √(g h) eines Gitters für den Zeitschritt von
+// wave.Bay auf der Grafikkarte (LituyaBay1958 Phase 11b), als Bits in STATS[0] (positive float vergleichen wie uint).
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Bed { float b[]; };
+layout(std430, binding = 1) readonly buffer State { float u[]; };
+layout(std430, binding = 2) buffer Stats { uint stats[]; };
+uniform int nx, nz;
+uniform float g, hDry, hVel;
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= nx * nz) return;
+    int px = nx + 4, N = px * (nz + 4), c = (t / nx + 2) * px + t % nx + 2;
+    float hh = u[c];
+    if (b[c] > 1e29 || hh <= hDry) return;
+    float vx = hh > hVel ? abs(u[N + c] / hh) : 0.0, vz = hh > hVel ? abs(u[2 * N + c] / hh) : 0.0;
+    atomicMax(stats[0], floatBitsToUint(max(vx, vz) + sqrt(g * hh)));
+}

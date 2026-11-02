@@ -1,0 +1,63 @@
+// bay_update.comp — eine Stufe nach Heun für wave.Bay auf der Grafikkarte (LituyaBay1958 Phase 11b): BayGrid.rates
+// (zweiter Teil, Zellen mit dem zentrierten Quellterm nach Audusse), BayGrid.apply, nach Stufe 2 friction und track.
+// Ein Faden je Zelle im Gitter (nx · nz). Gelesen wird aus IN, geschrieben nach OUT (kein Rennen um die Nachbarn):
+// Stufe 1 liest A und schreibt B = A + dt L(A); Stufe 2 liest B und schreibt A = (A + B + dt L(B))/2 – in A steht noch der
+// Anfang, und jeder Faden liest dort nur die eigene Zelle. Negative Tiefen werden abgeschnitten und in STATS gezählt.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Bed { float b[]; };
+layout(std430, binding = 1) readonly buffer In { float u[]; };       // h | hu | hv
+layout(std430, binding = 2) buffer Out { float w[]; };                // Stufe 2: darin der Anfang (A)
+layout(std430, binding = 3) readonly buffer Flux { float f[]; };
+layout(std430, binding = 4) buffer EtaMax { float etaMax[]; };
+layout(std430, binding = 5) buffer Stats { uint stats[]; };
+uniform int nx, nz, stage;
+uniform float g, hDry, hVel, dt, dx, manning;
+
+int px() { return nx + 4; }
+int n() { return px() * (nz + 4); }
+int id(int i, int j) { return (j + 2) * px() + i + 2; }
+bool solid(int c) { return b[c] > 1e29; }
+float H(int c) { return u[c]; }
+float mm(float a, float c) { return a * c <= 0.0 ? 0.0 : (abs(a) < abs(c) ? a : c); }
+
+// Steigung von h und η der Zelle c in Richtung s (wie bay_flux.comp)
+vec2 slope(int c, int s) {
+    int l = c - s, r = c + s;
+    if (solid(l) || solid(r)) return vec2(0.0);
+    float hc = H(c), ec = hc + b[c];
+    return vec2(mm(hc - H(l), H(r) - hc), mm(ec - H(l) - b[l], H(r) + b[r] - ec));
+}
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= nx * nz) return;
+    int i = t % nx, j = t / nx, c = id(i, j), N = n();
+    if (solid(c)) return;
+    int nfx = (nx + 1) * nz;
+    int fl = j * (nx + 1) + i, fr = fl + 1, fd = nfx + j * nx + i, fu = fd + nx;
+    float inv = 1.0 / dx;
+    float mass = -(f[5 * fr] - f[5 * fl] + f[5 * fu] - f[5 * fd]) * inv;
+    float mx = -(f[5 * fr + 3] - f[5 * fl + 4] + f[5 * fu + 2] - f[5 * fd + 2]) * inv;
+    float mz = -(f[5 * fu + 3] - f[5 * fd + 4] + f[5 * fr + 2] - f[5 * fl + 2]) * inv;
+    vec2 sx = slope(c, 1), sz = slope(c, px());
+    float hc = H(c), ec = hc + b[c];
+    float hW = hc - 0.5 * sx.x, hE = hc + 0.5 * sx.x, eW = ec - 0.5 * sx.y, eE = ec + 0.5 * sx.y;
+    float hS = hc - 0.5 * sz.x, hN = hc + 0.5 * sz.x, eS = ec - 0.5 * sz.y, eN = ec + 0.5 * sz.y;
+    mx += g * 0.5 * (hW + hE) * ((eW - hW) - (eE - hE)) * inv;
+    mz += g * 0.5 * (hS + hN) * ((eS - hS) - (eN - hN)) * inv;
+    float nh, nu, nv;
+    if (stage == 1) { nh = hc + dt * mass; nu = u[N + c] + dt * mx; nv = u[2 * N + c] + dt * mz; }
+    else { nh = 0.5 * (w[c] + hc + dt * mass); nu = 0.5 * (w[N + c] + u[N + c] + dt * mx); nv = 0.5 * (w[2 * N + c] + u[2 * N + c] + dt * mz); }
+    if (nh < 0.0) { atomicAdd(stats[1], 1u); atomicAdd(stats[2], uint(-nh * 1e6)); nh = 0.0; }
+    if (nh <= hDry) { nu = 0.0; nv = 0.0; }
+    if (stage == 2) {
+        // Reibung nach Manning (halb implizit) und höchster Stand
+        if (nh > hVel && manning > 0.0) {
+            float vx = nu / nh, vz = nv / nh, s = sqrt(vx * vx + vz * vz);
+            float k = 1.0 + dt * g * manning * manning * s / pow(nh, 4.0 / 3.0);
+            nu /= k; nv /= k;
+        }
+        if (nh > 0.01) { float e = nh + b[c]; if (!(etaMax[c] >= e)) etaMax[c] = e; }
+    }
+    w[c] = nh; w[N + c] = nu; w[2 * N + c] = nv;
+}

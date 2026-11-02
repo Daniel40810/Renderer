@@ -1,0 +1,45 @@
+// bay_ghost.comp — Randzellen eines feineren Gitters aus dem gröberen für wave.Bay auf der Grafikkarte (LituyaBay1958
+// Phase 11b): Bay.ghostsFromParent in float. Ein Faden je Zelle des feineren Gitters samt Rand; nur die Randzellen werden
+// geschrieben. Stand bilinear nur aus nassen Zellen, alt (OLD) und neu (STATE) des gröberen linear mit dem Gewicht w.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer CBed { float cb[]; };
+layout(std430, binding = 1) buffer CState { float cu[]; };
+layout(std430, binding = 2) readonly buffer PBed { float pb[]; };
+layout(std430, binding = 3) readonly buffer PState { float pu[]; };
+layout(std430, binding = 4) readonly buffer POld { float po[]; };
+uniform int cnx, cnz, pnx, pnz;
+uniform float cdx, cx0, cz0, pdx, px0, pz0, w, hDry, hVel;
+
+void main() {
+    int cpx = cnx + 4, cN = cpx * (cnz + 4);
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= cN) return;
+    int i = t % cpx - 2, j = t / cpx - 2;
+    if (i >= 0 && i < cnx && j >= 0 && j < cnz) return;
+    int cc = t;
+    if (cb[cc] > 1e29) { cu[cc] = 0.0; cu[cN + cc] = 0.0; cu[2 * cN + cc] = 0.0; return; }
+    int ppx = pnx + 4, pN = ppx * (pnz + 4);
+    float x = cx0 + (float(i) + 0.5) * cdx, z = cz0 + (float(j) + 0.5) * cdx;
+    float fi = (x - px0) / pdx - 0.5, fj = (z - pz0) / pdx - 0.5;
+    int i0 = int(floor(fi)), j0 = int(floor(fj));
+    float ax = fi - float(i0), az = fj - float(j0);
+    float eo = 0.0, en = 0.0, wo = 0.0, wn = 0.0, su = 0.0, sv = 0.0;
+    for (int bb = 0; bb < 2; bb++)
+        for (int a = 0; a < 2; a++) {
+            int pc = (j0 + bb + 2) * ppx + i0 + a + 2;
+            if (pb[pc] > 1e29) continue;
+            float wt = (a == 0 ? 1.0 - ax : ax) * (bb == 0 ? 1.0 - az : az);
+            if (wt <= 0.0) continue;
+            if (po[pc] > hDry) { eo += wt * (po[pc] + pb[pc]); wo += wt; }
+            if (pu[pc] > hDry) { en += wt * (pu[pc] + pb[pc]); wn += wt; }
+            su += wt * ((1.0 - w) * po[pN + pc] + w * pu[pN + pc]);
+            sv += wt * ((1.0 - w) * po[2 * pN + pc] + w * pu[2 * pN + pc]);
+        }
+    if (wo <= 0.0 && wn <= 0.0) { cu[cc] = 0.0; cu[cN + cc] = 0.0; cu[2 * cN + cc] = 0.0; return; }
+    float se;
+    if (wo <= 0.0) se = en / wn; else if (wn <= 0.0) se = eo / wo; else se = (1.0 - w) * (eo / wo) + w * (en / wn);
+    float hh = max(0.0, se - cb[cc]);
+    cu[cc] = hh;
+    cu[cN + cc] = hh > hVel ? su : 0.0;
+    cu[2 * cN + cc] = hh > hVel ? sv : 0.0;
+}
