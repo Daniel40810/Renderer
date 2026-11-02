@@ -72,6 +72,17 @@ public final class BayGpuCheck {
                 "Fjordbucht (3 Gitter, Buckel 100 m), %d Schritte bis %.0f s: Auflauf %.2f m (Prozessor %.2f m), Volumen %.1e; Tiefe Median %.1e m, 99 %% %.1e m, größte %.1e m [G: am Rand des Nassen]",
                 p.steps, p.cpu.time(), rg, ru, p.dv, p.depth[1], p.depth[2], p.depth[0]));
 
+        // 3b Zeitschritt nach CFL auf der Grafikkarte wie auf dem Prozessor (ohne die Zellen unter dem feineren Gitter)
+        {
+            Bay c = BayDemo.fjordBay(), q = BayDemo.fjordBay();
+            BayGpu g = new BayGpu(q);
+            g.upload(gl);
+            double worst = 0;
+            for (int i = 0; i < 30; i++) { double dc = c.step(), dg = g.step(gl); worst = Math.max(worst, Math.abs(dg / dc - 1)); }
+            g.dispose(gl);
+            check(worst < 1e-3, String.format(Locale.GERMAN, "Fjordbucht, eigener Zeitschritt: 30 Schritte, größte Abweichung des Schritts %.1e (bis %.0f s)", worst, c.time()));
+        }
+
         if (!kurz) {
             // 4 Laborfall im Schnitt (Messwelle FRITZ01 als Einlass) bis 50 s
             p = pair(gl, BayDemo::laborfall, -50);
@@ -92,6 +103,13 @@ public final class BayGpuCheck {
             check(Math.abs(ro - ru) <= 0.01 * Math.abs(ru) && Math.abs(go - gc) <= 0.01 * Math.abs(gc), String.format(Locale.GERMAN, "Laborfall mit eigenem Zeitschritt der Grafikkarte: %d Schritte, Auflauf %.1f m, Pegel 1 100 m %.0f m (Prozessor %.0f m)",
                     own.steps(), ro, go, gc));
 
+            // 5 Linie im Inneren (seit Phase 13): derselbe Laborfall, die Welle über Bay.line statt über den Rand
+            p = pair(gl, BayGpuCheck::laborLine, -50);
+            ru = p.cpu.runup(1220, -1, 1e9, 1e9);
+            rg = p.gpu.runup(1220, -1, 1e9, 1e9);
+            check(Math.abs(rg - ru) <= 0.01 * Math.abs(ru), String.format(Locale.GERMAN, "Laborfall über eine Linie im Inneren (Bay.line, Fels davor): Auflauf %.1f m (Prozessor %.1f m), Volumen %.1e",
+                    rg, ru, p.dv));
+
             // Rechenzeiten (Tabelle 15.2)
             System.out.println("  Rechenzeit (Prozessor: Rechenzeit der Gitter; Grafikkarte: Abfragen je Gitter, ohne die feineren)");
             timing(gl, "512² zu 4 m bei 100 m Tiefe", () -> new Bay(0, 0, 512, 512, 4).build((x, z) -> -100, 0, new Bay.Init() {
@@ -101,6 +119,15 @@ public final class BayGpuCheck {
         }
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
         return bad;
+    }
+
+    /** Der Laborfall mit der Messwelle über eine Linie bei 886 m, davor 40 m Fels. */
+    static Bay laborLine() {
+        double h = 122, hh = 152, c = Math.sqrt(9.81 * (h + hh)), k = Math.sqrt(3 * hh / (4 * h * h * h)), dx = 2, xa = 885;
+        int nx = (int) Math.ceil((1342 + 700 - xa) / dx) + 20;
+        Bay s = new Bay(xa - 40, 0, nx, 3, dx);
+        s.line(xa + 1, -10, xa + 1, 20, 1, 0, (t, x, z) -> { double ch = 1 / Math.cosh(k * c * (t - 16)); double e = hh * ch * ch; return new double[]{e, c * e}; });
+        return s.build((x, z) -> x < xa ? Double.NaN : x < 1220 ? -h : Math.min(650, -h + (x - 1220)), 0, null);
     }
 
     /** Prozessor und Grafikkarte über denselben Fall; n > 0: Schritte, n < 0: bis −n Sekunden. */

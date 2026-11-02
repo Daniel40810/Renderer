@@ -264,10 +264,14 @@ public final class BayGrid {
     }
 
     /** Größte Wellengeschwindigkeit |u| + √(g h) (m/s). */
-    double maxSpeed() {
+    double maxSpeed() { return maxSpeed(null); }
+
+    /** Wie oben, ohne die Zellen unter dem feineren Gitter skip = {i0, j0, ni, nj} (die überschreibt es ohnehin). */
+    double maxSpeed(int[] skip) {
         return IntStream.range(0, nz).parallel().mapToDouble(j -> {
             double m = 0;
             for (int i = 0; i < nx; i++) {
+                if (skip != null && i >= skip[0] && i < skip[0] + skip[2] && j >= skip[1] && j < skip[1] + skip[3]) continue;
                 int c = id(i, j);
                 double hh = h[c];
                 if (hh <= hDry) continue;

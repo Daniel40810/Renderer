@@ -17,7 +17,8 @@ import java.util.Locale;
  * den Unterschied der Flüsse (Abgleich): Das Volumen bleibt über alle Gitter genau, außer an Trockenfronten, die über eine
  * Gittergrenze laufen ({@link #clipped()}).</li>
  * <li><b>Ränder:</b> Wand, offen, Einlass ({@link Inlet}: Wasserstand und Durchfluss je Randzelle, etwa aus
- * {@code Impact.Far} – die App verdrahtet, das Package kennt {@code impact} nicht).</li>
+ * {@code Impact.Far} – die App verdrahtet, das Package kennt {@code impact} nicht); seit Phase 13 auch als Linie im
+ * Inneren ({@link #line}).</li>
  * <li><b>Abfragen</b> wie {@link Wave}: Pegel, höchster Stand und Auflauf je Ort, Höhe, Geschwindigkeit, Volumen,
  * Brechfronten für {@code spray}.</li>
  * </ul>
@@ -85,6 +86,103 @@ public final class Bay {
     /** Einlass an einer Seite des gröbsten Gitters. */
     public Bay inlet(int side, Inlet in) { BayGrid g = grids.get(0); g.edge[side] = BayGrid.Edge.INLET; g.inlet[side] = in; return this; }
 
+    /**
+     * Ein Einlass im Inneren (seit LituyaBay1958 Phase 13): entlang der Strecke (xa, za)–(xb, zb) werden in jedem Gitter
+     * die Zellen, deren Mitte näher als ¾ Zelle an der Strecke liegt und die am Anfang unter Wasser sind, zu jeder Stufe
+     * auf den Wasserstand und den Durchfluss aus {@code in} gesetzt, der Durchfluss in Richtung (nx, nz) (wird normiert).
+     * Der Durchfluss gilt für die tiefste Stelle der Linie; flachere Zellen bekommen dieselbe Geschwindigkeit
+     * q / (Tiefe + η), also weniger Durchfluss (sonst rasten dünne Schichten am Ufer davon). So kann ein Nahfeld, das
+     * anderswo gerechnet ist (etwa {@code impact} im Schnitt), mitten in der Bucht übergeben werden; was hinter der Linie
+     * liegt, macht der Aufrufer über den Grund zu Fels. Gibt {@code in} null zurück, ist die Linie zu dieser Zeit frei
+     * (gewöhnliche Zellen). Vor {@link #build} aufrufen. Das Volumen, das über die Linie kommt
+     * oder geht, zählt {@link #volume} mit, aber nicht {@link #inflowVolume}.
+     */
+    public Bay line(double xa, double za, double xb, double zb, double nx, double nz, Inlet in) {
+        double l = Math.hypot(nx, nz);
+        lines.add(new double[]{xa, za, xb, zb, nx / l, nz / l});
+        lineInlets.add(in);
+        return this;
+    }
+
+    final List<double[]> lines = new ArrayList<>();
+    final List<Inlet> lineInlets = new ArrayList<>();
+    /** je Gitter: Zellen der Linien, ihre Mitte und welche Linie. */
+    int[][] forced;
+    double[][] forcedXZ;
+    int[][] forcedLine;
+    /** je Linie die größte Tiefe unter dem Spiegel: der Durchfluss des Einlasses gilt für sie (Geschwindigkeit q / (Tiefe + η)). */
+    double[] lineDepth;
+
+    /** Durchfluss in einer Zelle der Tiefe hh aus dem Einlass (η über Bezug, q für die tiefste Stelle der Linie). */
+    double lineQ(int li, double eta, double q, double hh) {
+        double ref = lineDepth[li] + eta - level;
+        return ref > 1e-3 ? q / ref * hh : 0;
+    }
+
+    void findForced() {
+        lineDepth = new double[lines.size()];
+        forced = new int[grids.size()][];
+        forcedXZ = new double[grids.size()][];
+        forcedLine = new int[grids.size()][];
+        for (int k = 0; k < grids.size(); k++) {
+            BayGrid g = grids.get(k);
+            List<int[]> cells = new ArrayList<>();
+            for (int li = 0; li < lines.size(); li++) {
+                double[] L = lines.get(li);
+                double ex = L[2] - L[0], ez = L[3] - L[1], len2 = ex * ex + ez * ez;
+                for (int j = 0; j < g.nz; j++)
+                    for (int i = 0; i < g.nx; i++) {
+                        double x = g.cx(i), z = g.cz(j), t = len2 <= 0 ? 0 : Math.max(0, Math.min(1, ((x - L[0]) * ex + (z - L[1]) * ez) / len2));
+                        double d = Math.hypot(x - L[0] - t * ex, z - L[1] - t * ez);
+                        int c = g.id(i, j);
+                        if (d < 0.75 * g.dx && !g.solid(c) && g.b[c] < level) cells.add(new int[]{c, li, i, j});
+                    }
+            }
+            forced[k] = new int[cells.size()];
+            forcedLine[k] = new int[cells.size()];
+            forcedXZ[k] = new double[2 * cells.size()];
+            for (int c = 0; c < cells.size(); c++) {
+                int[] e = cells.get(c);
+                lineDepth[e[1]] = Math.max(lineDepth[e[1]], level - g.b[e[0]]);
+                forced[k][c] = e[0];
+                forcedLine[k][c] = e[1];
+                forcedXZ[k][2 * c] = g.cx(e[2]);
+                forcedXZ[k][2 * c + 1] = g.cz(e[3]);
+            }
+        }
+    }
+
+    /** Zellen der Linien in Gitter k (Indizes wie {@link BayGrid#id}); leer ohne Linien. Für {@code wave.gl.BayGpu}. */
+    public int[] forcedCells(int k) { return forced == null ? new int[0] : forced[k].clone(); }
+
+    /** Werte der Linien in Gitter k zur Zeit t: je Zelle Wasserstand (1e30: frei), Durchfluss x, Durchfluss z. Für {@code wave.gl.BayGpu}. */
+    public void forcedValues(int k, double t, float[] out) {
+        for (int c = 0; c < forced[k].length; c++) {
+            double[] L = lines.get(forcedLine[k][c]);
+            double[] v = lineInlets.get(forcedLine[k][c]).at(t, forcedXZ[k][2 * c], forcedXZ[k][2 * c + 1]);
+            if (v == null) { out[3 * c] = 1e30f; out[3 * c + 1] = out[3 * c + 2] = 0; continue; }
+            double hh = Math.max(0, v[0] - grids.get(k).b[forced[k][c]]), qq = lineQ(forcedLine[k][c], v[0], v[1], hh);
+            out[3 * c] = (float) v[0];
+            out[3 * c + 1] = (float) (qq * L[4]);
+            out[3 * c + 2] = (float) (qq * L[5]);
+        }
+    }
+
+    void force(int k, double t) {
+        if (forced == null || forced[k].length == 0) return;
+        BayGrid g = grids.get(k);
+        for (int c = 0; c < forced[k].length; c++) {
+            int cc = forced[k][c];
+            double[] L = lines.get(forcedLine[k][c]);
+            double[] v = lineInlets.get(forcedLine[k][c]).at(t, forcedXZ[k][2 * c], forcedXZ[k][2 * c + 1]);
+            if (v == null) continue;
+            double hh = Math.max(0, v[0] - g.b[cc]), qq = lineQ(forcedLine[k][c], v[0], v[1], hh);
+            g.h[cc] = hh;
+            g.hu[cc] = hh > g.hVel ? qq * L[4] : 0;
+            g.hv[cc] = hh > g.hVel ? qq * L[5] : 0;
+        }
+    }
+
     public List<BayGrid> grids() { return Collections.unmodifiableList(grids); }
 
     /** Grund, Spiegel und Anfangszustand für alle Gitter; das gröbere bekommt unter dem feineren dessen Mittel. */
@@ -94,6 +192,7 @@ public final class Bay {
         for (int k = grids.size() - 1; k >= 1; k--) averageBed(k);
         for (BayGrid g : grids) g.fill(level, init);
         for (int k = grids.size() - 1; k >= 1; k--) restrict(k);
+        findForced();
         volume0 = volume();
         built = true;
         return this;
@@ -150,7 +249,7 @@ public final class Bay {
         for (int k = 0; k < grids.size(); k++) {
             BayGrid g = grids.get(k);
             if (k > 0) mul *= place.get(k - 1)[4];
-            double s = Math.max(minSpeed, g.maxSpeed());
+            double s = Math.max(minSpeed, g.maxSpeed(k + 1 < grids.size() ? place.get(k) : null));
             dt = Math.min(dt, cfl * g.dx / s * mul);
         }
         advance(0, time, dt);
@@ -165,11 +264,11 @@ public final class Bay {
 
     void advance(int k, double t, double dt) {
         BayGrid g = grids.get(k);
-        if (k == 0) g.rk2(t, dt, g::fillEdges);
+        if (k == 0) g.rk2(t, dt, tt -> { g.fillEdges(tt); force(0, tt); });
         else {
             BayGrid p = grids.get(k - 1);
             double tp0 = parentT0[k - 1], tp1 = parentT1[k - 1];
-            g.rk2(t, dt, tt -> ghostsFromParent(k, p, g, (tt - tp0) / (tp1 - tp0)));
+            g.rk2(t, dt, tt -> { ghostsFromParent(k, p, g, (tt - tp0) / (tp1 - tp0)); force(k, tt); });
             accumulate(k, dt);
         }
         if (k + 1 < grids.size()) {

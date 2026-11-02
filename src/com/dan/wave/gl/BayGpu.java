@@ -55,7 +55,8 @@ public final class BayGpu {
     static final class Grid {
         BayGrid g;
         int nx, nz, px, n, nf;
-        int bed, a, s, old, flux, mflux, eta, stats, acc, aux;
+        int bed, a, s, old, flux, mflux, eta, stats, acc, aux, fcells, fvals, nforced;
+        float[] fbuf;
         long gpuNs, cellSteps, gridSteps, syncedSteps, syncedNs;
         int[] place; // feineres Gitter in diesem
     }
@@ -69,7 +70,7 @@ public final class BayGpu {
 
     /** Shader übersetzen, Puffer anlegen, Stand der Bucht hochladen (im GL-Faden). */
     public void upload(GL4 gl) {
-        for (String k : new String[]{"flux", "update", "edges", "maxspeed", "ghost", "restrict", "accum", "reflux"}) prog.put(k, program(gl, "bay_" + k + ".comp"));
+        for (String k : new String[]{"flux", "update", "edges", "maxspeed", "ghost", "restrict", "accum", "reflux", "force"}) prog.put(k, program(gl, "bay_" + k + ".comp"));
         List<BayGrid> bg = bay.grids();
         for (int k = 0; k < bg.size(); k++) {
             Grid q = new Grid();
@@ -91,6 +92,17 @@ public final class BayGpu {
             q.stats = buffer(gl, new float[4]);
             q.acc = buffer(gl, new float[2 * q.nz + 2 * q.nx]);
             q.aux = buffer(gl, new float[4 * (Math.max(q.nx, q.nz) + 4)]);
+            int[] fc = bay.forcedCells(k);
+            q.nforced = fc.length;
+            if (fc.length > 0) {
+                int[] ib = new int[1];
+                gl.glGenBuffers(1, ib, 0);
+                q.fcells = ib[0];
+                gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, q.fcells);
+                gl.glBufferData(GL4.GL_SHADER_STORAGE_BUFFER, fc.length * 4L, IntBuffer.wrap(fc), GL4.GL_STATIC_DRAW);
+                q.fbuf = new float[3 * fc.length];
+                q.fvals = buffer(gl, q.fbuf);
+            }
             grids.add(q);
         }
         tp0 = new double[grids.size()];
@@ -176,7 +188,8 @@ public final class BayGpu {
             gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, q.stats);
             gl.glBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, 4, zero.rewind());
             bind(gl, q.bed, q.a, q.stats);
-            run(gl, "maxspeed", q.nx * q.nz, "nx", q.nx, "nz", q.nz, "g", (float) q.g.gravity, "hDry", (float) q.g.hDry, "hVel", (float) q.g.hVel);
+            int[] sk = q.place == null ? new int[4] : q.place;
+            run(gl, "maxspeed", q.nx * q.nz, "nx", q.nx, "nz", q.nz, "si0", sk[0], "sj0", sk[1], "sni", sk[2], "snj", sk[3], "g", (float) q.g.gravity, "hDry", (float) q.g.hDry, "hVel", (float) q.g.hVel);
         }
         float[] out = new float[grids.size()];
         for (int k = 0; k < grids.size(); k++) out[k] = Float.intBitsToFloat(readInts(gl, grids.get(k).stats, 1)[0]);
@@ -214,8 +227,19 @@ public final class BayGpu {
         }
     }
 
-    /** Randzellen von st zur Zeit t: Seiten des gröbsten Gitters oder aus dem gröberen Gitter. */
+    /** Randzellen von st zur Zeit t: Seiten des gröbsten Gitters oder aus dem gröberen Gitter; dann die Linien im Inneren. */
     private void ghosts(GL4 gl, int k, int st, double t) {
+        edgesOrParent(gl, k, st, t);
+        Grid q = grids.get(k);
+        if (q.nforced == 0) return;
+        bay.forcedValues(k, t, q.fbuf);
+        gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, q.fvals);
+        gl.glBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, q.fbuf.length * 4L, FloatBuffer.wrap(q.fbuf));
+        bind(gl, q.bed, st, q.fcells, q.fvals);
+        run(gl, "force", q.nforced, "count", q.nforced, "n", q.n, "hVel", (float) q.g.hVel);
+    }
+
+    private void edgesOrParent(GL4 gl, int k, int st, double t) {
         Grid q = grids.get(k);
         if (k == 0) {
             for (int side = 0; side < 4; side++) {
@@ -298,6 +322,26 @@ public final class BayGpu {
         bay.takeOver(time, steps, busyNs / 1e6, nextSample);
     }
 
+    /** Wasserstand je Zelle von Gitter k (nx · nz, Zeile für Zeile, j = 0 zuerst), NaN wo trocken (unter 1 cm) oder Fels – für die Vorrechnung. */
+    public float[] surface(GL4 gl, int k) {
+        Grid q = grids.get(k);
+        float[] h = readFloats(gl, q.a, q.n), b = readFloats(gl, q.bed, q.n), out = new float[q.nx * q.nz];
+        for (int j = 0; j < q.nz; j++)
+            for (int i = 0; i < q.nx; i++) {
+                int c = (j + 2) * q.px + i + 2;
+                out[j * q.nx + i] = b[c] > 1e29f || h[c] <= 0.01f ? Float.NaN : h[c] + b[c];
+            }
+        return out;
+    }
+
+    /** Höchster Stand je Zelle von Gitter k bisher (nx · nz), NaN wo nie nass. */
+    public float[] maxSurface(GL4 gl, int k) {
+        Grid q = grids.get(k);
+        float[] e = readFloats(gl, q.eta, q.n), out = new float[q.nx * q.nz];
+        for (int j = 0; j < q.nz; j++) for (int i = 0; i < q.nx; i++) { float v = e[(j + 2) * q.px + i + 2]; out[j * q.nx + i] = v < -1e29f ? Float.NaN : v; }
+        return out;
+    }
+
     public double time() { return time; }
 
     public long steps() { return steps; }
@@ -319,7 +363,10 @@ public final class BayGpu {
     }
 
     public void dispose(GL4 gl) {
-        for (Grid q : grids) gl.glDeleteBuffers(10, new int[]{q.bed, q.a, q.s, q.old, q.flux, q.mflux, q.eta, q.stats, q.acc, q.aux}, 0);
+        for (Grid q : grids) {
+            gl.glDeleteBuffers(10, new int[]{q.bed, q.a, q.s, q.old, q.flux, q.mflux, q.eta, q.stats, q.acc, q.aux}, 0);
+            if (q.nforced > 0) gl.glDeleteBuffers(2, new int[]{q.fcells, q.fvals}, 0);
+        }
         for (int p : prog.values()) gl.glDeleteProgram(p);
         int[] qs = new int[pool.size() + pending.size()];
         int i = 0;
