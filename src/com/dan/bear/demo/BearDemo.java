@@ -187,7 +187,8 @@ public final class BearDemo {
 
     static void fenster() {
         FFrame fr = new FFrame("com.dan.bear · Küstenbraunbär");
-        JPanel root = new JPanel(new BorderLayout());
+        JPanel root = fr.getComponentPane();
+        root.setLayout(new BorderLayout());
         root.setBackground(new Color(12, 18, 24));
         DemoBay bay = new DemoBay();
         bay.tide = -0.6;
@@ -247,8 +248,8 @@ public final class BearDemo {
         root.add(mid, BorderLayout.CENTER);
         root.add(side, BorderLayout.EAST);
         root.add(info, BorderLayout.SOUTH);
-        fr.setContentPane(root);
-        fr.pack();
+        fr.setPreferredFrameSize(new Dimension(1560, 620));
+        fr.setSize(1560, 620);
         fr.setLocationRelativeTo(null);
         fr.setVisible(true);
         long[] last = {System.nanoTime()};
