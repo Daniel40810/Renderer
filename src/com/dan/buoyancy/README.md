@@ -37,7 +37,14 @@ floeGl.draw(gl, view, light, sekunden);                                    // na
 
 `BergCheck` prüft die Schollen: kein Stück ohne Eis oder hinter der Reichweite, alle auf dem Wasser und nach Form sortiert, innen ein plausibler Anteil bedeckt, gleicher Startwert ergibt gleiches Eis, Stücke bleiben beim Wandern, `nearWeight` von 0 bis 1.
 
-**Grenzen.** Die Stücke durchdringen sich, wo sie sich überlappen, und stoßen sich nicht (dafür `Bergs`). Der Schatten fällt nur auf den Wasserspiegel, nicht auf andere Stücke, und überlappende Schatten dunkeln doppelt. Die Seiten unter Wasser sieht man nur, wenn das Wasser keine Tiefe schreibt.
+**Seit W6 Runde 4:**
+- **Kein Überlappen** (`Floes.gap`, Vorgabe 0,85; 0 = wie in Runde 3): Liegen zwei stehende Stücke näher als `gap` mal die Summe der Halbmesser, bleibt das größere (bei gleicher Größe entscheidet der Hash). Die Regel sieht nur Nachbarn an, die selbst stehen, und hängt nicht von der Reihenfolge ab. `removedOverlap` zählt, was wegfiel. Bei gleicher Bedeckung stehen dadurch rund 30 % weniger Stücke; die App nimmt mehr `slots`.
+- **Schatten aufeinander:** `FloeGl` zeichnet die Stücke von der Sonne aus in eine eigene Schattenkarte (`shadowSize` 2048, Kasten ±`Light.shadowRadius` um das Auge, Vorgabe 300 m, 0 = aus) und liest sie mit 3×3-PCF für das Sonnenlicht und das Durchscheinen. Die Karte liegt beim Zeichnen auf `shadowUnit` (Vorgabe 6). Framebuffer, Bildausschnitt und Löschwert der Tiefe werden danach wiederhergestellt.
+- Die nasse Wasserlinie ist grau statt grünlich. Das Durchscheinen folgt der Helligkeit der Sonne, nicht ihrer Farbe (blaugrün mal Abendrot gab Mintgrün).
+
+`BergCheck` prüft dazu: keine zwei Stücke zu nah, ein Teil entfällt wegen größerer Nachbarn; die Matrix der Schattenkarte legt die Mitte auf 0 und gibt 150 m zur Sonne hin die Tiefe −0,5.
+
+**Grenzen.** Die Stücke stoßen sich nicht (dafür `Bergs`). Der Schatten auf dem Wasser bleibt ein Abbild entlang der Sonne; wo sich zwei Schatten überdecken, dunkeln sie doppelt. Die Seiten unter Wasser sieht man nur, wenn das Wasser keine Tiefe schreibt.
 
 ## Katamaran und mehr (seit Glacier Phase 10)
 

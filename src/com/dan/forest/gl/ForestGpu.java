@@ -214,7 +214,7 @@ public final class ForestGpu {
             TreeModel m = models[t];
             Season se = Season.of(m.species, day, snow);
             long k = culture.seed + t * 31L;
-            TreeMesh mid = TreeMesh.build(m, 1, 2);
+            TreeMesh mid = TreeMesh.build(m, 1, 2, fineNeedles);
             out[t] = ForestGl.pack(TreeMesh.build(m, 0, 0, fineNeedles), se, k, 1, 1);
             out[T + t] = ForestGl.pack(mid, se, k + 1, 1, 1);
             out[2 * T + t] = ForestGl.pack(mid, se, k + 2, 0.15f, 2.0f);

@@ -377,6 +377,11 @@ public final class TreeBaker {
                 if (p < 0) continue;
                 float seg = sk.dist(p, j);
                 if (seg < 1e-4f) continue;
+                if (lod.rootCut > 0) {
+                    float y0 = sk.pos[p * 3 + 1], y1 = sk.pos[j * 3 + 1];
+                    if (Math.max(y0, y1) < lod.rootCut) continue;
+                    if (sk.parent[p] < 0 && Math.abs(y1 - y0) < 0.5f * seg) continue;
+                }
                 float r1 = sk.radius[j];
                 float r0 = Math.min(sk.radius[p], r1 * 1.3f);
                 copy(sk.pos, p * 3, p0);

@@ -265,9 +265,27 @@ public final class BergCheck {
         for (int i = 0; i < 9; i++) { double r = Math.hypot(o[2 * i], o[2 * i + 1]); rmin = Math.min(rmin, r); rmax = Math.max(rmax, r); }
         check(n > 500 && rechts == 0 && fern == 0 && falschY == 0 && sort == 0, String.format(Locale.GERMAN,
                 "Schollen: %,d Stücke, keins ohne Eis (%d), keins hinter der Reichweite (%d), auf dem Wasser (%d), nach Form sortiert (%d)", n, rechts, fern, falschY, sort));
-        check(area / inner > 0.15 && area / inner < 0.8 && hmax <= f.freeboardMax + 1e-6, String.format(Locale.GERMAN,
-                "Schollen: innen %.0f %% der Fläche bedeckt (Bedeckung 60 %%, Stücke überlappen), höchstens %.2f des Durchmessers über Wasser", 100 * area / inner, hmax));
+        check(area / inner > 0.10 && area / inner < 0.8 && hmax <= f.freeboardMax + 1e-6, String.format(Locale.GERMAN,
+                "Schollen: innen %.0f %% der Fläche bedeckt (Bedeckung 60 %%), höchstens %.2f des Durchmessers über Wasser", 100 * area / inner, hmax));
         check(gleich && bleibt && rmin >= 0.26 - 1e-6 && rmax <= 0.5 + 1e-6, "Schollen: gleicher Startwert, gleiches Eis; Stücke bleiben, wenn das Auge wandert; Umriss 0,26 bis 0,5");
+        // seit W6 Runde 4: keine zwei Stücke näher als gap · (d1 + d2) / 2
+        int eng = 0;
+        for (int p1 = 0; p1 < n; p1++)
+            for (int p2 = p1 + 1; p2 < n; p2++) {
+                double ddx = f.data[12 * p1] - f.data[12 * p2], ddz = f.data[12 * p1 + 2] - f.data[12 * p2 + 2];
+                double lim = f.gap * 0.5 * (f.data[12 * p1 + 4] + f.data[12 * p2 + 4]) - 1e-3;
+                if (ddx * ddx + ddz * ddz < lim * lim) eng++;
+            }
+        check(eng == 0 && f.removedOverlap > 0, String.format(Locale.GERMAN, "Schollen: keine überlappen (%d Paare zu nah), %d wegen eines größeren Nachbarn entfallen", eng, f.removedOverlap));
+        // seit W6 Runde 4: Licht der Schattenkarte der Schollen: Mitte bei 0, zur Sonne hin kleinere Tiefe
+        float[] lm = new float[16];
+        double[] sun = {0.3, 0.5, -0.6};
+        com.dan.buoyancy.gl.FloeGl.lightMatrix(sun, 100, 2, -50, 300, lm);
+        double sl = Math.sqrt(0.09 + 0.25 + 0.36);
+        double[] pz = {100 + sun[0] / sl * 150, 2 + sun[1] / sl * 150, -50 + sun[2] / sl * 150};
+        double z0 = lm[2] * 100 + lm[6] * 2 + lm[10] * -50 + lm[14], z1 = lm[2] * pz[0] + lm[6] * pz[1] + lm[10] * pz[2] + lm[14];
+        double x0 = lm[0] * 100 + lm[4] * 2 + lm[8] * -50 + lm[12];
+        check(Math.abs(z0) < 1e-6 && Math.abs(x0) < 1e-6 && Math.abs(z1 + 0.5) < 1e-5, String.format(Locale.GERMAN, "Schollen: Schattenkarte mittig (%.1e), 150 m zur Sonne Tiefe %.3f (−0,5)", Math.abs(z0) + Math.abs(x0), z1));
         check(f.nearWeight(0) == 0 && f.nearWeight(f.radius) == 1 && f.nearWeight(f.radius * 0.85) > 0.3 && f.nearWeight(f.radius * 0.85) < 0.7, "Schollen: flaches Eis der App innen 0, ab der Reichweite 1");
     }
 

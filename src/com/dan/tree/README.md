@@ -156,7 +156,7 @@ gl.draw(gl4, view, light, t);
 - Die PVE-Assets bringen keine Texturen mit, nur Grundfarben. Rinde und Laub von Schwarzerle und Greasewood sind deshalb einfarbig, mit Zufall je Blatt und Verdeckung. Normal Maps der FBX-Packs werden nicht genutzt.
 - Der Wind der FBX-Bäume ist aus der Geometrie geschätzt. Ein tief hängender Ast schwingt so stark wie die Krone in gleichem Abstand zur Achse.
 - Die Hülle in Stufe 3 ist nur für große Entfernung gedacht. Aus der Nähe wirkt sie wie ein glatter Körper.
-- In `gl/` gibt es noch keine Schattenkarte. Der Prozessor-Renderer zeichnet unter jeder Krone einen weichen Fleck.
+- `gl/` empfängt Schatten (seit LituyaBay1958 W6 Runde 4, siehe unten), wirft aber selbst keine in eine Karte. Der Prozessor-Renderer zeichnet unter jeder Krone einen weichen Fleck.
 - `TreeGlDemo` fordert kein Multisampling an. Fehler beim Backen, Hochladen oder in OpenGL zeigt es in der Statuszeile an (`TreeGl.error()`).
 - Stufe 0 der großen Varianten (A 2,8 Mio., D 1,7 Mio. Dreiecke) ist für Nahansichten gedacht und braucht etwa 3 s zum Backen. `TreeGl` backt im Hintergrund und zeigt bis dahin die nächstgröbere fertige Stufe.
 - `usd2dtree.py` liest Y-oben-USD mit einem PointInstancer für die Zweige, so wie ihn der Procedural Vegetation Editor schreibt. `fbx2dtree.py` liest statische Meshes. Skelette und Animationen in FBX werden ignoriert.
@@ -165,3 +165,20 @@ gl.draw(gl4, view, light, t);
 ## Seit welcher Phase
 
 Seit Timmendorf Phase 5 im Renderer, aus dem Projekt Nature übernommen (dort `com.dan.tree` und `com.dan.grass`). Geändert beim Umzug: Gras ist `com.dan.tree.grass`, die Demos der Arten sind durch das Argument „Art“ ersetzt, `Tree` ist neu.
+
+## Seit LituyaBay1958 W6 Runde 4: Bäume aus der Nähe in einer fremden Szene
+
+Für Szenen, in denen `com.dan.forest` den Wald zeichnet und `com.dan.tree` einzelne Bäume aus der Nähe (Nahschnitt von `forest`, siehe dort). Beides ist voreingestellt aus, andere Szenen bleiben gleich.
+
+- **`TreeSpecies.rootCut`** (m, Vorgabe 0; für einzelne Stufen `TreeLod.rootCut`): Die Röhren am Fuß fallen weg. Ein Stück fällt weg, wenn es ganz unter dieser Höhe liegt oder am untersten Gelenk beginnt und flacher als 30° läuft. Die PVE-Bäume haben am Fuß waagerechte Gelenke für den Wurzelanlauf (Schwarzerle A: Radius bis 0,9 m). Als Röhren standen sie an einem Hang als Ringe in der Luft. Mit 0,4 m reicht die Rinde unter 1 m bei der Schwarzerle A nur noch 0,4 statt 0,9 m vom Stamm (`TreeCheck`). Stufe 0 (Originalnetz) bleibt.
+- **Licht wie `forest`** (`TreeGl.Light`): `shadowTexture` und `shadowRect` (Schattenkarte von oben, r = Durchlässigkeit), `sunShadowTexture`, `sunShadowMatrix`, `sunShadowBias` (Sonnenschatten mit 3×3-PCF), `skyTexture` (Rundumbild für die Farbe des Dunsts), `skyWeight` > 0 (Himmelslicht wie `forest`: 0,45 + 0,35 · Verdeckung + 0,2 · n.y, die Sonne unter dem Horizont aus). Die Felder heißen wie in `ForestGl.Light`, eine App kann die Werte eins zu eins übernehmen. Texturen auf den Einheiten 2, 3 und 4.
+
+```java
+TreeSpecies erle = BlackAlder.species();
+erle.rootCut = 0.4f;
+TreeGl gl = new TreeGl(erle);
+TreeGl.Light l = new TreeGl.Light();
+l.shadowTexture = waldLicht.shadowTexture;  l.shadowRect = waldLicht.shadowRect;
+l.skyTexture = waldLicht.skyTexture;        l.skyWeight = waldLicht.skyWeight;
+```
+
