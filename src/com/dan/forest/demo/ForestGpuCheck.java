@@ -190,6 +190,15 @@ public final class ForestGpuCheck {
                     innen, imBlick, gSet.size(), cSet.size()), innen > 20 && innen > 4 * imBlick && gSet.equals(cSet));
             f.update(gl, ForestGpuDemo.camera(0, 1920, 1080));
         }
+        // seit W6 Runde 7: Zählung ohne Warten (statsAsync) = Zählung mit Warten (readStats), nach ein paar Aufrufen
+        {
+            f.update(gl, ForestGpuDemo.camera(1, 1920, 1080));
+            int[] sync = f.readStats(gl), as = null;
+            for (int k = 0; k < 8 && as == null; k++) { as = f.statsAsync(gl); gl.glFinish(); }
+            if (as == null) as = f.statsAsync(gl);
+            check(String.format(Locale.GERMAN, "Zählung ohne Warten (statsAsync) = mit Warten: %,d / %,d Bäume, Aufruf %d", as == null ? -1 : as[0], sync[0], f.asyncStatsCall),
+                    as != null && java.util.Arrays.equals(as, sync));
+        }
         // Atlanten: Deckung je Schicht (Anteil der Bildpunkte mit Baum)
         double[] cov = f.atlasCoverage(gl);
         double lo = 1, hi = 0;
@@ -207,14 +216,18 @@ public final class ForestGpuCheck {
             gl.glDepthFunc(GL.GL_GREATER);
             gl.glEnable(GL.GL_SCISSOR_TEST);
             gl.glScissor(0, 0, 8, 8);
+            gl.glFrontFace(GL.GL_CW);   // Runde 7b: Wicklung umgekehrt wie im Spiegelbild von Lituya
             f.rebakeImpostors(gl);
+            int[] ffc = new int[1];
+            gl.glGetIntegerv(GL.GL_FRONT_FACE, ffc, 0);
+            gl.glFrontFace(GL.GL_CCW);
             int[] cm = new int[1];
             gl.glGetIntegerv(0x935D, cm, 0);
             byte[] dmask = new byte[1];
             gl.glGetBooleanv(GL.GL_DEPTH_WRITEMASK, dmask, 0);
             int[] df = new int[1];
             gl.glGetIntegerv(GL.GL_DEPTH_FUNC, df, 0);
-            boolean zustand = cm[0] == 0x935F && dmask[0] == 0 && df[0] == GL.GL_GREATER && gl.glIsEnabled(GL.GL_SCISSOR_TEST);
+            boolean zustand = cm[0] == 0x935F && dmask[0] == 0 && df[0] == GL.GL_GREATER && gl.glIsEnabled(GL.GL_SCISSOR_TEST) && ffc[0] == GL.GL_CW;
             gl.glDisable(GL.GL_SCISSOR_TEST);
             gl.glDepthMask(true);
             gl.glDepthFunc(GL.GL_LESS);
@@ -222,7 +235,7 @@ public final class ForestGpuCheck {
             byte[] a1 = f.atlasBytes(gl);
             int diff = 0;
             for (int i = 0; i < Math.min(a0.length, a1.length); i++) diff = Math.max(diff, Math.abs((a0[i] & 255) - (a1[i] & 255)));
-            check(String.format(Locale.GERMAN, "Impostors unter glClipControl 0..1, ohne Schreiben der Tiefe, mit GREATER und Schere gebacken wie ohne (größte Abweichung %d von 255, Zustand danach wieder wie vorher: %s)",
+            check(String.format(Locale.GERMAN, "Impostors unter glClipControl 0..1, ohne Schreiben der Tiefe, mit GREATER, Schere und umgekehrter Wicklung gebacken wie ohne (größte Abweichung %d von 255, Zustand danach wieder wie vorher: %s)",
                     diff, zustand), a0.length == a1.length && a0.length > 0 && diff <= 1 && zustand);
         }
         System.out.println(f.info());

@@ -8,6 +8,7 @@ import com.dan.tree.TreeSpecies;
 import com.dan.tree.TreeWind;
 import com.jogamp.common.nio.Buffers;
 import com.jogamp.opengl.GL;
+import com.jogamp.opengl.GL2ES3;
 import com.jogamp.opengl.GL4;
 
 import java.io.IOException;
@@ -66,6 +67,10 @@ public final class TreeGl {
         public int sunShadowTaps = 9;
         /** Seit W6 Runde 6: feuchte Seite der Stämme (Welt, waagerecht), wie {@code com.dan.forest.gl.ForestGl.Light}. */
         public double[] mossSide = {0, 0, 0};
+        /** Seit W6 Runde 7: Moos aus einer Textur wie {@code com.dan.forest.gl.ForestGl.Light#mossTexture} (0 = gestaltet). */
+        public int mossTexture, mossLayer;
+        public double mossTile = 0.1;
+        public double[] mossMean = {0.04, 0.066, 0.01};
         /**
          * Seit LituyaBay1958 W6 Runde 4, wie {@code com.dan.forest.gl.ForestGl.Light}, damit Bäume aus beiden Packages in
          * einer Szene gleich hell stehen: Schattenkarte von oben (r = Durchlässigkeit, etwa Gelände oder Wolken; 0 = keine)
@@ -380,6 +385,12 @@ public final class TreeGl {
         gl.glUniform4f(loc(gl, "uBarkPat"), barkDetail && species.barkStyle != TreeSpecies.BARK_NONE ? 1f : 0f, species.barkStyle,
                 Math.max(0, Math.min(1, species.lichen)), Math.max(0, Math.min(1, species.moss)));
         gl.glUniform3f(loc(gl, "uMossSide"), (float) light.mossSide[0], (float) light.mossSide[1], (float) light.mossSide[2]);
+        gl.glActiveTexture(GL.GL_TEXTURE0 + 10);   // Runde 7: Moostextur auf Stelle 10
+        gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, light.mossTexture);
+        gl.glActiveTexture(GL.GL_TEXTURE0);
+        gl.glUniform1i(loc(gl, "uMossTex"), 10);
+        gl.glUniform4f(loc(gl, "uMossTexP"), light.mossTexture != 0 ? 1f : 0f, (float) light.mossTile, light.mossLayer, 0f);
+        gl.glUniform3f(loc(gl, "uMossMean"), (float) light.mossMean[0], (float) light.mossMean[1], (float) light.mossMean[2]);
         double[] sd = light.sunDir;
         double sl = Math.sqrt(sd[0] * sd[0] + sd[1] * sd[1] + sd[2] * sd[2]);
         gl.glUniform3f(loc(gl, "uSunDir"), (float) (sd[0] / sl), (float) (sd[1] / sl), (float) (sd[2] / sl));

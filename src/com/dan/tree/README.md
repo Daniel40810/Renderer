@@ -208,3 +208,7 @@ gl.drawShadow(gl4, karte.matrix, t);
 - Schwarzerle: Moos 0,5 [G].
 
 `TreeCheck` prüft den Fingerabdruck des Rindenblocks (er hat sich mit dem Moos geändert, in beiden Packages gleich) und das Moos der Schwarzerle.
+
+## Seit LituyaBay1958 W6 Runde 7: Moos aus einer Textur
+
+`TreeGl.Light.mossTexture`, `mossLayer`, `mossTile`, `mossMean` wie in `com.dan.forest` (Stelle 10). Der Rindenblock ist derselbe; der Fingerabdruck ist jetzt af748ec7. Ohne Textur bleibt das gestaltete Moos aus Runde 6. Bartflechten als Karten gibt es in `tree` noch nicht.

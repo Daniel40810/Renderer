@@ -13,6 +13,8 @@ uniform float uTime;
 uniform vec4 uWind;                     // Richtung (wohin) x, z, Geschwindigkeit (m/s), Böigkeit 0..1
 uniform vec4 uRime;                     // Eis: Dicke (m), Art (0 keins, 1 Raueis, 2 Raureif, 3 Klareis), woher x, z
 uniform vec2 uRimeBand;                 // darunter kein Eis, darüber die volle Dicke (m über NN)
+// seit W6 Runde 7: Karten (Bartflechten, aAux.y = 2 + Ebene; aCol = u, v, Tönung): u, v, Ebene; sonst z = −1
+out vec3 vCard;
 #ifndef DEPTH_ONLY
 out vec3 vWorld;
 out vec3 vNormal;
@@ -40,6 +42,13 @@ void main() {
     // Laub zittert (klein, nur nah sichtbar)
     float fl = step(0.75, aAux.y) * 0.012 * min(U, 14.0) * sin(uTime * 6.3 + dot(aPos, vec3(3.1, 1.7, 2.3)) + iB.z);
     p += vec3(fl, fl * 0.5, -fl * 0.7);
+    // Karten hängen und pendeln: unten mehr (v²), mit dem Wind und in eigener Phase [G]
+    bool card = aAux.y > 1.5;
+    if (card) {
+        float pend = aCol.y * aCol.y * min(U, 14.0) * (0.012 + 0.008 * sin(uTime * 1.9 + iB.z * 7.0 + aPos.x * 3.0));
+        p.xz += dir * pend + vec2(0.4, -0.3) * pend * sin(uTime * 2.7 + aPos.z * 5.0);
+    }
+    vCard = card ? vec3(aCol.xy, aAux.y - 2.0) : vec3(0.0, 0.0, -1.0);
     // Eis: Raueis wächst auf der Luvseite der Krone als Fahne gegen den Wind (an Nadeln und dürren Zweigen, Holz der
     // Stämme kaum), die Last drückt die Äste nach unten; Raureif und Klareis legen sich nur um
     float dicke = uRime.x * smoothstep(uRimeBand.x, uRimeBand.y, iA.y + p.y);
@@ -57,7 +66,7 @@ void main() {
     gl_Position = uVP * vec4(w, 1.0);
 #ifndef DEPTH_ONLY
     vNormal = vec3(c * aNrm.x - s * aNrm.z, aNrm.y, s * aNrm.x + c * aNrm.z);
-    vColor = aCol * mix(vec3(0.84, 0.88, 0.86), vec3(1.14, 1.08, 0.96), iB.y);
+    vColor = card ? vec3(1.0, 1.0, aCol.z * mix(0.9, 1.1, iB.y)) : aCol * mix(vec3(0.84, 0.88, 0.86), vec3(1.14, 1.08, 0.96), iB.y);
     vWorld = w;
     vLeafy = aAux.y;
     vH = aAux.x;

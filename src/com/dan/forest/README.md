@@ -346,3 +346,39 @@ karte.end(gl);
 ```
 
 **Grenzen.** Moos und Flechten sind gestaltet [G] und stammen nicht aus Fotos. Es gibt kein Moos auf dem Boden der Krone und keine Epiphyten (Farne, Lebermoose) auf den Ästen. Die Bartflechten hängen nur in Stufe 0, schon in Stufe 1 fehlen sie.
+
+## Seit LituyaBay1958 W6 Runde 7: Moos aus einer Textur, Bartflechten als Karten
+
+Beides wirkt erst, wenn die App eine Textur setzt; ohne Textur bleibt es wie in Runde 6.
+
+- **Moostextur** (`Light.mossTexture`, `mossLayer`, `mossTile`, `mossMean`; etwa aus `com.dan.moss.gl.MossGl`): Im Rindenblock liest `barkMoss` die Textur dreifach projiziert im Ort des Baums.
+  - Gewichte aus der Fläche, explizite Ableitungen (`bkDx`, `bkDy` aus `main`, `textureGrad`).
+  - Nah die Textur, fern ihr Mittel. Der Rand des Polsters folgt der Höhe der Triebe.
+  - Stelle 10 (`ForestGl.UNIT_MOSS`). Der Rindenblock hat damit einen neuen Fingerabdruck (af748ec7, in `forest` und `tree` gleich).
+- **Bartflechten als Karten** (`TreeMesh.CARD`; `ForestGpu.beardCards` und `beardTexture`, ebenso in `ForestGl`; zusammen mit `beardLichen`):
+  - **Geometrie:** je Büschel zwei gekreuzte Rechtecke an der Unterseite eines Asts. Maße aus `TreeMesh.Cards` (je Ebene Breite, Höhe, Ansatz), je Büschel 0,7- bis 1,25-fach. Stellen und Auswahl wie die Strähnen aus Runde 6.
+  - **Stufen:** in Stufe 0 alle Büschel, in Stufe 1 jedes zweite. Nicht in Stufe 2 und nicht in den Impostors (`forestgpu_bake.frag` wirft Karten weg).
+  - **Netz:** Die Farbe trägt u, v und die Tönung mit Verdeckung; im Netz steht 2 + Ebene. Jahreszeit und Schnee lassen Karten unverändert.
+  - **`forest.vert`:** Karten pendeln, unten mehr (v²). Ausgabe `vCard` (u, v, Ebene; sonst z = −1).
+  - **`forest.frag` und `forest_shadow.frag`:** Bild der Ebene von Stelle 11 (`UNIT_CARD`). Alpha gewürfelt gegen ein verschachteltes Gradientenrauschen, das je Bild wandert (`uCardFrame`); die Kantenglättung über die Zeit mittelt. Ohne Textur Fäden aus Rauschen.
+  - **Schattenkarte:** Karten werfen Schatten nach ihrer Deckung.
+- `ForestGl.pack` ist öffentlich (Prüfungen).
+- **Impostors unabhängig von der Wicklung (Runde 7b):** `forestgpu_bake.frag` dreht die Normalen des Holzes zum Betrachter (`dot(n, uDir)`), statt sich auf `gl_FrontFacing` zu verlassen; `bakeImpostors` setzt dazu `glFrontFace(GL_CCW)` und danach zurück. Lituya dreht für das Spiegelbild die Wicklung um. Fiel das Backen in das Spiegelbild (je nach Lauf), zeigten die Normalen des Holzes anders als sonst: die Stämme in den Impostors waren dann hell statt schwarz. Das waren die „hellen fernen Stämme" aus Runde 5 und 6. Richtig ist hell: Holz in der Sonne. `ForestGpuCheck` backt jetzt auch mit umgekehrter Wicklung.
+- **`ForestGpu.statsAsync(gl)`**: die Zählung der letzten Prüfung ohne Warten. Sie wird auf der Grafikkarte in einen von drei dauerhaft abgebildeten Puffern kopiert; zurück kommt die jüngste fertige Kopie (einige Bilder alt) oder `null`, die Nummer des Aufrufs steht in `asyncStatsCall`. `readStats` wartet auf die Grafikkarte; in Lituya verschob genau dieses Warten den Ablauf so, dass ein Fehler verschwand, den das Protokoll finden sollte. `ForestGpuCheck`: ohne Warten = mit Warten.
+
+```java
+wald.beardLichen = true;
+wald.beardCards = new TreeMesh.Cards(breiten, höhen, ansätze);
+wald.beardTexture = com.dan.lichen.gl.LichenGl.upload(gl, karten);   // oder 0: Fäden aus Rauschen
+licht.mossTexture = com.dan.moss.gl.MossGl.upload(gl, moos);  licht.mossTile = moos.tile;  licht.mossMean = …;
+```
+
+**Prüfung.** `ForestCheck` prüft je Art mit Bartflechten:
+- Karten in Stufe 0, in Stufe 1 rund die Hälfte;
+- je Karte 4 Dreiecke, alle drei Ebenen benutzt;
+- nicht unter 0,4 m;
+- die Farbe trägt u, v (0 oder 1) und die Tönung, auch nach Jahreszeit und Schnee;
+- im gepackten Netz steht 2 + Ebene;
+- das übrige Netz bleibt unverändert.
+
+**Grenzen.** Karten sind flach (zwei gekreuzte Bilder). Das gewürfelte Alpha braucht eine Kantenglättung über die Zeit; ohne sie rauschen die Fäden. Moos nur auf der Rinde, nicht auf dem Boden der Krone.
