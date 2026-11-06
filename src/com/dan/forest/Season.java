@@ -87,6 +87,7 @@ public final class Season {
         for (int i = 0; i < m.nv; i++) {
             float r = m.col[3 * i], g = m.col[3 * i + 1], b = m.col[3 * i + 2];
             byte p = m.part[i];
+            if (p == TreeMesh.CARD) { out[3 * i] = r; out[3 * i + 1] = g; out[3 * i + 2] = b; continue; }   // Runde 7: u, v, Tönung
             if (p != TreeMesh.BARK && p != TreeMesh.CONE) {
                 int li = m.leaf[i];
                 float tone = li >= 0 ? m.model.leaves.get(m.leafIds[li]).tone : 0.5f;

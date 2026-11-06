@@ -65,6 +65,33 @@ public final class ForestCheck {
                 check(String.format(java.util.Locale.GERMAN, "%s: Bartflechten in Stufe 0 (%d Dreiecke, tiefste Strähne bei %.1f m), übriges Netz unverändert, Stufe 1 ohne",
                         s.name, bt.beardTriangles, tief), ok && TreeMesh.build(m1, 1, 1, true, true).nt == TreeMesh.build(m1, 1, 1, true).nt);
             }
+            if (s.beard > 0 && !s.lying) {
+                // seit W6 Runde 7: Bartflechten als Karten (Stufe 0 alle, Stufe 1 rund die Hälfte), u, v, Tönung in der
+                // Farbe, Ebene im Netz als 2 + Ebene; Jahreszeit und Schnee lassen Karten unverändert
+                TreeMesh.Cards cards = new TreeMesh.Cards(new float[]{0.12f, 0.2f, 0.15f}, new float[]{0.25f, 0.4f, 0.3f}, new float[]{0.04f, 0.03f, 0.05f});
+                TreeMesh fn = TreeMesh.build(m1, 0, 0, true), k0 = TreeMesh.build(m1, 0, 0, true, cards), k1 = TreeMesh.build(m1, 1, 1, true, cards),
+                        f1 = TreeMesh.build(m1, 1, 1, true);
+                int c0 = k0.nt - fn.nt, c1 = k1.nt - f1.nt;
+                boolean ok = c0 > 0 && c0 == k0.beardTriangles && c0 % 4 == 0 && c1 > 0 && c1 < c0 * 0.8 && c1 > c0 * 0.2;
+                int[] layers = new int[3];
+                float tief = Float.MAX_VALUE;
+                for (int i = fn.nv; ok && i < k0.nv; i++) {
+                    ok = k0.part[i] == TreeMesh.CARD && (k0.col[3 * i] == 0 || k0.col[3 * i] == 1) && (k0.col[3 * i + 1] == 0 || k0.col[3 * i + 1] == 1)
+                            && k0.col[3 * i + 2] > 0.2f && k0.col[3 * i + 2] < 1.2f && k0.leaf[i] <= -2 && k0.leaf[i] >= -4;
+                    if (ok) layers[-2 - k0.leaf[i]]++;
+                    tief = Math.min(tief, k0.pos[3 * i + 1]);
+                }
+                ok &= tief >= 0.4f - 1e-4f;
+                for (int i = 0; ok && i < 3 * fn.nv; i++) ok = k0.col[i] == fn.col[i];
+                float[] sc = new float[3 * k0.nv];
+                Season.of(s, 15, 0.8f).colorize(k0, sc);
+                for (int i = fn.nv; ok && i < k0.nv; i++) ok = sc[3 * i] == k0.col[3 * i] && sc[3 * i + 1] == k0.col[3 * i + 1] && sc[3 * i + 2] == k0.col[3 * i + 2];
+                float[][] pk = com.dan.forest.gl.ForestGl.pack(k0, Season.of(s, 200, 0), 1, 1, 1);
+                int vs = pk[0].length / k0.nv;
+                for (int i = fn.nv; ok && i < k0.nv; i++) ok = pk[0][i * vs + 10] == 2 + (-2 - k0.leaf[i]) && pk[0][i * vs + 6] == k0.col[3 * i];
+                check(String.format(java.util.Locale.GERMAN, "%s: Bartflechten als Karten, Stufe 0 %d, Stufe 1 %d Dreiecke, Ebenen %d/%d/%d, tiefste bei %.1f m; Farbe = u, v, Tönung, auch nach Jahreszeit und Schnee; im Netz 2 + Ebene",
+                        s.name, c0, c1, layers[0], layers[1], layers[2], tief), ok && (c0 < 120 || layers[0] > 0 && layers[1] > 0 && layers[2] > 0));
+            }
             // Wind: ohne Wind still, mit Wind bewegt sich die Spitze deutlich, der Fuß kaum
             TreeMesh t = TreeMesh.build(m1, 1);
             TreeAnimator an = new TreeAnimator(t);
@@ -461,7 +488,7 @@ public final class ForestCheck {
         check(String.format("Rinde: Block in forest.frag, CRC %08x (erwartet %08x, sonst tree.frag mitziehen)", crc, RINDE_CRC), crc == RINDE_CRC);
     }
 
-    static final long RINDE_CRC = 0xb39e9755L;
+    static final long RINDE_CRC = 0xaf748ec7L;
 
     private static void check(String what, boolean ok) {
         System.out.println((ok ? "  ok    " : "  FEHLER ") + what);

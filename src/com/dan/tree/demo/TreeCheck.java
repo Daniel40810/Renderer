@@ -366,7 +366,7 @@ public final class TreeCheck {
     }
 
     /** Fingerabdruck des Rindenblocks (CRC32 über den Text mit zusammengezogenem Leerraum), gleich in ForestCheck. */
-    static final long RINDE_CRC = 0xb39e9755L;
+    static final long RINDE_CRC = 0xaf748ec7L;
 
     /** Text zwischen den Marken RINDE BEGINN und RINDE ENDE (ohne die erste Zeile), oder null. */
     static String rinde(String s) {

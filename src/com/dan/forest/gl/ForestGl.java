@@ -8,6 +8,7 @@ import com.dan.forest.TreeMesh;
 import com.dan.forest.TreeModel;
 import com.jogamp.common.nio.Buffers;
 import com.jogamp.opengl.GL;
+import com.jogamp.opengl.GL2ES3;
 import com.jogamp.opengl.GL4;
 
 import java.io.IOException;
@@ -51,6 +52,10 @@ public final class ForestGl {
      * &gt; 0 (zwei gekreuzte, sich verjüngende Bänder je Strähne). Vor init bzw. vor dem Backen setzen. Vorgabe aus.
      */
     public boolean beardLichen;
+    /** Seit W6 Runde 7: wie {@code ForestGpu.beardCards} und {@code beardTexture}. */
+    public TreeMesh.Cards beardCards;
+    public int beardTexture;
+    private int cardFrame;
 
     /** Blick: Projektion·Blick, Auge, Tiefenkonvention. */
     public static final class View {
@@ -83,6 +88,14 @@ public final class ForestGl {
         public int sunShadowTaps = 9;
         /** Seit W6 Runde 6: feuchte Seite der Stämme (Welt, waagerecht, etwa die Wetterseite); dort reicht das Moos höher. 0 = keine. */
         public double[] mossSide = {0, 0, 0};
+        /**
+         * Seit LituyaBay1958 W6 Runde 7: Moos aus einer Textur (GL_TEXTURE_2D_ARRAY, rgb Albedo · Verdeckung linear, a Höhe;
+         * etwa aus {@code com.dan.moss}), Ebene, Kante einer Kachel (m) und ihr gesehenes Mittel (linear). 0 = gestaltetes
+         * Moos wie in Runde 6.
+         */
+        public int mossTexture, mossLayer;
+        public double mossTile = 0.1;
+        public double[] mossMean = {0.04, 0.066, 0.01};
     }
 
     /** Ecke im Puffer: Lage 3, Normale 3, Farbe 3 (linear, mit Verdeckung), Höhe 0..1, Laub (1 Blatt, 0,5 Kronenhülle, 0 Holz). */
@@ -204,8 +217,8 @@ public final class ForestGl {
                 TreeModel m = models[s][v];
                 TreeMesh mid = TreeMesh.build(m, 1, 2);
                 long k = seed + s * 31 + v * 7;
-                out[bucketOf(s, v, 0)] = pack(TreeMesh.build(m, 0, 0, false, beardLichen), se, k, 1, 1);
-                out[bucketOf(s, v, 1)] = pack(mid, se, k + 1, 1, 1);
+                out[bucketOf(s, v, 0)] = pack(beardLichen && beardCards != null ? TreeMesh.build(m, 0, 0, false, beardCards) : TreeMesh.build(m, 0, 0, false, beardLichen), se, k, 1, 1);
+                out[bucketOf(s, v, 1)] = pack(beardLichen && beardCards != null ? TreeMesh.build(m, 1, 2, false, beardCards) : mid, se, k + 1, 1, 1);
                 // Stufe 2: dieselben Blattbüschel, nur jedes siebte, dafür doppelt so groß (gezackt wie nah, ein Zehntel der Dreiecke)
                 out[bucketOf(s, v, 2)] = pack(mid, se, k + 2, 0.15f, 2.0f);
                 out[bucketOf(s, v, 3)] = pack(TreeMesh.silhouette(m, 7, 4), se, k + 3, 1, 1);
@@ -219,6 +232,28 @@ public final class ForestGl {
      * Seit W6 Runde 5: Stil, Flechten und (seit Runde 6) Moos der Rinde für den Shader: −(Stil + l/10 + m/100 + 0,001), l
      * und m die Anteile in Neunteln (0..9); 0 ohne Muster. forest.frag liest l = ⌊f·10⌋, m = ⌊f·100 − 10 l⌋.
      */
+    /** Seit Runde 7: Moostextur auf Stelle {@link #UNIT_MOSS} und ihre Uniforms (uMossTex, uMossTexP, uMossMean). */
+    public static final int UNIT_MOSS = 10, UNIT_CARD = 11;
+
+    /** Seit Runde 7: Karten der Bartflechten auf Stelle {@link #UNIT_CARD} (uCardTex, uCardOn, uCardFrame für das Würfeln). */
+    static void cardUniforms(GL4 gl, int p, int tex, int frame) {
+        gl.glActiveTexture(GL.GL_TEXTURE0 + UNIT_CARD);
+        gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, tex);
+        gl.glActiveTexture(GL.GL_TEXTURE0);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uCardTex"), UNIT_CARD);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uCardOn"), tex != 0 ? 1 : 0);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uCardFrame"), frame & 1023);
+    }
+
+    static void mossUniforms(GL4 gl, int p, Light l) {
+        gl.glActiveTexture(GL.GL_TEXTURE0 + UNIT_MOSS);
+        gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, l.mossTexture);
+        gl.glActiveTexture(GL.GL_TEXTURE0);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uMossTex"), UNIT_MOSS);
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uMossTexP"), l.mossTexture != 0 ? 1f : 0f, (float) l.mossTile, l.mossLayer, 0f);
+        gl.glUniform3f(gl.glGetUniformLocation(p, "uMossMean"), (float) l.mossMean[0], (float) l.mossMean[1], (float) l.mossMean[2]);
+    }
+
     public static float barkCode(Species sp) {
         if (sp.barkStyle == null || sp.barkStyle == Species.BarkStyle.NONE) return 0;
         int l = Math.round(9 * Math.max(0, Math.min(1, sp.lichen))), m = Math.round(9 * Math.max(0, Math.min(1, sp.moss)));
@@ -238,7 +273,7 @@ public final class ForestGl {
      * Ein Netz mit Jahreszeit: Farben, gefallene Blätter weg, Ballen mit gestreuten Normalen. keep &lt; 1 behält nur
      * diesen Anteil der Blattbüschel und vergrößert sie um grow (um ihren Ansatz).
      */
-    static float[][] pack(TreeMesh t, Season se, long seed, float keep, float grow) {
+    public static float[][] pack(TreeMesh t, Season se, long seed, float keep, float grow) {
         int nv = t.nv;
         float[] col = new float[3 * nv];
         se.colorize(t, col);
@@ -300,6 +335,8 @@ public final class ForestGl {
             // seit W6 Runde 5: Holz trägt das Muster der Rinde als negativen Wert: −(Stil + 0,1 · Flechten)
             // seit W6 Runde 5: Nadeln 0,95 (wie Laub, nur forest.frag mit uShoot erkennt sie als Triebe)
             v[o + 10] = leafy ? (p == TreeMesh.CLUMP && t.lod >= 3 ? 0.5f : p == TreeMesh.NEEDLES ? 0.95f : 1f) : p == TreeMesh.BARK ? barkCode(sp) : 0;
+            // seit W6 Runde 7: Karte (Bartflechte): 2 + Ebene, die Farbe trägt u, v, Tönung (siehe TreeMesh.CARD)
+            if (p == TreeMesh.CARD) v[o + 10] = 2 + (-2 - t.leaf[i]);
         }
         // Laubballen der Stufe 2 (je 12 Ecken ein Ikosaeder) etwas kleiner: sie stehen für lichtes Laub, nicht für Kugeln
         if (t.lod == 2)
@@ -428,6 +465,8 @@ public final class ForestGl {
         gl.glUniform1i(loc(gl, program, "uBark"), barkDetail ? 1 : 0);   // seit W6 Runde 5
         gl.glUniform1i(loc(gl, program, "uShoot"), shootLight ? 1 : 0);
         gl.glUniform3f(loc(gl, program, "uMossSide"), (float) l.mossSide[0], (float) l.mossSide[1], (float) l.mossSide[2]);
+        mossUniforms(gl, program, l);
+        cardUniforms(gl, program, beardTexture, cardFrame++);
         gl.glActiveTexture(GL.GL_TEXTURE5);
         gl.glBindTexture(GL.GL_TEXTURE_2D, l.shadowTexture);
         gl.glActiveTexture(GL.GL_TEXTURE6);
@@ -464,6 +503,7 @@ public final class ForestGl {
         if (!uploaded) return;
         gl.glUseProgram(shadowProgram);
         common(gl, shadowProgram, lightVP, new double[]{0, 0, 0}, t);
+        cardUniforms(gl, shadowProgram, beardTexture, 0);
         gl.glDisable(GL.GL_CULL_FACE);
         for (int b = 0; b < buckets; b++) {
             if (drawn[b] == 0 || shadowIdx[b] == 0 || ForestField.lodOf(b) > maxLod) continue;

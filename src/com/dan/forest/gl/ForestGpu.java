@@ -94,6 +94,13 @@ public final class ForestGpu {
      * &gt; 0 (zwei gekreuzte, sich verjüngende Bänder je Strähne). Vor init bzw. vor dem Backen setzen. Vorgabe aus.
      */
     public boolean beardLichen;
+    /**
+     * Seit LituyaBay1958 W6 Runde 7: mit {@link #beardLichen} die Bartflechten als Karten ({@link TreeMesh#CARD}) in
+     * Stufe 0 und 1, Maße je Ebene aus beardCards, Bild aus {@link #beardTexture} (GL_TEXTURE_2D_ARRAY, rgb Albedo in sRGB,
+     * a Deckung; etwa aus {@code com.dan.lichen.gl.LichenGl}). beardTexture 0: Fäden aus Rauschen. Vor dem Backen setzen.
+     */
+    public TreeMesh.Cards beardCards;
+    public int beardTexture;
     private int framePx = 96, capacity = 1_200_000;
 
     private int cullProg, scanProg, meshProg, shadowProg, impProg, bakeProg;
@@ -231,8 +238,9 @@ public final class ForestGpu {
             Season se = Season.of(m.species, day, snow);
             long k = culture.seed + t * 31L;
             TreeMesh mid = TreeMesh.build(m, 1, 2, fineNeedles);
-            out[t] = ForestGl.pack(TreeMesh.build(m, 0, 0, fineNeedles, beardLichen), se, k, 1, 1);
-            out[T + t] = ForestGl.pack(mid, se, k + 1, 1, 1);
+            boolean karten = beardLichen && beardCards != null;   // Runde 7: Bartflechten als Karten, Stufe 0 und 1
+            out[t] = ForestGl.pack(karten ? TreeMesh.build(m, 0, 0, fineNeedles, beardCards) : TreeMesh.build(m, 0, 0, fineNeedles, beardLichen), se, k, 1, 1);
+            out[T + t] = ForestGl.pack(karten ? TreeMesh.build(m, 1, 2, fineNeedles, beardCards) : mid, se, k + 1, 1, 1);
             out[2 * T + t] = ForestGl.pack(mid, se, k + 2, 0.15f, 2.0f);
             boolean standing = t < S * V;
             out[3 * T + t] = standing ? new float[][]{new float[0], new float[0]} : ForestGl.pack(TreeMesh.build(m, 3), se, k + 3, 1, 1);
@@ -405,6 +413,9 @@ public final class ForestGpu {
         gl.glGetBooleanv(GL.GL_DEPTH_WRITEMASK, dm, 0);
         gl.glGetBooleanv(GL.GL_COLOR_WRITEMASK, cm, 0);
         boolean scissorOn = gl.glIsEnabled(GL.GL_SCISSOR_TEST);
+        int[] ff = new int[1];
+        gl.glGetIntegerv(GL.GL_FRONT_FACE, ff, 0);
+        gl.glFrontFace(GL.GL_CCW);   // Runde 7b: das Spiegelbild der App dreht die Wicklung um
         gl.glDepthMask(true);
         gl.glColorMask(true, true, true, true);
         gl.glDisable(GL.GL_SCISSOR_TEST);
@@ -458,6 +469,7 @@ public final class ForestGpu {
         gl.glDepthMask(dm[0] != 0);
         gl.glColorMask(cm[0] != 0, cm[1] != 0, cm[2] != 0, cm[3] != 0);
         if (scissorOn) gl.glEnable(GL.GL_SCISSOR_TEST);
+        gl.glFrontFace(ff[0]);
         impBakes++;
         for (int tex : new int[]{albTex, nrmTex}) {
             gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, tex);
@@ -474,7 +486,7 @@ public final class ForestGpu {
         double r = 0, g = 0, b = 0;
         int n = 0;
         for (int i = 0; i < v.length; i += VSTRIDE)
-            if (v[i + 10] > 0.25f) { r += v[i + 6]; g += v[i + 7]; b += v[i + 8]; n++; }
+            if (v[i + 10] > 0.25f && v[i + 10] < 1.5f) { r += v[i + 6]; g += v[i + 7]; b += v[i + 8]; n++; }   // ohne Karten (Runde 7)
         if (n == 0) for (int i = 0; i < v.length; i += VSTRIDE) { r += v[i + 6]; g += v[i + 7]; b += v[i + 8]; n++; }
         n = Math.max(1, n);
         return new float[]{(float) (r / n), (float) (g / n), (float) (b / n)};
@@ -586,6 +598,7 @@ public final class ForestGpu {
         if (!uploaded || !shadowCulled || levels <= 0) return;
         gl.glUseProgram(shadowProg);
         common(gl, shadowProg, lightVP, new double[]{0, 0, 0}, t);
+        ForestGl.cardUniforms(gl, shadowProg, beardTexture, 0);
         gl.glDisable(GL.GL_CULL_FACE);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, shCmd);
         gl.glBindVertexArray(shVao);
@@ -596,6 +609,7 @@ public final class ForestGpu {
     }
 
     private int shCnt, shCmd, shInst, shStat, shVao, shCap;
+    private int uTimeFrame;
     private boolean shadowCulled;
 
     private void shadowBuffers(GL4 gl, int cap) {
@@ -708,6 +722,67 @@ public final class ForestGpu {
     private IntBuffer zeros;
 
     /** Liest die Zähler der letzten Kultur (wartet auf die Grafikkarte; selten aufrufen). */
+    /**
+     * Seit LituyaBay1958 W6 Runde 7: die Zählung der letzten Prüfung ohne Warten. Kopiert sie auf der Grafikkarte in einen
+     * von drei dauerhaft abgebildeten Puffern und gibt die jüngste fertige Kopie eines früheren Aufrufs zurück (oder null),
+     * zusammen mit der Nummer des Aufrufs in {@link #asyncStatsCall}. Für Protokolle je Bild; {@link #readStats} wartet.
+     */
+    public int[] statsAsync(GL4 gl) {
+        int bins = LODS * T, bytes = (bins + 2) * 4;
+        if (asBuf == null) {
+            asBuf = new int[3];
+            asMap = new java.nio.IntBuffer[3];
+            asFence = new long[3];
+            asCall = new long[3];
+            gl.glGenBuffers(3, asBuf, 0);
+            int fl = GL4.GL_MAP_READ_BIT | GL4.GL_MAP_PERSISTENT_BIT | GL4.GL_MAP_COHERENT_BIT;
+            for (int k = 0; k < 3; k++) {
+                gl.glBindBuffer(GL4.GL_COPY_WRITE_BUFFER, asBuf[k]);
+                gl.glBufferStorage(GL4.GL_COPY_WRITE_BUFFER, bytes, null, fl);
+                asMap[k] = gl.glMapBufferRange(GL4.GL_COPY_WRITE_BUFFER, 0, bytes, fl).order(java.nio.ByteOrder.nativeOrder()).asIntBuffer();
+            }
+            gl.glBindBuffer(GL4.GL_COPY_WRITE_BUFFER, 0);
+        }
+        int[] out = null;
+        long best = -1;
+        int[] st = new int[1];
+        for (int k = 0; k < 3; k++) {
+            if (asFence[k] == 0) continue;
+            gl.glGetSynciv(asFence[k], GL4.GL_SYNC_STATUS, 1, null, 0, st, 0);
+            if (st[0] != GL4.GL_SIGNALED) continue;
+            gl.glDeleteSync(asFence[k]);
+            asFence[k] = 0;
+            if (asCall[k] > best) {
+                best = asCall[k];
+                out = new int[bins + 2];
+                asMap[k].position(0);
+                asMap[k].get(out);
+            }
+        }
+        if (best >= 0) asyncStatsCall = best;
+        for (int k = 0; k < 3; k++) {
+            if (asFence[k] != 0) continue;
+            gl.glBindBuffer(GL4.GL_COPY_READ_BUFFER, statBuf);
+            gl.glBindBuffer(GL4.GL_COPY_WRITE_BUFFER, asBuf[k]);
+            gl.glMemoryBarrier(GL4.GL_BUFFER_UPDATE_BARRIER_BIT | GL4.GL_SHADER_STORAGE_BARRIER_BIT);
+            gl.glCopyBufferSubData(GL4.GL_COPY_READ_BUFFER, GL4.GL_COPY_WRITE_BUFFER, 0, 0, bytes);
+            gl.glMemoryBarrier(GL4.GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+            gl.glBindBuffer(GL4.GL_COPY_READ_BUFFER, 0);
+            gl.glBindBuffer(GL4.GL_COPY_WRITE_BUFFER, 0);
+            asFence[k] = gl.glFenceSync(GL4.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            asCall[k] = ++asCalls;
+            break;
+        }
+        return out;
+    }
+
+    /** Nummer des Aufrufs von {@link #statsAsync}, dessen Zählung zuletzt zurückkam. */
+    public long asyncStatsCall = -1;
+    private int[] asBuf;
+    private java.nio.IntBuffer[] asMap;
+    private long[] asFence, asCall;
+    private long asCalls;
+
     public int[] readStats(GL4 gl) {
         int bins = LODS * T;
         IntBuffer ib = Buffers.newDirectIntBuffer(bins + 2);
@@ -930,6 +1005,8 @@ public final class ForestGpu {
         gl.glUniform1i(loc(gl, meshProg, "uBark"), barkDetail ? 1 : 0);   // seit W6 Runde 5
         gl.glUniform1i(loc(gl, meshProg, "uShoot"), shootLight ? 1 : 0);
         gl.glUniform3f(loc(gl, meshProg, "uMossSide"), (float) l.mossSide[0], (float) l.mossSide[1], (float) l.mossSide[2]);
+        ForestGl.mossUniforms(gl, meshProg, l);
+        ForestGl.cardUniforms(gl, meshProg, beardTexture, uTimeFrame++);
         gl.glBindVertexArray(meshVao);
         gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, 0, 3 * T, 20);
         if (T - S * V > 0) gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, (3L * T + S * V) * 20, T - S * V, 20);
@@ -967,6 +1044,7 @@ public final class ForestGpu {
         if (!uploaded || levels <= 0) return;
         gl.glUseProgram(shadowProg);
         common(gl, shadowProg, lightVP, new double[]{0, 0, 0}, t);
+        ForestGl.cardUniforms(gl, shadowProg, beardTexture, 0);
         gl.glDisable(GL.GL_CULL_FACE);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, cmdBuf);
         gl.glBindVertexArray(meshVao);
@@ -1034,6 +1112,7 @@ public final class ForestGpu {
         gl.glDeleteBuffers(10, new int[]{vbo, ibo, quadVbo, quadIbo, instBuf, cntBuf, cmdBuf, typeBuf, meshBuf, statBuf}, 0);
         gl.glDeleteVertexArrays(2, new int[]{meshVao, impVao}, 0);
         if (shVao != 0) { gl.glDeleteVertexArrays(1, new int[]{shVao}, 0); gl.glDeleteBuffers(4, new int[]{shCnt, shCmd, shInst, shStat}, 0); shVao = 0; }
+        if (asBuf != null) { for (long fe : asFence) if (fe != 0) gl.glDeleteSync(fe); gl.glDeleteBuffers(3, asBuf, 0); asBuf = null; }
         gl.glDeleteTextures(5, new int[]{denTex, hgtTex, stTex, albTex, nrmTex}, 0);
         gl.glDeleteFramebuffers(1, new int[]{bakeFbo}, 0);
         gl.glDeleteRenderbuffers(1, new int[]{bakeDepth}, 0);

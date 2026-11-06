@@ -13,6 +13,23 @@ package com.dan.forest;
  */
 public final class TreeMesh {
     public static final byte BARK = 0, LEAF = 1, NEEDLES = 2, CLUMP = 3, CONE = 4;
+    /**
+     * Seit LituyaBay1958 W6 Runde 7: Karte mit Bild (etwa eine Bartflechte aus {@code com.dan.lichen}). Die Farbe einer
+     * Ecke trägt dann u, v (0..1, v von oben) und die Tönung (mit Verdeckung), {@link #leaf} die Ebene als −2 − Ebene.
+     */
+    public static final byte CARD = 5;
+
+    /**
+     * Seit W6 Runde 7: Karten der Bartflechten, je Ebene Breite und Höhe (m) und die Lage des Ansatzes (Anteil der Höhe
+     * von oben). Ohne Karten ({@code null}) nimmt {@link #build} eine Ebene mit 4 × 25 cm, Ansatz oben, und der Leser zeichnet
+     * Fäden aus Rauschen (forest.frag ohne Textur).
+     */
+    public static final class Cards {
+        public final float[] width, height, attachV;
+        public Cards(float[] width, float[] height, float[] attachV) { this.width = width; this.height = height; this.attachV = attachV; }
+        public int layers() { return width.length; }
+        static final Cards DEFAULT = new Cards(new float[]{0.1f}, new float[]{0.25f}, new float[]{0.03f});
+    }
 
     public final TreeModel model;
     public final int lod;
@@ -63,6 +80,23 @@ public final class TreeMesh {
             t.beard(new java.util.Random(m.seed ^ 0xBEA2DL));
             t.beardTriangles = t.nt - before;
             t.ambient(v0);   // Verdeckung für alle, die Farbe nur der Strähnen (die übrigen sind schon verdeckt)
+        }
+        return t;
+    }
+
+    /**
+     * Seit LituyaBay1958 W6 Runde 7: Bartflechten als Karten ({@link #CARD}): je Büschel zwei gekreuzte Rechtecke mit
+     * dem Bild einer zufälligen Ebene von cards (Maße aus cards, je Büschel 0,7- bis 1,25-fach), in Stufe 0 alle, in
+     * Stufe 1 jedes zweite. cards {@code null}: {@link Cards#DEFAULT}. Wie {@link #build(TreeModel, int, int, boolean, boolean)}
+     * mit beard, sonst Stellen und Auswahl gleich.
+     */
+    public static TreeMesh build(TreeModel m, int lod, int barkLod, boolean fine, Cards cards) {
+        TreeMesh t = build0(m, lod, barkLod, fine);
+        if (lod <= 1 && m.species.beard > 0) {
+            int before = t.nt, v0 = t.nv;
+            t.beardCards(new java.util.Random(m.seed ^ 0xBEA2DL), cards == null ? Cards.DEFAULT : cards, lod == 0 ? 1f : 0.5f);
+            t.beardTriangles = t.nt - before;
+            t.ambient(v0);
         }
         return t;
     }
@@ -521,7 +555,48 @@ public final class TreeMesh {
             float a = 0.35f + 0.65f * (0.25f + 0.75f * out) * (0.55f + 0.45f * h);
             if (model.leaves.isEmpty()) a = 0.8f + 0.2f * h;   // ohne Laub (Totholz): keine Krone, die beschattet
             ao[i] = Math.min(1, a);
-            if (i >= from) { col[3 * i] *= ao[i]; col[3 * i + 1] *= ao[i]; col[3 * i + 2] *= ao[i]; }
+            if (i >= from) {
+                if (part[i] == CARD) col[3 * i + 2] *= ao[i];   // Karte: nur die Tönung (u, v bleiben)
+                else { col[3 * i] *= ao[i]; col[3 * i + 1] *= ao[i]; col[3 * i + 2] *= ao[i]; }
+            }
+        }
+    }
+
+    /** Seit W6 Runde 7: Bartflechten als Karten; Stellen wie {@link #beard}, Anteil keep der Büschel. */
+    private void beardCards(java.util.Random r, Cards cards, float keep) {
+        Species sp = model.species;
+        float H = model.height;
+        if (sp.lying) return;
+        for (TreeModel.Branch b : model.branches) {
+            if (b.level < 1 || b.level > 3 || b.nodes() < 2) continue;
+            if (r.nextFloat() >= sp.beard) continue;
+            int strands = 1 + r.nextInt(3);
+            for (int k = 0; k < strands; k++) {
+                int i = 1 + r.nextInt(b.nodes() - 1);
+                float f = r.nextFloat(), pick = r.nextFloat(), sc = 0.7f + 0.55f * r.nextFloat(), an = (float) (r.nextFloat() * Math.PI);
+                float tone = 0.85f + 0.3f * r.nextFloat(), driftX = (r.nextFloat() - 0.5f), driftZ = (r.nextFloat() - 0.5f);
+                int layer = Math.min(cards.layers() - 1, (int) (pick * cards.layers()));
+                if (r.nextFloat() >= keep) continue;
+                float x = b.x[i - 1] + (b.x[i] - b.x[i - 1]) * f, y = b.y[i - 1] + (b.y[i] - b.y[i - 1]) * f, z = b.z[i - 1] + (b.z[i] - b.z[i - 1]) * f;
+                if (y > 0.9f * H) continue;
+                float rr = b.r[i - 1] + (b.r[i] - b.r[i - 1]) * f;
+                y -= rr * 0.8f;   // an der Unterseite des Asts
+                float hm = cards.height[layer] * sc, wm = cards.width[layer] * sc, top = y + cards.attachV[layer] * hm, bot = top - hm;
+                if (bot < 0.4f) continue;   // nicht bis in den Boden
+                float s = b.length > 0 ? (b.cum[i - 1] + (b.cum[i] - b.cum[i - 1]) * f) / b.length : 0;
+                float dx0 = driftX * 0.12f * hm, dz0 = driftZ * 0.12f * hm;
+                for (int q = 0; q < 2; q++) {
+                    float dx = (float) Math.cos(an + q * Math.PI / 2), dz = (float) Math.sin(an + q * Math.PI / 2);
+                    float nx = -dz, nz = dx;
+                    int li = -2 - layer;
+                    int a = vertex(x - dx * wm * 0.5f, top, z - dz * wm * 0.5f, nx, 0.15f, nz, 0, 0, tone, b.id, s, li, CARD);
+                    int c = vertex(x + dx * wm * 0.5f, top, z + dz * wm * 0.5f, nx, 0.15f, nz, 1, 0, tone, b.id, s, li, CARD);
+                    int d = vertex(x + dx0 - dx * wm * 0.5f, bot, z + dz0 - dz * wm * 0.5f, nx, 0.15f, nz, 0, 1, tone, b.id, s, li, CARD);
+                    int e = vertex(x + dx0 + dx * wm * 0.5f, bot, z + dz0 + dz * wm * 0.5f, nx, 0.15f, nz, 1, 1, tone, b.id, s, li, CARD);
+                    triangle(a, c, e, true);
+                    triangle(a, e, d, true);
+                }
+            }
         }
     }
 

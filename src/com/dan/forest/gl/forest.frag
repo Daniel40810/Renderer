@@ -8,6 +8,7 @@ in float vLeafy;
 in float vH;
 in float vRime;
 in vec3 vLocal;
+in vec3 vCard;
 out vec4 frag;
 uniform vec3 uCam;
 uniform vec3 uSunDir, uSunColor, uSkyColor, uFogColor, uMoonDir, uMoonColor;
@@ -24,6 +25,22 @@ uniform vec2 uTone;         // Tonemapping an (1) / aus (0), Belichtung (nur Dem
 uniform int uBark;          // seit W6 Runde 5: Rinde mit Muster (ForestGpu.barkDetail)
 uniform int uShoot;         // seit W6 Runde 5: Nadeln als Triebe (Volumen) statt als Blattebenen (ForestGpu.shootLight)
 uniform vec3 uMossSide;     // seit W6 Runde 6: feuchte Seite der Stämme (Welt, waagerecht; 0 = keine), Light.mossSide
+// seit W6 Runde 7: Karten der Bartflechten. Mit Textur (uCardOn): Bild der Ebene, Alpha = Deckung, gewürfelt (die
+// Kantenglättung über die Zeit mittelt); ohne: Fäden aus Rauschen, oben schmal, unten breiter und spitz auslaufend.
+uniform sampler2DArray uCardTex;
+uniform int uCardOn, uCardFrame;
+vec4 cardSample(vec3 c) {
+    if (uCardOn == 1) return texture(uCardTex, c);
+    float u = c.x - 0.5, v = c.y;
+    float breite = 0.5 * (0.2 + 0.8 * min(1.0, v * 2.5));
+    float faden = fract(c.x * 23.0 + 0.6 * sin(v * 9.0 + c.x * 31.0) + 0.3 * sin(v * 23.0));
+    float a = step(abs(u), breite) * smoothstep(0.75, 0.9, faden) * (1.0 - smoothstep(0.75, 1.0, v));
+    return vec4(0.30, 0.30, 0.17, a);
+}
+float cardDither() {
+    vec2 q = gl_FragCoord.xy + vec2(5.588, 3.177) * float(uCardFrame & 63);
+    return fract(52.9829189 * fract(dot(q, vec2(0.06711056, 0.00583715))));
+}
 // RINDE BEGINN (bis RINDE ENDE gleich in forest.frag und tree.frag, geprüft von TreeCheck)
 // Rinde mit Muster (seit LituyaBay1958 W6 Runde 5) [G]; derselbe Text steht in com.dan.tree/gl/tree.frag.
 // q: Ort im Baum (m, vor Wind und Drehung, Fuß bei 0, y oben), n: Normale (Welt), wp: Ort (Welt), alb: Rindenfarbe der Art.
@@ -146,6 +163,25 @@ vec4 barkPattern(int style, vec3 q, vec3 alb, float flechte, float fp) {
 // auf der Oberseite waagerechter Äste und weiter hinauf auf der feuchten Seite (side: Richtung in der Welt, waagerecht;
 // Länge 0 = keine). Fleckig mit weichem Rand, gewölbte Polster als Relief. moos 0..1 (Art × App), nW: Normale (Welt),
 // fp: Fußabdruck (m). In der Ferne das Mittel ohne Muster. Rückgabe: Farbe, Höhe des Reliefs.
+// Moos aus einer Textur (seit Runde 7, etwa aus com.dan.moss): rgb Albedo · Verdeckung (linear), a Höhe 0..1. Dreifach
+// projiziert im Ort des Baums q, Gewichte aus der Fläche (Ableitungen von q). Nur nah (bis eine Kachel auf rund 6
+// Bildpunkte fällt), weiter weg das Mittel uMossMean. bkDx, bkDy: dFdx(q), dFdy(q) aus main (gleichmäßiger Ablauf).
+uniform sampler2DArray uMossTex;
+uniform vec4 uMossTexP;    // an (1), Kachel (m), Ebene, frei
+uniform vec3 uMossMean;    // mittlere gesehene Albedo der Textur (linear)
+vec3 bkDx = vec3(0.0), bkDy = vec3(0.0);
+vec3 bkBase = vec3(0.0);   // Runde 7b: Rindenfarbe vor dem Muster (aus main), Maß der Verdeckung für das Moos
+vec4 mossTex(vec3 q) {
+    vec3 w = abs(cross(bkDx, bkDy));
+    w = w * w;
+    w /= max(w.x + w.y + w.z, 1e-12);
+    float s = 1.0 / uMossTexP.y, L = uMossTexP.z;
+    vec4 a = vec4(0.0);
+    if (w.x > 0.02) a += w.x * textureGrad(uMossTex, vec3(q.zy * s, L), bkDx.zy * s, bkDy.zy * s);
+    if (w.y > 0.02) a += w.y * textureGrad(uMossTex, vec3(q.xz * s + 0.37, L), bkDx.xz * s, bkDy.xz * s);
+    if (w.z > 0.02) a += w.z * textureGrad(uMossTex, vec3(q.xy * s + 0.71, L), bkDx.xy * s, bkDy.xy * s);
+    return a / max(w.x * step(0.02, w.x) + w.y * step(0.02, w.y) + w.z * step(0.02, w.z), 1e-6);
+}
 vec4 barkMoss(vec3 c, float h, vec3 q, vec3 nW, vec3 side, float moos, float fp) {
     if (moos <= 0.0) return vec4(c, h);
     float rel = min(dot(c, vec3(0.2126, 0.7152, 0.0722)) / 0.30, 2.5);
@@ -161,6 +197,19 @@ vec4 barkMoss(vec3 c, float h, vec3 q, vec3 nW, vec3 side, float moos, float fp)
     float m = smoothstep(0.78 - 0.65 * cover, 0.86 - 0.65 * cover, fleck) * w + (1.0 - w) * clamp(cover * 1.2, 0.0, 1.0) * 0.8;
     vec3 mc = mix(vec3(0.060, 0.105, 0.028), vec3(0.125, 0.185, 0.045), bkNoise(q * 25.0)) * rel;
     float polster = 0.65 + 0.25 * bkNoise(q * 35.0) * bkFade(0.02, fp);
+    if (uMossTexP.x > 0.5) {
+        // Runde 7: Textur nah, ihr Mittel fern; der Rand des Polsters folgt der Höhe der Triebe (hohe ragen hinaus)
+        float nah = 1.0 - smoothstep(uMossTexP.y / 12.0, uMossTexP.y / 6.0, fp);
+        vec4 t = nah > 0.0 ? mossTex(q) : vec4(uMossMean, 0.5);
+        // Helligkeit: die Farbe c trägt Rinde · Verdeckung; als Maß der Verdeckung gilt c gegen eine mittlere Rinde von 0,10
+        // (Runde 7b; mit 0,30 wie das gestaltete Moos wurde das Moos auf dunkler Rinde fast schwarz)
+        vec3 cb = bkBase.r + bkBase.g + bkBase.b > 0.0 ? bkBase : c;   // ohne die Fugen des Rindenmusters
+        float relT = clamp(dot(cb, vec3(0.2126, 0.7152, 0.0722)) / 0.10, 0.25, 1.1);
+        mc = mix(uMossMean, t.rgb, nah) * relT;
+        polster = mix(0.65, t.a, nah);
+        float rand = cover * 1.25 + (t.a - 0.55) * 0.7 * nah + (fleck - 0.5) * 0.5 * w;
+        m = mix(m, smoothstep(0.4, 0.62, rand), nah);
+    }
     return vec4(mix(c, mc, m), mix(h, polster, m));
 }
 
@@ -200,10 +249,19 @@ void main() {
     if (leaf) { if (dot(n, V) < 0.0) n = normalize(n - 1.3 * dot(n, V) * V); }
     else if (!gl_FrontFacing) n = -n;
     vec3 alb = vColor * (leaf ? 1.0 : 1.0 - 0.35 * uWet);
+    if (vCard.z >= 0.0) {
+        vec4 ct = cardSample(vCard);
+        // Runde 7b: streifend gesehen (von unten) läge das ganze Büschel auf einer Linie: helle Kreuze. Dort ausblenden,
+        // die zweite, gekreuzte Karte übernimmt
+        ct.a *= smoothstep(0.12, 0.45, abs(dot(normalize(vNormal), V)));
+        if (ct.a < max(cardDither(), 0.02)) discard;
+        alb = ct.rgb * vColor.z * (1.0 - 0.25 * uWet);   // nass dunkler und grüner werden Flechten auch, hier nur dunkler
+    }
     // seit W6 Runde 5: Muster der Rinde (vLeafy < 0: −(Stil + Flechten/10 + Moos/100), je in Neunteln, ForestGl.barkCode);
     // je Dreieck nur Holz oder Laub. Muster nur nah (unter 8 cm je Bildpunkt): weiter weg trägt kein Bildpunkt mehr
     // Schuppen oder Korkporen, und das Muster kostet (Zellrauschen); dazwischen weich. Moos (Runde 6) in jeder Entfernung.
     float bkFp = length(fwidth(vLocal));
+    bkDx = dFdx(vLocal); bkDy = dFdy(vLocal);   // Runde 7: für die Moostextur (gleichmäßiger Ablauf)
     if (uBark == 1 && vLeafy < -0.5) {
         float code = -vLeafy;
         int style = int(floor(code + 0.004));
@@ -211,6 +269,7 @@ void main() {
         float l9 = floor(fr * 10.0 + 0.002), m9 = floor(fr * 100.0 - l9 * 10.0 + 0.02);
         float flechte = clamp(l9 / 9.0, 0.0, 1.0) * (1.0 - 0.6 * uWet), moos = clamp(m9 / 9.0, 0.0, 1.0);
         float hb = 0.5;
+        bkBase = alb;
         if (bkFp < 0.08) {
             vec4 b = barkPattern(style, vLocal, alb, flechte, max(bkFp, 1e-4));
             float nahW = 1.0 - smoothstep(0.05, 0.08, bkFp);
