@@ -286,6 +286,11 @@ public final class BergCheck {
         double z0 = lm[2] * 100 + lm[6] * 2 + lm[10] * -50 + lm[14], z1 = lm[2] * pz[0] + lm[6] * pz[1] + lm[10] * pz[2] + lm[14];
         double x0 = lm[0] * 100 + lm[4] * 2 + lm[8] * -50 + lm[12];
         check(Math.abs(z0) < 1e-6 && Math.abs(x0) < 1e-6 && Math.abs(z1 + 0.5) < 1e-5, String.format(Locale.GERMAN, "Schollen: Schattenkarte mittig (%.1e), 150 m zur Sonne Tiefe %.3f (−0,5)", Math.abs(z0) + Math.abs(x0), z1));
+        // seit W6 Runde 5: Schatten auf dem Wasser nach Fresnel, je Ort einmal
+        double ws = com.dan.buoyancy.gl.FloeGl.waterShadow(0.45, 1, 0), wg = com.dan.buoyancy.gl.FloeGl.waterShadow(0.45, 0.03, 0),
+                wf = com.dan.buoyancy.gl.FloeGl.waterShadow(0.45, 1, 1), wh = com.dan.buoyancy.gl.FloeGl.waterShadow(0.45, 1, 0.5);
+        check(Math.abs(ws - (1 - 0.45 * 0.98)) < 1e-9 && wg > 0.9 && wf == 1 && Math.abs(wh - (1 + ws) / 2) < 1e-9,
+                String.format(Locale.GERMAN, "Schollen: Schatten auf dem Wasser senkrecht %.3f, streifend (88°) %.3f, frei 1, halb %.3f", ws, wg, wh));
         check(f.nearWeight(0) == 0 && f.nearWeight(f.radius) == 1 && f.nearWeight(f.radius * 0.85) > 0.3 && f.nearWeight(f.radius * 0.85) < 0.7, "Schollen: flaches Eis der App innen 0, ab der Reichweite 1");
     }
 

@@ -19,6 +19,7 @@ uniform int uCliffRock;        // seit Brocken Phase 8: 0 Gneis, 1 Granit (Cliff
 uniform vec2 uCliffSheet;      // Granit: Abstand der Bankung (m), Rundung der Blöcke (Anteil des Abstands)
 uniform float uCliffForce;     // 0..1: Fels und Wand unabhängig von der Neigung (Netze: Felsburgen, Blöcke)
 uniform float uCliffTopMoss;   // seit Brocken Phase 8: Moos auf allem, was nach oben schaut (Cliff.topMoss)
+uniform float uCliffFar;      // seit LituyaBay1958 W6 Runde 5: 1 = Fernstufe (Cliff.farBands), 0 = wie bisher
 uniform float uCliffPillow;    // Granit: Wollsäcke als Feinform 1 (Wand, Gelände), 0 auf Netzen aus Blöcken (die Blöcke sind die Wollsäcke)
 // seit Sylt Phase 4: Lockergestein (uCliffRock 2): Schichtkarte, Deckschichten, Farben, Runsen, Hohlkehle (Cliff.rotesKliff)
 uniform sampler2D uCliffStrata; // Oberkante, untere Grenze, Decke, Hohlkehle (m, RGBA16F, StrataMap)
@@ -82,6 +83,15 @@ float cliffBand(float lambda, float footprint) { return 1.0 - smoothstep(0.5 * l
 const mat3 CLIFF_ROT = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
 
 const float CLIFF_PILL_MEAN = 0.79;
+
+// Seit LituyaBay1958 W6 Runde 5, Fernstufe (Cliff.farBands): auch die großen Bänder, Feldspat, Sickerstreifen, Flechten
+// und Moos gehen über cliffBand in ihr Mittel, wenn ein Bildpunkt sie nicht mehr trägt. Gleiches Bild in der Nähe, in
+// der Ferne kein Flimmern und keine Abrufe. Mittel der Schwellen über Wertrauschen (CliffCheck misst sie nach):
+const float CLIFF_FEL_MEAN = 0.11;     // smoothstep(0,78, 0,9) über value1
+const float CLIFF_SEEP_MEAN = 0.155;   // smoothstep(0,66, 0,78) über value
+const float CLIFF_LICHEN_MEAN = 0.314; // smoothstep(0,5, 0,72) über value
+const float CLIFF_MOSS_MEAN = 0.484;   // smoothstep(0,4, 0,62) über value
+float cliffFarBand(float lambda, float footprint) { return uCliffFar > 0.5 ? cliffBand(lambda, footprint) : 1.0; }
 
 // Granit (seit Brocken Phase 8): 0 an der Kluft, 1 in der Mitte eines Blocks, aus zwei senkrechten Scharen und der
 // waagerechten Bankung, gerundet; in der Ferne das Mittel 0,79. Wie Cliff.granitBlock.
@@ -258,13 +268,14 @@ CliffSample cliffMaterial(vec3 p, vec3 n, float rainWet, float snowAmt, float fo
         col *= 1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.35, pill)) * wall;
     } else {
         float b6 = cliffBand(6.0, footprint);
-        float warp = (cliffValue(p / 40.0, sd + 1) - 0.5) * 14.0 + (b6 > 0.0 ? (cliffValue(p / 6.0, sd + 2) - 0.5) * 1.6 * b6 : 0.0);
+        float b33 = cliffFarBand(33.0, footprint), b7 = cliffFarBand(7.0, footprint), b45 = cliffFarBand(4.5, footprint);
+        float warp = b33 + b7 + b45 > 0.0 ? (cliffValue(p / 40.0, sd + 1) - 0.5) * 14.0 + (b6 > 0.0 ? (cliffValue(p / 6.0, sd + 2) - 0.5) * 1.6 * b6 : 0.0) : 0.0;
         float f = dot(p, uCliffFol) + warp;
-        float b = 0.45 * cliffValue1(f / 33.0, sd + 3) + 0.35 * cliffValue1(f / 7.0, sd + 4)
+        float b = 0.45 * (b33 > 0.0 ? mix(0.5, cliffValue1(f / 33.0, sd + 3), b33) : 0.5) + 0.35 * (b7 > 0.0 ? mix(0.5, cliffValue1(f / 7.0, sd + 4), b7) : 0.5)
                 + 0.20 * (cliffValue1(f / 1.6, sd + 5) - 0.5) * cliffBand(1.6, footprint) + 0.1;
         b = smoothstep(0.25, 0.75, b);
         col = mix(uCliffDark, uCliffLight, b);
-        float fel = smoothstep(0.78, 0.9, cliffValue1(f / 4.5, sd + 6)) * uCliffAmount.w;
+        float fel = (b45 > 0.0 ? mix(CLIFF_FEL_MEAN, smoothstep(0.78, 0.9, cliffValue1(f / 4.5, sd + 6)), b45) : CLIFF_FEL_MEAN) * uCliffAmount.w;
         col = mix(col, uCliffFeld, fel);
         float b07 = cliffBand(0.7, footprint);
         if (b07 > 0.0) col *= 1.0 + (cliffValue(q / 0.7, sd + 7) - 0.5) * 0.18 * b07;
@@ -286,17 +297,21 @@ CliffSample cliffMaterial(vec3 p, vec3 n, float rainWet, float snowAmt, float fo
     float seep = 0.0;
     if (uCliffRock == 2) seep = wall > 0.0 ? smoothstep(0.62, 0.76, cliffValue(p / vec3(2.2, 45.0, 2.2), sd + 57)) * uCliffAmount.z * wall
             * smoothstep(-0.3, 0.2, lehmTop) * (1.0 - smoothstep(1.0, uCliffThick2.w, lehmTop)) : 0.0;
-    else seep = wall > 0.0 ? smoothstep(0.66, 0.78, cliffValue(p / vec3(3.5, 70.0, 3.5), sd + 9)) * uCliffAmount.z * wall : 0.0;
+    else {
+        float bs = cliffFarBand(3.5, footprint);
+        seep = wall > 0.0 ? (bs > 0.0 ? mix(CLIFF_SEEP_MEAN, smoothstep(0.66, 0.78, cliffValue(p / vec3(3.5, 70.0, 3.5), sd + 9)), bs) : CLIFF_SEEP_MEAN) * uCliffAmount.z * wall : 0.0;
+    }
     s.wet = clamp(max(max(wetMap * uCliffFallWet, seep), rainWet * s.rock), 0.0, 1.0);
     if (uCliffRock == 2) {
         float bc = cliffBand(0.15, footprint) * uCliffLoose.x * lehmShare * (1.0 - s.wet);
         if (bc > 0.0) col *= 1.0 - 0.5 * (1.0 - smoothstep(0.015, 0.045, abs(cliffValue(q / 0.45, sd + 54) - 0.5))) * bc;
         col *= vec3(1.0, 1.0 - 0.15 * s.wet * lehmShare, 1.0 - 0.25 * s.wet * lehmShare);
     }
-    float li = smoothstep(0.5, 0.72, cliffValue(q / 2.2, sd + 10)) * uCliffAmount.x * (1.0 - s.wet) * s.rock;
+    float bl = cliffFarBand(2.2, footprint), bm = cliffFarBand(3.5, footprint);
+    float li = (bl > 0.0 ? mix(CLIFF_LICHEN_MEAN, smoothstep(0.5, 0.72, cliffValue(q / 2.2, sd + 10)), bl) : CLIFF_LICHEN_MEAN) * uCliffAmount.x * (1.0 - s.wet) * s.rock;
     col = mix(col, uCliffLichen, li * 0.7);
     float mw = clamp((ledge * 0.9 + s.wet * 0.45) * uCliffAmount.y * 2.0 + uCliffTopMoss * smoothstep(0.45, 0.85, n.y), 0.0, 1.0);
-    if (mw > 0.0) col = mix(col, uCliffMoss, mw * smoothstep(0.4, 0.62, cliffValue(q / 3.5, sd + 12)));
+    if (mw > 0.0) col = mix(col, uCliffMoss, mw * (bm > 0.0 ? mix(CLIFF_MOSS_MEAN, smoothstep(0.4, 0.62, cliffValue(q / 3.5, sd + 12)), bm) : CLIFF_MOSS_MEAN));
     float tw = tal * (1.0 - wall);
     if (tw > 0.0) {
         float blk = 0.5 + (smoothstep(0.3, 0.7, cliffValue(q / 1.3, sd + 13)) - 0.5) * cliffBand(1.3, footprint);

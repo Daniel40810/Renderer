@@ -124,3 +124,12 @@ gl.drawSods(gl4, kliff, view, light);
 **Prüfung.** `CliffCheck` 39 Prüfungen, neu: Gneis und Granit unverändert (Prüfsumme über Material und Relief an 6000 Punkten), Schichten in der Reihenfolge, nasser Lehm, Runsen, Sickerstreifen, Schichtkarte, Hohlkehle, Grasnarbe, Sturzkegel. `CliffDemo --kliff` (Fenster) und `CliffDemo --bild datei.png --kliff` (sechs Ansichten). Unter Mesa: Grafikkarte = Prozessor Farbe ± 0,01 %; die Bilder von Gneis und Granit sind Bildpunkt für Bildpunkt gleich wie vorher.
 
 **Grenzen.** Mächtigkeiten und Farben sind gesetzt [G nach den Fotos vom Roten Kliff]; die Schichtgrenzen sind waagerecht bis auf die Wellen (die untere Grenze und die Decke kommen je Ort aus der Karte). Die Hohlkehle verschiebt nur das Höhenfeld entlang seiner Normale; ein echter Hohlraum unter überhängendem Lehm kommt mit `fracture` (Phase 11). Die Grasnarbe wird nicht vom Wind bewegt.
+
+## Seit LituyaBay1958 W6 Runde 5: Fernstufe
+
+`Cliff.farBands` (Vorgabe aus, dann wie bisher; im Shader `uCliffFar`, gesetzt von `CliffGl.bind`). Bisher liefen nur die feinen Merkmale über `CNoise.band` in ihr Mittel. Die großen Bänder der Schieferung (33 und 7 m), Feldspat (4,5 m), Sickerstreifen (3,5 m quer), Flechten (2,2 m) und Moos (3,5 m) wurden in jeder Entfernung gerechnet, auch wo ein Bildpunkt 50 m deckt. Mit der Fernstufe gehen auch sie in ihr Mittel, sobald ein Bildpunkt sie nicht mehr trägt. In der Nähe bleibt das Bild Bit für Bit gleich. In der Ferne flimmert nichts mehr, und es fallen die Abrufe des Rauschens weg (in der Ferne fast alle). Die Mittel der Schwellen über Wertrauschen stehen in Java und GLSL gleich (`FEL_MEAN` 0,11, `SEEP_MEAN` 0,155, `LICHEN_MEAN` 0,314, `MOSS_MEAN` 0,484).
+
+**Prüfung.** `CliffCheck.fern`: Die Prüfsumme von Gneis und Granit bleibt (Fernstufe aus). Mit Fernstufe ist die Farbe bei 5 cm je Bildpunkt gleich (± 0). Bei 60 m je Bildpunkt streut eine Wand nur noch 0,002 statt 0,046 bei fast gleichem Mittel. Die vier Mittel werden am Rauschen nachgemessen (± 0,01). `CliffGl.selfCheck(gl, cliff, fp)` vergleicht Grafikkarte und Prozessor auch für andere Fußabdrücke. Mit Mesa (llvmpipe) gemessen, 256 Punkte bis 2 km: Farbe ± 0,08 % bei 5 cm, ± 0,00 % bei 2, 8 und 60 m; Relief ± 0,2 mm.
+
+**Grenzen.** Granit (Flecken 3 und 0,9 m) und Lockergestein haben noch keine Fernstufe; die Sickerstreifen gelten für Gneis und Granit.
+

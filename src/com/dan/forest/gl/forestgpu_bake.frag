@@ -10,5 +10,5 @@ void main() {
     if (vLeafy > 0.25) { if (dot(n, uDir) < 0.0) n = normalize(n - 1.3 * dot(n, uDir) * uDir); }
     else if (!gl_FrontFacing) n = -n;
     oAlb = vec4(vCol, 1.0);
-    oNrm = vec4(n * 0.5 + 0.5, vLeafy);
+    oNrm = vec4(n * 0.5 + 0.5, max(vLeafy, 0.0));   // Holz mit Rindenmuster trägt negative Werte (W6 Runde 5)
 }

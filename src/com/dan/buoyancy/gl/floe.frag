@@ -11,10 +11,12 @@ uniform float uShadowK;
 uniform sampler2DShadow uFloeShadow;
 uniform mat4 uFloeShadowM;
 uniform int uFloeShadowOn;
+uniform float uFloeShadowTexel;   // Kante eines Bildpunkts der Karte (m)
 
-float floeShadow(vec3 w, vec3 n) {
+// Sicht der Sonne am Ort p (Welt) aus der Karte, 3×3-PCF; 1 außerhalb
+float floeShadowAt(vec3 p) {
     if (uFloeShadowOn == 0) return 1.0;
-    vec4 q = uFloeShadowM * vec4(w + n * 0.08 + uSunDir * 0.1, 1.0);
+    vec4 q = uFloeShadowM * vec4(p, 1.0);
     vec3 s = q.xyz * 0.5 + 0.5;
     if (any(lessThan(s.xy, vec2(0.002))) || any(greaterThan(s.xy, vec2(0.998)))) return 1.0;
     vec2 tx = 1.0 / vec2(textureSize(uFloeShadow, 0));
@@ -25,10 +27,33 @@ float floeShadow(vec3 w, vec3 n) {
     return sum / 9.0;
 }
 
+// auf einem Stück: Versatz nach der Größe eines Bildpunkts der Karte (seit W6 Runde 5: 8 und 10 cm waren unter einem
+// Bildpunkt von 29 cm, steile Seiten beschatteten sich selbst)
+float floeShadow(vec3 w, vec3 n) { return floeShadowAt(w + n * (1.5 * uFloeShadowTexel) + uSunDir * uFloeShadowTexel); }
+
+// Seit W6 Runde 5: Schatten der Stücke auf dem Wasser. Das Wasser zeigt zweierlei: den Spiegel (Himmel, Ufer, die
+// Stücke selbst), Anteil F nach Fresnel (Schlick, F0 = 0,02 für Wasser), und Licht aus dem Wasser, Anteil 1 − F. Ein
+// Schatten nimmt nur dem Licht aus dem Wasser die Sonne, der Spiegel bleibt; darum verschwindet der Schatten bei
+// flachem Blick. uShadowK = Anteil der Sonne am Licht aus dem Wasser. Jeder Ort des Wassers wird genau einmal
+// abgedunkelt, auch wo sich die Schatten zweier Stücke überdecken (vorher: zwei Schattenflächen, doppelt dunkel).
+// Gleiche Rechnung in FloeGl.waterShadow (Java, geprüft von BergCheck).
+float waterShadow(float k, float cosView, float vis) {
+    float c = clamp(cosView, 0.0, 1.0);
+    float F = 0.02 + 0.98 * pow(1.0 - c, 5.0);
+    return 1.0 - k * (1.0 - F) * (1.0 - clamp(vis, 0.0, 1.0));
+}
+
 float h3(vec3 p) { return fract(sin(dot(floor(p), vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 
 void main() {
     if (uShadow == 2) { frag = vec4(0.0); return; }   // Schattenkarte: nur Tiefe
+    if (uShadow == 3) {
+        float dist = length(vWorld - uCam);
+        float vis = floeShadowAt(vWorld);   // das Wasser steht nicht in der Karte: ohne Versatz
+        float f = waterShadow(uShadowK * exp(-dist / max(uFog.w, 1.0)), (uCam.y - vWorld.y) / max(dist, 1e-3), vis);
+        frag = vec4(vec3(f), 1.0);
+        return;
+    }
     if (uShadow == 1) {
         float dist = length(vWorld - uCam);
         float k = uShadowK * exp(-dist / max(uFog.w, 1.0));
@@ -55,7 +80,9 @@ void main() {
     vec3 col = alb * (uSunColor * max(nl, 0.0) * fs + uSkyColor * (0.55 + 0.45 * n.y));
     // gegen die Sonne: blau durchscheinend an Kanten und Seiten [G]
     // W6 Runde 3: mit der Helligkeit der Sonne, nicht ihrer Farbe (blaugrün mal Abendrot gab Mintgrün)
-    if (vPart > 0.5) col += vec3(0.10, 0.26, 0.45) * dot(uSunColor, vec3(0.3, 0.5, 0.2)) * max(-nl, 0.0) * 0.2 * max(dot(-V, uSunDir), 0.0) * fs;
+    // W6 Runde 5: ohne den Schatten des eigenen Stücks (das Licht geht durch das Eis; die Karte hielt die Rückseite für
+    // beschattet, seit sie in Lituya wirklich rechnet)
+    if (vPart > 0.5) col += vec3(0.10, 0.26, 0.45) * dot(uSunColor, vec3(0.3, 0.5, 0.2)) * max(-nl, 0.0) * 0.2 * max(dot(-V, uSunDir), 0.0);
     float dist = length(vWorld - uCam);
     col = mix(uFog.rgb, col, exp(-dist / max(uFog.w, 1.0)));
     frag = vec4(col, 1.0);

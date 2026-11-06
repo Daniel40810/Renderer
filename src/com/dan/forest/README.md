@@ -278,3 +278,31 @@ wald.nearTrees(auge, nah);               // je Baum: Art, Variante, x, y, z, Dre
 **Prüfung.** `ForestCheck` baut für jede Nadelart die feinen Bürsten (gültig, mehr als 1,3-mal so viele Dreiecke im ganzen Netz, ohne Nadeln gleich, Stufe 1 gleich). `ForestGpuCheck` prüft den Schnitt in einem sechsten Blick. Was die Grafikkarte wegnimmt, liefert `nearTrees` vollständig. Keiner dieser Bäume steht auf der Grafikkarte, keiner der Grafikkarte steht näher als der Schnitt, und Grafikkarte = Prozessor.
 
 **Grenzen.** `nearTrees` geht alle Plätze im Quadrat um das Auge durch, bei 40 m Schnitt und 4 m Abstand rund 400. Für sehr große Schnitte ist das teuer. Die Farbe der feinen Nadeln ist die der Art, ohne Textur [G].
+
+## Seit LituyaBay1958 W6 Runde 5: Rinde mit Muster, Nadeln als Triebe, Sonnenschattenkarte
+
+Drei Schalter, alle voreingestellt aus. Andere Szenen bleiben gleich.
+
+- **Rinde mit Muster** (`ForestGl.barkDetail`, `ForestGpu.barkDetail`; je Art `Species.barkStyle` und `Species.lichen` 0..1): Holz bekommt im Bildpunkt ein Muster aus 3D-Rauschen am Ort im Baum (vor Wind und Drehung, also fest an der Rinde), mit Relief für das Licht über die Ableitungen im Bild. Fünf Stile [G]:
+  - `SMOOTH` (Erle, Buche): hellgraue Rinde mit Flecken, quer liegende Korkporen (Lentizellen, 28 × 140 je m), weiße Krustenflechten in Flecken mit scharfem Rand.
+  - `FURROWED` (Hemlock, Douglasie, Eiche): lange, schmale Borkenrippen aus Zellrauschen (gestreckt 9 : 1,6), die sich verzweigen und wieder treffen; tiefe, dunkle Furchen, feine Querrisse, Flechten auf den Rippen.
+  - `SCALY` (Fichte, Sitka): runde Schuppen (20 × 13 je m), am Rand dunkler, leicht verschoben.
+  - `PLATED` (Kiefer, Lärche): große Platten (4,5 × 1,9 je m) mit dunklen Fugen.
+  - `PAPER` (Birke): weiß mit dunklen Lentizellen, unten 1 bis 2,5 m dunkle, rissige Borke.
+  Flechten und die dunkle Borke der Birke stehen im Verhältnis zur Helligkeit der Rinde (Bezug 0,30, Birke 0,70), nicht als feste Farbe: die Farbe trägt schon die Verdeckung durch die Krone, sonst leuchteten Flechten im Schatten weiß. Jedes Merkmal läuft in sein Mittel aus, sobald ein Bildpunkt es nicht mehr trägt (kein Flimmern). Gerechnet wird das Muster nur unter 8 cm je Bildpunkt (weich ab 5 cm): weiter weg trägt kein Bildpunkt mehr Schuppen oder Korkporen, und das Zellrauschen mit 27 Nachbarn kostet. Im Netz steht der Stil im Laubwert des Holzes: −(Stil + 0,1 · Flechten) (`ForestGl.barkCode`); entrindete und umgelegte Bäume haben kein Muster. Nässe (`Light.wetness`) nimmt Flechten zurück. 25 Arten haben einen Stil.
+- **Nadeln als Triebe** (`shootLight`): Ein Nadeltrieb ist ein kleines Volumen aus vielen Nadeln. Seine Helligkeit hängt kaum davon ab, wie die Ebene der Bürste liegt, wohl aber vom Winkel zwischen Sonne und Blick: von der Sonnenseite gesehen sind fast nur besonnte Nadeln sichtbar (Hot Spot), im Gegenlicht fast nur beschattete. Durch einen Trieb scheint wenig Licht. forest rechnet für Nadeln (Laubwert 0,95) das Licht zu 75 % als 0,15 + 0,55 · ((1 + V·S)/2)² und das Durchscheinen mit 0,25 statt 1. Ebenen-Lambert und volles Durchscheinen machten aus den gekreuzten Bürsten der Stufen 1 und 2 im Gegenlicht helle Flocken.
+- **`gl/SunShadowMap`**: eine Sonnenschattenkarte um einen Punkt, für `Light.sunShadowTexture` und `Light.sunShadowMatrix`. `begin` merkt Framebuffer, Ausschnitt, Löschwert der Tiefe und Rückseiten und stellt sie in `end` wieder her. Die Mitte rastet quer zur Sonne auf ganze Bildpunkte ein, damit die Kanten beim Wandern nicht kriechen. `matrix(...)` ist statisch für eigene Karten. Hat die App `glClipControl` auf Tiefe 0..1 gestellt (umgekehrte Tiefe), stellt `begin` für die Karte auf −1..1 zurück und `end` wieder her; sonst fiele die sonnennahe Hälfte weg, und die Tiefen passten nicht zu den Lesern (`q · 0,5 + 0,5`). `ForestGpu.drawShadow(gl, matrix, t, stufen)` zeichnet nur die ersten Stufen der letzten Prüfung (1 = Stufe 0). `Light.sunShadowTaps` (9 = 3×3 wie bisher, 1 = ein bilinearer Abruf): Laub hat viel Überdeckung, mit 3×3 kostete die Karte im Nadelwald von Lituya 3–6 ms.
+
+```java
+wald.barkDetail = true;  wald.shootLight = true;
+SunShadowMap sm = new SunShadowMap();  sm.size = 4096;  sm.radius = 160;  sm.depth = 300;  sm.init(gl);
+sm.begin(gl, sonne, mitte[0], mitte[1], mitte[2]);
+wald.drawShadow(gl, sm.matrix, t, 1);
+sm.end(gl);
+licht.sunShadowTexture = sm.texture();  licht.sunShadowMatrix = sm.matrix;  licht.sunShadowBias = 0.3 / (2 * sm.depth);
+```
+
+**Prüfung.** `ForestCheck.rinde`: Kodierung (Sitka schuppig, Flechten zurückgelesen), Stile 0 bis 5, entrindet und umgelegt ohne Muster, die Hauptarten haben ein Muster. Der Shadertext der Rinde steht gleich in `com.dan.tree` (`tree.frag`). Weil sich die Packages nicht sehen, prüfen `ForestCheck` und `TreeCheck` beide denselben Fingerabdruck des Blocks zwischen `// RINDE BEGINN` und `// RINDE ENDE` (CRC32 über den Text mit zusammengezogenem Leerraum). Wer den Block ändert, zieht beide Dateien und beide Prüfungen mit.
+
+**Grenzen.** Das Muster ist gestaltet [G], keine Textur aus Fotos. Die Rinde trägt kein Moos und keine Bartflechten. Bäume, die die letzte Prüfung nicht im Blick hatte, werfen keinen Schatten in die Karte.
+

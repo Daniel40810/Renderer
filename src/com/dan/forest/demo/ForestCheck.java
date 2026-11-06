@@ -224,6 +224,7 @@ public final class ForestCheck {
                 Math.abs(a1.dz - 1) < 1e-5 && Math.abs(a1.speed - 9) < 0.5 && Math.abs(a2.speed - 2) < 0.2 && Math.abs(hq[0] - 110) < 1e-9);
         brocken();
         lituya();
+        rinde();
         System.out.println(fails == 0 ? "Alles in Ordnung." : fails + " Prüfungen fehlgeschlagen.");
         if (fails > 0) System.exit(1);
     }
@@ -405,6 +406,38 @@ public final class ForestCheck {
         for (TreeModel.Branch b : m.branches) if (b.level == level) n++;
         return n;
     }
+
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Muster der Rinde. Kodierung im Netz −(Stil + 0,1 · Flechten), Schäden ohne Muster, und
+     * der Shadertext gleich dem in com.dan.tree (beide Prüfungen kennen denselben Fingerabdruck RINDE_CRC).
+     */
+    static void rinde() {
+        float c = com.dan.forest.gl.ForestGl.barkCode(Species.sitkaSpruce());
+        int st = (int) Math.floor(-c + 0.01f);
+        float fl = (float) ((-c + 0.001) - Math.floor(-c + 0.001)) * 10;
+        check(String.format(java.util.Locale.GERMAN, "Rinde: Sitka schuppig mit Flechten %.2f (Kode %.3f)", fl, c),
+                st == Species.BarkStyle.SCALY.ordinal() && Math.abs(fl - Species.sitkaSpruce().lichen) < 0.02f);
+        check("Rinde: Stile 0 bis 5 wie im Shader nummeriert", Species.BarkStyle.values().length == 6 && Species.BarkStyle.SMOOTH.ordinal() == 1
+                && Species.BarkStyle.PAPER.ordinal() == 5);
+        check("Rinde: entrindet und umgelegt ohne Muster", com.dan.forest.gl.ForestGl.barkCode(Species.damaged(Species.sitkaSpruce(), Species.Damage.STRIPPED)) == 0
+                && Species.damaged(Species.sitkaSpruce(), Species.Damage.FELLED).barkStyle == Species.BarkStyle.NONE);
+        int ohne = 0;
+        for (Species s : new Species[]{Species.sitkaSpruce(), Species.westernHemlock(), Species.redAlder(), Species.spruce(), Species.scotsPine(),
+                Species.birch(), Species.beech(), Species.douglasFir(), Species.oak(), Species.larch(), Species.alder()})
+            if (s.barkStyle == Species.BarkStyle.NONE) ohne++;
+        check("Rinde: die Hauptarten haben ein Muster (" + ohne + " ohne)", ohne == 0);
+        String src = com.dan.forest.gl.ForestGl.source("forest.frag");
+        int a = src.indexOf("// RINDE BEGINN"), b = src.indexOf("// RINDE ENDE");
+        long crc = -1;
+        if (a >= 0 && b > a) {
+            java.util.zip.CRC32 z = new java.util.zip.CRC32();
+            z.update(String.join(" ", src.substring(src.indexOf('\n', a) + 1, b).trim().split("\\s+")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            crc = z.getValue();
+        }
+        check(String.format("Rinde: Block in forest.frag, CRC %08x (erwartet %08x, sonst tree.frag mitziehen)", crc, RINDE_CRC), crc == RINDE_CRC);
+    }
+
+    static final long RINDE_CRC = 0x73a54b64L;
 
     private static void check(String what, boolean ok) {
         System.out.println((ok ? "  ok    " : "  FEHLER ") + what);

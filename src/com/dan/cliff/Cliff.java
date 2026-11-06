@@ -296,6 +296,27 @@ public final class Cliff {
     /** Mittel von {@link #granitBlock} (in der Ferne). */
     static final double PILL_MEAN = 0.79;
 
+    /**
+     * Seit LituyaBay1958 W6 Runde 5, Fernstufe: auch die großen Bänder der Schieferung (33 und 7 m), Feldspat (4,5 m),
+     * Sickerstreifen (3,5 m quer), Flechten (2,2 m) und Moos (3,5 m) gehen über {@link CNoise#band} in ihr Mittel, sobald
+     * ein Bildpunkt sie nicht mehr trägt. In der Nähe gleiches Bild, in der Ferne kein Flimmern und kaum Abrufe des
+     * Rauschens (Kosten der Landschaft). Gleich in cliff.glsl ({@code uCliffFar}). Vorgabe aus: wie bisher.
+     */
+    public volatile boolean farBands = false;
+    /** Mittel der Schwellen über Wertrauschen (gleich in cliff.glsl, CliffCheck misst sie nach). */
+    public static final double FEL_MEAN = 0.11, SEEP_MEAN = 0.155, LICHEN_MEAN = 0.314, MOSS_MEAN = 0.484;
+
+    double farBand(double lambda, double footprint) { return farBands ? CNoise.band(lambda, footprint) : 1; }
+
+    private double farMix(double mean, double lambda, double footprint, java.util.function.DoubleSupplier v) {
+        return toMean(mean, farBand(lambda, footprint), v);
+    }
+
+    /** Wert v mit Gewicht b, sonst das Mittel; b = 1 genau v (gleiche Bits wie ohne Fernstufe), b = 0 ohne Abruf. */
+    static double toMean(double mean, double b, java.util.function.DoubleSupplier v) {
+        return b >= 1 ? v.getAsDouble() : b > 0 ? mean + (v.getAsDouble() - mean) * b : mean;
+    }
+
     // ------------------------------------------------------------------ Material
 
     /** Ergebnis je Punkt: Farbe (Albedo, linear), Anteil Fels, Normale, Nässe 0..1, Schnee 0..1. */
@@ -396,13 +417,14 @@ public final class Cliff {
             // Bänder entlang der Schieferung, verbogen
             double dip = Math.toRadians(foliationDipDeg), dd = Math.toRadians(foliationDipDirDeg);
             double fx = Math.sin(dip) * Math.sin(dd), fy = Math.cos(dip), fz = -Math.sin(dip) * Math.cos(dd);
-            double warp = (CNoise.value(x / 40, y / 40, z / 40, seed + 1) - 0.5) * 14 + (CNoise.value(x / 6, y / 6, z / 6, seed + 2) - 0.5) * 1.6 * CNoise.band(6, footprint);
+            double b33 = farBand(33, footprint), b7 = farBand(7, footprint), b45 = farBand(4.5, footprint);
+            double warp = b33 + b7 + b45 > 0 ? (CNoise.value(x / 40, y / 40, z / 40, seed + 1) - 0.5) * 14 + (CNoise.value(x / 6, y / 6, z / 6, seed + 2) - 0.5) * 1.6 * CNoise.band(6, footprint) : 0;
             double f = x * fx + y * fy + z * fz + warp;
-            double b = 0.45 * CNoise.value1(f / 33, seed + 3) + 0.35 * CNoise.value1(f / 7, seed + 4)
+            double b = 0.45 * toMean(0.5, b33, () -> CNoise.value1(f / 33, seed + 3)) + 0.35 * toMean(0.5, b7, () -> CNoise.value1(f / 7, seed + 4))
                     + 0.20 * (CNoise.value1(f / 1.6, seed + 5) - 0.5) * CNoise.band(1.6, footprint) + 0.1;
             b = smooth(0.25, 0.75, b);
             col = mix(gneissDark, gneissLight, b);
-            double fel = smooth(0.78, 0.9, CNoise.value1(f / 4.5, seed + 6)) * feldsparAmount;
+            double fel = toMean(FEL_MEAN, b45, () -> smooth(0.78, 0.9, CNoise.value1(f / 4.5, seed + 6))) * feldsparAmount;
             col = mix(col, feldspar, fel);
             double[] g0 = rot(x, y, z);
             double grain = (CNoise.value(g0[0] / 0.7, g0[1] / 0.7, g0[2] / 0.7, seed + 7) - 0.5) * 0.18 * CNoise.band(0.7, footprint);
@@ -426,7 +448,7 @@ public final class Cliff {
         double seep = rock == Rock.LOCKER
                 // Lockergestein: Wasser staut auf dem Lehm und tritt an der Grenze aus, Streifen von dort hinab
                 ? smooth(0.62, 0.76, CNoise.value(x / 2.2, y / 45, z / 2.2, seed + 57)) * seepAmount * wall * smooth(-0.3, 0.2, lehmTop) * (1 - smooth(1, seepLength, lehmTop))
-                : smooth(0.66, 0.78, CNoise.value(x / 3.5, y / 70, z / 3.5, seed + 9)) * seepAmount * wall;
+                : wall > 0 ? farMix(SEEP_MEAN, 3.5, footprint, () -> smooth(0.66, 0.78, CNoise.value(x / 3.5, y / 70, z / 3.5, seed + 9))) * seepAmount * wall : 0;
         s.wet = clamp(Math.max(Math.max(wetMap * fallWet, seep), rainWet * s.rock));
         if (rock == Rock.LOCKER) {
             // Trockenrisse im trockenen Lehm: ein Netz dünner Fugen
@@ -439,9 +461,10 @@ public final class Cliff {
         }
         // Flechten auf trockenem, steilem Fels; Moos auf nassen Absätzen
         double[] q = rot(x, y, z);
-        double li = smooth(0.5, 0.72, CNoise.value(q[0] / 2.2, q[1] / 2.2, q[2] / 2.2, seed + 10)) * lichenAmount * (1 - s.wet) * s.rock;
+        double li = farMix(LICHEN_MEAN, 2.2, footprint, () -> smooth(0.5, 0.72, CNoise.value(q[0] / 2.2, q[1] / 2.2, q[2] / 2.2, seed + 10))) * lichenAmount * (1 - s.wet) * s.rock;
         col = mix(col, lichen, li * 0.7);
-        double mo = clamp((ledge * 0.9 + s.wet * 0.45) * mossAmount * 2 + topMoss * smooth(0.45, 0.85, ny)) * smooth(0.4, 0.62, CNoise.value(q[0] / 3.5, q[1] / 3.5, q[2] / 3.5, seed + 12));
+        double mw = clamp((ledge * 0.9 + s.wet * 0.45) * mossAmount * 2 + topMoss * smooth(0.45, 0.85, ny));
+        double mo = mw > 0 ? mw * farMix(MOSS_MEAN, 3.5, footprint, () -> smooth(0.4, 0.62, CNoise.value(q[0] / 3.5, q[1] / 3.5, q[2] / 3.5, seed + 12))) : 0;
         col = mix(col, moss, mo);
         // Geröll am Fuß: Blöcke als steiles Rauschen im gedrehten Gitter (keine Würfel: die schnitten Dreiecke in den Hang)
         double blk = 0.5 + (smooth(0.3, 0.7, CNoise.value(q[0] / 1.3, q[1] / 1.3, q[2] / 1.3, seed + 13)) - 0.5) * CNoise.band(1.3, footprint);

@@ -56,6 +56,15 @@ public final class TreeGl {
         public double[] fogColor = {0.62, 0.70, 0.80};
         public double fogDistance = 1500;
         /**
+         * Seit LituyaBay1958 W6 Runde 5: Anteil des Himmels, den Stamm und Äste am Fuß eines Baums im Bestand sehen (1 =
+         * frei stehend, wie bisher). Das Holz wird damit nach unten dunkler (mal mix(standAo, 1, h²), h = Höhe im Baum),
+         * wie die Verdeckung, die {@code com.dan.forest} in die Farbe backt (am Stamm rund 0,45). Sonst stehen die Stämme
+         * zwischen den Bäumen aus forest zu hell.
+         */
+        public double standAo = 1;
+        /** Seit W6 Runde 5: Abrufe der Sonnenschattenkarte je Bildpunkt, 9 (3×3, Vorgabe) oder 1 (bilinear), wie {@code ForestGl.Light}. */
+        public int sunShadowTaps = 9;
+        /**
          * Seit LituyaBay1958 W6 Runde 4, wie {@code com.dan.forest.gl.ForestGl.Light}, damit Bäume aus beiden Packages in
          * einer Szene gleich hell stehen: Schattenkarte von oben (r = Durchlässigkeit, etwa Gelände oder Wolken; 0 = keine)
          * mit Rechteck x, z, Kante (m); Sonnenschatten als Tiefentextur mit Vergleich (0 = keiner), Matrix Welt → Licht
@@ -81,6 +90,11 @@ public final class TreeGl {
     public float fadeDistance, maxDistance;
     /** ohne Stufe 0 (Original mit allen Blättern), etwa für große Bestände */
     public int minLevel = 0;
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Holz ohne Textur bekommt das Muster der Rinde aus {@link TreeSpecies#barkStyle}
+     * (gleicher Shadertext wie {@code com.dan.forest}, Relief über die Ableitungen im Bild). Aus: wie bisher einfarbig.
+     */
+    public boolean barkDetail;
 
     private final List<Tree> trees = new ArrayList<>();
     private final int nv;
@@ -354,22 +368,15 @@ public final class TreeGl {
     }
 
     public void draw(GL4 gl, View view, Light light, double time) {
+        cur = program;
         gl.glUseProgram(program);
-        gl.glUniformMatrix4fv(loc(gl, "uVP"), 1, false, view.viewProj, 0);
-        gl.glUniform3f(loc(gl, "uCam"), (float) view.eye[0], (float) view.eye[1], (float) view.eye[2]);
-        gl.glUniform1f(loc(gl, "uTime"), (float) time);
-        float[] w = wind.at(view.eye[0], 0, view.eye[2]);
-        gl.glUniform4f(loc(gl, "uWind"), w[0], w[1], w[2], wind.gustiness);
-        gl.glUniform3f(loc(gl, "uFlex"), species.flexTrunk, species.flexBranch, species.flutter);
-        gl.glUniform2f(loc(gl, "uVisible"), look.lo, look.hi);
-        gl.glUniform3fv(loc(gl, "uLeafLo"), 1, look.colorLo, 0);
-        gl.glUniform3fv(loc(gl, "uLeafHi"), 1, look.colorHi, 0);
-        float[] bark = species.bark != null ? species.bark : species.load(0).barkColor;
-        gl.glUniform3fv(loc(gl, "uBark"), 1, bark, 0);
-        gl.glUniform1f(loc(gl, "uSnow"), look.snow);
-        gl.glUniform3fv(loc(gl, "uLeafRef"), 1, look.reference, 0);
+        windEye = view.eye.clone();
+        vertexUniforms(gl, view.viewProj, view.eye, time);
+        gl.glUniform1f(loc(gl, "uStand"), (float) Math.max(0, Math.min(1, light.standAo)));
         gl.glUniform1i(loc(gl, "uBarkTex"), 0);
         gl.glUniform1i(loc(gl, "uLeafTex"), 1);
+        gl.glUniform3f(loc(gl, "uBarkPat"), barkDetail && species.barkStyle != TreeSpecies.BARK_NONE ? 1f : 0f, species.barkStyle,
+                Math.max(0, Math.min(1, species.lichen)));
         double[] sd = light.sunDir;
         double sl = Math.sqrt(sd[0] * sd[0] + sd[1] * sd[1] + sd[2] * sd[2]);
         gl.glUniform3f(loc(gl, "uSunDir"), (float) (sd[0] / sl), (float) (sd[1] / sl), (float) (sd[2] / sl));
@@ -384,7 +391,7 @@ public final class TreeGl {
         gl.glUniform1i(loc(gl, "uSunShadow"), 3);
         gl.glUniform1i(loc(gl, "uSky"), 4);
         gl.glUniform4f(loc(gl, "uShadowRect"), (float) light.shadowRect[0], (float) light.shadowRect[1], (float) light.shadowRect[2], light.shadowTexture != 0 ? 1f : 0f);
-        gl.glUniform2f(loc(gl, "uSunShadowP"), light.sunShadowTexture != 0 && light.sunShadowMatrix != null ? 1f : 0f, (float) light.sunShadowBias);
+        gl.glUniform2f(loc(gl, "uSunShadowP"), light.sunShadowTexture != 0 && light.sunShadowMatrix != null ? (light.sunShadowTaps == 1 ? 2f : 1f) : 0f, (float) light.sunShadowBias);
         if (light.sunShadowMatrix != null) gl.glUniformMatrix4fv(loc(gl, "uSunShadowM"), 1, false, light.sunShadowMatrix, 0);
         gl.glUniform1i(loc(gl, "uSkyOn"), light.skyTexture != 0 ? 1 : 0);
         gl.glUniform1f(loc(gl, "uSkyWeight"), (float) light.skyWeight);
@@ -396,6 +403,45 @@ public final class TreeGl {
         gl.glBindTexture(GL.GL_TEXTURE_2D, light.skyTexture);
         gl.glActiveTexture(GL.GL_TEXTURE0);
         gl.glDisable(GL.GL_CULL_FACE);          // Blätter beidseitig, Röhren ohne Deckel
+        drawnTriangles = drawSlots(gl);
+        gl.glUseProgram(0);
+    }
+
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: die Bäume (gleiche Stufen und Eimer wie im letzten {@link #update}) in eine gebundene
+     * Tiefen-Schattenkarte; lightVP: Welt → Licht. Wind und Jahreszeit wie in {@link #draw}, Laub mit Textur schneidet aus.
+     * Erst nach {@link #init}; das Programm entsteht beim ersten Aufruf.
+     */
+    public void drawShadow(GL4 gl, float[] lightVP, double time) {
+        if (program == 0) return;
+        if (shadowProgram == 0) shadowProgram = program(gl, source("tree.vert"), source("tree_shadow.frag"));
+        cur = shadowProgram;
+        gl.glUseProgram(shadowProgram);
+        vertexUniforms(gl, lightVP, windEye, time);   // Wind wie im letzten Bild, sonst schwankt der Schatten anders
+        gl.glUniform1i(loc(gl, "uLeafTex"), 1);
+        gl.glDisable(GL.GL_CULL_FACE);
+        drawSlots(gl);
+        gl.glUseProgram(0);
+        cur = program;
+    }
+
+    private void vertexUniforms(GL4 gl, float[] vp, double[] eye, double time) {
+        gl.glUniformMatrix4fv(loc(gl, "uVP"), 1, false, vp, 0);
+        gl.glUniform3f(loc(gl, "uCam"), (float) eye[0], (float) eye[1], (float) eye[2]);
+        gl.glUniform1f(loc(gl, "uTime"), (float) time);
+        float[] w = wind.at(eye[0], 0, eye[2]);
+        gl.glUniform4f(loc(gl, "uWind"), w[0], w[1], w[2], wind.gustiness);
+        gl.glUniform3f(loc(gl, "uFlex"), species.flexTrunk, species.flexBranch, species.flutter);
+        gl.glUniform2f(loc(gl, "uVisible"), look.lo, look.hi);
+        gl.glUniform3fv(loc(gl, "uLeafLo"), 1, look.colorLo, 0);
+        gl.glUniform3fv(loc(gl, "uLeafHi"), 1, look.colorHi, 0);
+        float[] bark = species.bark != null ? species.bark : species.load(0).barkColor;
+        gl.glUniform3fv(loc(gl, "uBark"), 1, bark, 0);
+        gl.glUniform1f(loc(gl, "uSnow"), look.snow);
+        gl.glUniform3fv(loc(gl, "uLeafRef"), 1, look.reference, 0);
+    }
+
+    private long drawSlots(GL4 gl) {
         long tris = 0;
         for (Slot[] row : slots)
             for (Slot s : row) {
@@ -413,8 +459,7 @@ public final class TreeGl {
                 tris += (long) s.mesh.triangles * s.count;
             }
         gl.glBindVertexArray(0);
-        gl.glUseProgram(0);
-        drawnTriangles = tris;
+        return tris;
     }
 
     private int variantOf(Slot s) {
@@ -433,11 +478,16 @@ public final class TreeGl {
                 s.uploaded = false;
             }
         if (program != 0) gl.glDeleteProgram(program);
+        if (shadowProgram != 0) gl.glDeleteProgram(shadowProgram);
         program = 0;
+        shadowProgram = 0;
     }
 
+    private int shadowProgram, cur;
+    private double[] windEye = {0, 0, 0};
+
     private int loc(GL4 gl, String name) {
-        return gl.glGetUniformLocation(program, name);
+        return gl.glGetUniformLocation(cur != 0 ? cur : program, name);
     }
 
     private static double sq(double x) {

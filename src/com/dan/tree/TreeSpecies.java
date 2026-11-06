@@ -135,6 +135,16 @@ public final class TreeSpecies {
     /** Seit LituyaBay1958 W6 Runde 4: {@link TreeLod#rootCut} für alle Stufen dieser Art (0 = wie bisher). Vor dem Backen setzen. */
     public float rootCut = 0;
 
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Muster der Rinde, wenn {@code gl/TreeGl#barkDetail} an ist und das Holz keine Textur
+     * hat (die Röhren aus dem Skelett tragen keine Texturkoordinaten). Gleiche Zahlen wie {@code com.dan.forest.Species.BarkStyle}:
+     * {@link #BARK_NONE}, {@link #BARK_SMOOTH} (Erle, Buche), {@link #BARK_FURROWED} (Hemlock, Eiche), {@link #BARK_SCALY}
+     * (Fichte), {@link #BARK_PLATED} (Kiefer, Lärche), {@link #BARK_PAPER} (Birke). {@link #lichen}: Anteil der Krustenflechten 0..1.
+     */
+    public int barkStyle = BARK_NONE;
+    public float lichen = 0;
+    public static final int BARK_NONE = 0, BARK_SMOOTH = 1, BARK_FURROWED = 2, BARK_SCALY = 3, BARK_PLATED = 4, BARK_PAPER = 5;
+
     @Override
     public String toString() {
         return name + " (" + latin + ") " + Arrays.toString(variantNames);

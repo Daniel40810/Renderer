@@ -101,6 +101,7 @@ public final class CliffCheck {
         check(sn.snow > 0.3 && lum(sn) > lum(flat), String.format(Locale.GERMAN, "Schnee auf flachen Stellen (%.2f)", sn.snow));
         granit();
         locker();
+        fern();
         System.out.println(c.describe());
         System.out.println(m.describe());
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Fehler.");
@@ -195,6 +196,49 @@ public final class CliffCheck {
                 for (double d : v) h = 31 * h + Double.doubleToLongBits(Math.round(d * 1e9) / 1e9);
             }
         return h;
+    }
+
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Fernstufe. Aus = Prüfsumme wie bisher (in {@link #locker}); an: nah gleich, fern
+     * nur noch das Mittel (kaum Streuung über die Wand), und die Mittel der Schwellen stimmen mit dem Rauschen.
+     */
+    static void fern() {
+        Cliff aus = new Cliff(), an = new Cliff();
+        an.farBands = true;
+        java.util.Random r = new java.util.Random(11);
+        double nah = 0, sAus = 0, sAn = 0;
+        double[] mAus = new double[3], mAn = new double[3];
+        int n = 400;
+        double[][] fa = new double[n][], fb = new double[n][];
+        for (int i = 0; i < n; i++) {
+            double x = r.nextDouble() * 2000 - 1000, y = r.nextDouble() * 900, z = r.nextDouble() * 2000 - 1000;
+            double sl = Math.toRadians(50 + r.nextDouble() * 35), az = r.nextDouble() * 6.28;
+            double nx = Math.sin(sl) * Math.sin(az), ny = Math.cos(sl), nz = -Math.sin(sl) * Math.cos(az);
+            Cliff.Sample a = aus.material(x, y, z, nx, ny, nz, null, 0, 0, 0.05), b = an.material(x, y, z, nx, ny, nz, null, 0, 0, 0.05);
+            for (int k = 0; k < 3; k++) nah = Math.max(nah, Math.abs(a.albedo[k] - b.albedo[k]));
+            fa[i] = aus.material(x, y, z, nx, ny, nz, null, 0, 0, 60).albedo.clone();
+            fb[i] = an.material(x, y, z, nx, ny, nz, null, 0, 0, 60).albedo.clone();
+            for (int k = 0; k < 3; k++) { mAus[k] += fa[i][k] / n; mAn[k] += fb[i][k] / n; }
+        }
+        for (int i = 0; i < n; i++) { sAus += Math.pow(fa[i][1] - mAus[1], 2) / n; sAn += Math.pow(fb[i][1] - mAn[1], 2) / n; }
+        check(nah < 1e-12, String.format(Locale.GERMAN, "Fernstufe: in der Nähe (5 cm je Bildpunkt) gleiche Farbe (± %.1e)", nah));
+        check(Math.sqrt(sAn) < 0.25 * Math.sqrt(sAus) && Math.abs(mAn[1] - mAus[1]) < 0.12 * mAus[1],
+                String.format(Locale.GERMAN, "Fernstufe: bei 60 m je Bildpunkt streut die Wand %.4f statt %.4f, Mittel %.3f statt %.3f",
+                        Math.sqrt(sAn), Math.sqrt(sAus), mAn[1], mAus[1]));
+        double[] m = new double[4];
+        int N = 200000;
+        for (int i = 0; i < N; i++) {
+            double x = r.nextDouble() * 640, y = r.nextDouble() * 640, z = r.nextDouble() * 640;
+            int sd = r.nextInt(64);
+            double v = CNoise.value(x, y, z, sd);
+            m[0] += Cliff.smooth(0.78, 0.9, CNoise.value1(x, sd)) / N;
+            m[1] += Cliff.smooth(0.66, 0.78, v) / N;
+            m[2] += Cliff.smooth(0.5, 0.72, v) / N;
+            m[3] += Cliff.smooth(0.4, 0.62, v) / N;
+        }
+        check(Math.abs(m[0] - Cliff.FEL_MEAN) < 0.01 && Math.abs(m[1] - Cliff.SEEP_MEAN) < 0.01 && Math.abs(m[2] - Cliff.LICHEN_MEAN) < 0.01
+                && Math.abs(m[3] - Cliff.MOSS_MEAN) < 0.01, String.format(Locale.GERMAN, "Fernstufe: Mittel Feldspat %.3f, Sickern %.3f, Flechten %.3f, Moos %.3f gemessen",
+                m[0], m[1], m[2], m[3]));
     }
 
     /** Seit Sylt Phase 4: Lockergestein (Rotes Kliff). */
