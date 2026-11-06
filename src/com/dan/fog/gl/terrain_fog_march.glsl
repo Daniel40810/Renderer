@@ -16,6 +16,13 @@ uniform sampler2D uPhase;
 uniform int uPhaseOn;
 uniform sampler2D uSunH;
 uniform vec4 uSunHRect;            // x0, z0, Kantenlänge, an (1) / aus (0)
+uniform int uGeomOnly;             // seit LituyaBay1958 W7: nur über Geometrie (Spiegelbild), der Himmel bleibt
+
+// seit W7: sieht der Bildpunkt den Himmel (keine Geometrie in der Tiefe)?
+bool tfSkyPixel(ivec2 px) {
+    float dz = texelFetch(uDepth, px, 0).r;
+    return uReversed == 1 ? dz <= 0.0 : dz >= 1.0;
+}
 
 float hgF(float c, float g) { return (1.0 - g * g) / (12.566 * pow(1.0 + g * g - 2.0 * g * c, 1.5)); }
 
@@ -115,6 +122,14 @@ vec4 fogMarch(ivec2 px, out float tEnd) {
         if (m.w > 0.5 && uTfValley.x > 1e-3) above = max(above, m.y * uTfValley.x - (q.y - m.x));
         float capDark = (uTfCap.y > 1e-7 && m.w > 0.5 && m.z > 0.5 && q.y > uTfCap.x - m.z - 20.0) ? uCapSun : 1.0;
         float sT = exp(-dens * above / sunUp * 0.35) * capDark, mT = exp(-dens * above / moonUp * 0.35) * capDark;
+        // seit LituyaBay1958 W7: Quellen – nahe der Obergrenze hell auf der Seite zur Sonne, dunkel im Schatten der Kuppe
+        if (uTfSea2.x > 0.0 && uTfSea.z > 1e-7 && above < 4.0 / max(dens, 1e-4)) {
+            float e = uTfSea2.y * 0.12;
+            vec2 g = vec2(tfSeaTop(q.xz + vec2(e, 0.0)) - top, tfSeaTop(q.xz + vec2(0.0, e)) - top) / e;
+            vec3 nrm = normalize(vec3(-g.x, 1.0, -g.y));
+            float lam = clamp(dot(nrm, uSunDir) / max(0.12, uSunDir.y), 0.15, 2.2);
+            sT *= mix(1.0, lam, exp(-dens * above * 0.8));
+        }
         float ter = terrainSun(q);
         float body = casters ? tfSunShadow(q) : 1.0;
         vec3 amb = mix(uAmbHor, uAmbTop, 0.5) * (0.6 + 0.4 * exp(-dens * above * 0.3)) * mix(0.55, 1.0, capDark);

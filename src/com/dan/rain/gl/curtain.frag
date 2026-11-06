@@ -15,6 +15,8 @@ uniform int uSteps;
 uniform float uTime;
 uniform vec3 uSunDir, uSunColor, uMoonDir, uMoonColor, uSkyTop, uSkyHorizon;
 uniform float uStrength;
+uniform int uSmooth;          // seit LituyaBay1958 W7: Schleier im langen Schritt geglättet, Schritte je Bildpunkt versetzt (0 = wie bisher)
+uniform int uFrame;
 
 float hg(float c, float g) { return (1.0 - g * g) / (12.566 * pow(1.0 + g * g - 2.0 * g * c, 1.5)); }
 
@@ -58,10 +60,13 @@ void main() {
     vec3 light = mix(uSkyTop, uSkyHorizon, 0.15) * 0.7 + uSunColor * (hg(cs, 0.6) * 12.566 * 0.05 + 0.01)
                + uMoonColor * (hg(cm, 0.6) * 12.566 * 0.06 + 0.015);
     float tPrev = tStart;
+    // seit W7: versetzter Ort im Schritt (Interleaved Gradient Noise, je Bild weiter)
+    vec2 px = gl_FragCoord.xy + float(uFrame % 64) * 5.588238;
+    float jit = uSmooth == 1 ? fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715)))) : 0.5;
     for (int s = 1; s <= 64; s++) {
         if (s > uSteps) break;
         float t = tStart * pow(ratio, float(s) / float(uSteps));
-        float tm = 0.5 * (t + tPrev), dt = t - tPrev;
+        float dt = t - tPrev, tm = tPrev + jit * dt;
         tPrev = t;
         vec3 p = uEye + dir * tm;
         float local = uRainC.z * rainCurtain(p.xz);
@@ -69,6 +74,9 @@ void main() {
         // senkrechte Schleier: quer zum Wind gestreift, fallen langsam, ziehen mit dem Wind
         vec2 q = p.xz - uRainC.xy * uTime;
         float streak = 0.55 + 0.9 * vn(vec2(dot(q, side) / 35.0, p.y / 420.0 + uTime * 0.05)) * (0.6 + 0.4 * vn(vec2(dot(q, side) / 9.0, dot(q, wind) / 120.0)));
+        // seit W7: ein Schritt über viele Schleier sieht ihr Mittel (0,91), nicht einen zufälligen
+        // und nah am Auge (bis rund 1 km) ist Regen gleichmäßig: die Schleier wären dort Balken über das halbe Bild
+        if (uSmooth == 1) streak = mix(0.91, streak, clamp(70.0 / max(dt, 1.0), 0.0, 1.0) * smoothstep(250.0, 1200.0, tm));
         // nach oben, zur Wolke hin, dichter; am Wasser leicht weniger (der Regen ist durch)
         float h = clamp(p.y / max(uCloudBase, 1.0), 0.0, 1.0);
         float sigma = 0.25e-3 * pow(local, 0.63) * streak * (0.85 + 0.3 * h);

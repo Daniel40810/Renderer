@@ -166,11 +166,92 @@ public final class FogCheck {
                 String.format(Locale.GERMAN, "mit Wind von außen ziehen die Bänke mit dem Wind am Anker (%.1f m/s nach Süden statt %.1f nach Osten)", d1[1], d0[0]));
         terrain();
         light();
+        advance();
+        billows();
         lines.add(bad == 0 ? "Alles in Ordnung." : bad + " Prüfungen fehlgeschlagen.");
         return lines;
     }
 
     public int failures() { return bad; }
+
+    /** Seit LituyaBay1958 W7: Quellen auf dem Nebelmeer – aus wie bisher; an: Kuppen um ± billows, rund billowSize groß, mit dem Wind. */
+    void billows() {
+        com.dan.fog.TerrainFog f = new com.dan.fog.TerrainFog();
+        f.seaBaseTarget = -40;
+        f.seaTopTarget = 250;
+        f.seaRough = 0;
+        f.settle();
+        double flat = 0;
+        for (int i = 0; i < 50; i++) flat = Math.max(flat, Math.abs(com.dan.fog.TerrainFog.seaTopAt(f.snapshot(), i * 97.0, i * 61.0) - f.snapshot().seaTop()));
+        f.billows = 20;
+        f.billowSize = 300;
+        f.settle();
+        double lo = 1e9, hi = -1e9, sum = 0, jump = 0, prev = Double.NaN;
+        int n = 0;
+        for (int i = 0; i < 3000; i++) {
+            double h = com.dan.fog.TerrainFog.seaTopAt(f.snapshot(), i * 5.0, 0) - f.snapshot().seaTop();
+            lo = Math.min(lo, h); hi = Math.max(hi, h); sum += h; n++;
+            if (!Double.isNaN(prev)) jump = Math.max(jump, Math.abs(h - prev));
+            prev = h;
+        }
+        check(flat < 1e-9 && lo > -27 && hi < 15 && hi - lo > 15 && jump < 2.5,
+                f("Quellen auf dem Nebelmeer: aus glatt (%.1e m), an %.0f … %+.0f m um die Obergrenze (Mittel %+.0f m), stetig (größter Sprung je 5 m %.2f m)", flat, lo, hi, sum / n, jump));
+    }
+
+    /** Seit LituyaBay1958 W7: eine Bucht hinter einem Küstenkamm mit einem Eingang von 600 m; Seenebel bis 250 m von Westen. */
+    static double bucht(double x, double z) {
+        if (x < -3000) return -20;                                           // offene See
+        if (x < -2000) return Math.abs(z) < 300 ? -10 : 600;                 // Kamm mit dem Eingang
+        if (Math.abs(z) > 4000 || x > 4500) return 800;                      // Berge um die Bucht
+        return -30;                                                           // die Bucht
+    }
+
+    void advance() {
+        com.dan.fog.TerrainFog f = new com.dan.fog.TerrainFog();
+        f.ground = FogCheck::bucht;
+        f.mapRect = new double[]{-6400, -6400, 12_800};
+        f.seaBaseTarget = -40;
+        f.seaTopTarget = 250;
+        f.seaRough = 0;
+        f.wisps = 0;
+        f.windSpeed = 4;
+        f.windFromDeg = 270;
+        f.advanceFingers = 0;
+        f.settle();
+        double ohne = f.density(1000, 100, 0);
+        f.advance = 0;
+        f.step(0);
+        float[] map = f.buildMap(128);
+        double[] r = f.mapRect;
+        float[] see = com.dan.fog.TerrainFog.mapAt(map, 128, r, -4500, 2500), tor = com.dan.fog.TerrainFog.mapAt(map, 128, r, -2500, 0),
+                mitte = com.dan.fog.TerrainFog.mapAt(map, 128, r, 1000, 0), seite = com.dan.fog.TerrainFog.mapAt(map, 128, r, 1000, 3000),
+                kamm = com.dan.fog.TerrainFog.mapAt(map, 128, r, -2500, 2500);
+        boolean umweg = seite[3] > mitte[3] + 1000 && mitte[3] > tor[3] && tor[3] > see[3];
+        check(umweg && kamm[3] > 1e6,
+                f("Weg des Vorstoßes: See %.1f km, Eingang %.1f km, Mitte der Bucht %.1f km, ihr Rand hinter dem Kamm %.1f km (nur durch den Eingang), Kamm %s",
+                        see[3] / 1000, tor[3] / 1000, mitte[3] / 1000, seite[3] / 1000, kamm[3] > 1e6 ? "unerreichbar" : String.format("%.0f m", kamm[3])));
+        f.advance = tor[3] - 400;
+        f.step(0);
+        double vorSee = f.density(-4500, 100, 0), vorBucht = f.density(1000, 100, 0);
+        f.advance = seite[3] + 1500;
+        f.step(0);
+        double nachBucht = f.density(1000, 100, 0), nachSeite = f.density(1000, 100, 3000), ueber = f.density(-2500, 650, 2500);
+        check(vorSee > 0 && vorBucht == 0 && nachBucht > 0 && nachSeite > 0 && ueber == 0 && Math.abs(nachBucht - ohne) < 1e-9,
+                f("Front vor dem Eingang: Nebel auf See (Sicht %.0f m), die Bucht klar; später die ganze Bucht im Nebel wie ohne Vorstoß, über dem Kamm klar", com.dan.fog.Fog.SIGMA_PER_VIS / vorSee));
+        f.advance = 1000;
+        f.advanceRate = 2.5;
+        for (int i = 0; i < 60; i++) f.step(10);
+        check(Math.abs(f.advance - 2500) < 1e-6, f("die Front stößt mit 2,5 m/s vor: nach 10 min %.0f m", f.advance));
+        com.dan.fog.TerrainFog g = new com.dan.fog.TerrainFog();
+        g.ground = FogCheck::bucht;
+        g.seaBaseTarget = -40;
+        g.seaTopTarget = 250;
+        g.settle();
+        float[] m0 = g.buildMap(64);
+        boolean null0 = true;
+        for (int k = 0; k < 64 * 64; k++) null0 &= m0[k * com.dan.fog.TerrainFog.MAP_STRIDE + 3] == 0;
+        check(null0 && Double.isNaN(g.advance), "ohne Vorstoß: Kanal 3 der Karte 0, das Meer liegt überall wie bisher");
+    }
 
     /** Seit Brocken Phase 6: Nebel über Gelände (Nebelmeer, Auflösen von unten, Talnebel, Stau am Luvhang). */
     void terrain() {

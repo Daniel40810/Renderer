@@ -130,3 +130,20 @@ w.release();                                     // „Regie weiter“
 ## Seit Brocken Phase 16
 
 - Fehler behoben: Begann ein Szenario (oder die freie Regie) vor der zuletzt gerechneten Zeit – etwa ein Regiebuch, das die Uhr vom Oktober in den Juni stellt –, kürzte die Zeitleiste die neuen Abschnitte nach der alten Zeit weg, und es galt eine fremde Lage. `start` und `startFree` vergessen jetzt die alte Zeit. `WeatherCheck` prüft es.
+
+## Seit LituyaBay1958 W7: Übergang wählbar, Wechsel ohne Sprung, Nässe
+
+- **`inertia`** (Vorgabe 1 = wie bisher): Faktor auf alle Trägheiten. Eine App mit einem Regler „Übergang in Minuten“ setzt `inertia = Minuten / 60`; 0 = sofort. Die Vorläufe (Luftdruck, Dünung, Cirren) bleiben.
+- **`change(Scenario, t)`**: wie `start`, aber ohne Sprung. Größen, Handregler, Böen, Nässe und der Verlauf des Luftdrucks bleiben; ab `t` gilt das neue Regiebuch, und jede Größe gleitet mit ihrer Trägheit hinüber. Für eine Auswahl „Wetterlage“ in einer App: bei laufender Uhr `change`, bei stehender `start`.
+- **Nässe der Oberflächen** (`Snapshot.wetness()`, 0..1): Regen benetzt (`wetFilm` mm Wasserfilm = ganz nass, Vorgabe 0,4), Nebel netzt schwach; es trocknet mit `dryRate` (Vorgabe 1,2 je Stunde bei trockener Luft, Sonne und 5 m/s), schneller mit Wind, langsamer bei feuchter Luft und Bedeckung [G]. Bei Sprüngen der Uhr das Gleichgewicht mit dem Regen; `setWetness` setzt sie von Hand (Standbild kurz nach einem Schauer).
+- **Nullgradgrenze und Schneefallgrenze** (`Snapshot.freezingLevel()`, `snowLevel()`, mit Bezugshöhe aus der Temperatur in der Höhe, Inversionen eingeschlossen; Schneefallgrenze nach der Faustregel 300 m darunter).
+- `WeatherCheck` prüft: Wechsel ohne Sprung (nach 1 min 1,4/8, nach 30 min 5,0/8; mit Trägheit 0,1 schon 8/8), Nässe nach Regen und Abtrocknen, Nullgradgrenze, und dass ohne die neuen Teile alles bleibt, wie es war.
+- Ohne die neuen Eingänge bleibt alles wie bisher; der `Snapshot` hat eine Komponente mehr (`wetness`, am Ende).
+
+```java
+Weather w = new Weather();
+w.inertia = 20 / 60.0;                      // Wechsel in rund 20 Minuten
+w.start(lageKlar, t);                       // Start, Sprung, Standbild: sofort
+w.change(lageRegen, t2);                    // bei laufender Uhr: gleitet hinüber
+double nass = w.update(t3, dt).wetness();   // dunkler, glänzender Fels
+```

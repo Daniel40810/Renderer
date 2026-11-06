@@ -82,3 +82,7 @@ Die Ausgabe ist vormultipliziert (`ONE, ONE_MINUS_SRC_ALPHA`), linear und vorbel
 ## Seit Sylt Phase 13
 
 `RainGl.crownBand`: Krönchen nur so weit (m) über und unter dem Wasserspiegel (Vorgabe 6 wie bisher). Auf Sand spritzt der Regen nicht weiß; eine Szene mit Strand und Dünen setzt 0,4.
+
+## Seit LituyaBay1958 W7 Runde 1b
+
+`RainGl.curtainSmooth` (Vorgabe false = wie bisher): Regenvorhänge ohne senkrechte Balken. Die Schleier (35 m quer zum Wind) wurden in der Ferne mit wenigen Schritten je Strahl abgetastet; benachbarte Spalten trafen verschiedene Schleier. Mit true werden die Schleier in einem langen Schritt und nah am Auge (bis rund 1 km, dort wären sie Balken über das halbe Bild) zu ihrem Mittel geglättet und die Schritte je Bildpunkt versetzt (Rauschen statt Balken, die zeitliche Glättung der Szene nimmt es weg).

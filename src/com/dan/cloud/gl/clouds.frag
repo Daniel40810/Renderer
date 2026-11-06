@@ -22,9 +22,11 @@ uniform float uMaxDist;
 uniform int uFrame;
 uniform vec4 uFlash;        // Ort relativ zur Szene, Stärke
 uniform vec2 uTarget;       // Größe des Ziels in Bildpunkten
-const float STEP_GROW = 5000.0;
+uniform float uStepGrow;   // Entfernung (m), in der sich die Schrittweite verdoppelt (5 000; seit LituyaBay1958 W7 mit langer Brennweite mehr)
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 uniform vec4 uDeck;        // Farbe der fernen geschlossenen Decke, Anteil 0..1 (ab 4/8 wachsend)
+uniform vec4 uHazeCol;     // seit LituyaBay1958 W7: Farbe des Dunsts quer zum Gestirn (vorbelichtet) und Anteil 0..1: ferne Wolken werden zu Dunst statt durchsichtig (über Gelände)
+uniform vec3 uHazeSun, uHazeAnti;   // Farbe des Dunsts zum Gestirn hin und von ihm weg
 uniform int uFlat;          // 1 = Stufe „Niedrig“: die untere Schicht als dünne Fläche (2.5D)
 uniform sampler2D uDepth;   // seit Brocken Phase 3: Tiefe der Szene in voller Größe (uUseDepth = 1)
 uniform int uUseDepth;
@@ -102,7 +104,8 @@ void main() {
             }
         }
     }
-    vec2 seg = shell(uCam, d, uType1.x, uType1.x + uType1.z);
+    // seit LituyaBay1958 W7: mit Gelände von der Bank bis über die Kappe (sonst die Schicht wie bisher)
+    vec2 seg = uOroRect.w > 0.5 ? shell(uCam, d, uShellH.x, uShellH.z) : shell(uCam, d, uType1.x, uType1.x + uType1.z);
     if (uFlat == 0 && seg.x >= 0.0 && seg.x < min(uMaxDist, sd)) {
         float t0 = seg.x, t1 = min(min(seg.y, uMaxDist), sd);
         // Schrittweite wächst mit der Entfernung (ferne Wolken sind klein im Bild); leere Luft mit größeren Schritten
@@ -114,10 +117,10 @@ void main() {
         // seit Brocken Phase 3: kurze Wege (Nebel vor dem Hang, das Auge in der Wolke) mit mindestens sechs Schritten;
         // sonst fiel bei einem Weg unter einer Schrittweite der einzige Schritt je nach Zittern hinein oder heraus (Punkte)
         float near = min(uSteps.y, max((t1 - t0) / 6.0, 0.5));
-        float t = t0 + j * near * (1.0 + t0 / STEP_GROW);
-        for (int k = 0; k < 128; k++) {
+        float t = t0 + j * near * (1.0 + t0 / uStepGrow);
+        for (int k = 0; k < 256; k++) {
             if (float(k) >= uSteps.x || t > t1 || T < 0.01) break;
-            float dt = min(near * (1.0 + t / STEP_GROW), max(t1 - t, 0.5));
+            float dt = min(near * (1.0 + t / uStepGrow), max(t1 - t, 0.5));
             vec3 p = uCam + d * t;
             float tt;
             float s = density(p, true, tt);
@@ -202,8 +205,17 @@ void main() {
     }
     // Dunst zwischen Auge und Wolke: die Wolke verblasst zur Kimm (dort verschwindet sie im Himmel dahinter)
     // Bei geschlossener Decke bleibt sie im Dunst als graue Fläche stehen (der Himmel dahinter ist der klare)
-    float fog = exp(-hazeDepth(uHaze, uCam.y, d, dist)), keep = mix(fog, 1.0, uDeck.w);
-    L = L * fog + (1.0 - T) * (keep - fog) * uDeck.rgb;
+    float fog = exp(-hazeDepth(uHaze, uCam.y, d, dist)), keep = mix(fog, 1.0, max(uDeck.w, uHazeCol.w));
+    // seit LituyaBay1958 W7: über Gelände verblasst eine Wolke in die Farbe des Dunsts (sonst schiene der Hang durch sie hindurch)
+    vec3 hazeTo = uDeck.rgb;
+    if (uHazeCol.w > uDeck.w) {
+        // quadratisch nach dem Kosinus des Azimuts zum Gestirn durch die drei Farben (weg, quer, hin)
+        vec2 a = d.xz, b = uLightDir.xz;
+        float ca = dot(a, b) / max(1e-4, length(a) * length(b));
+        vec3 hz = max(vec3(0.0), uHazeCol.rgb + 0.5 * (uHazeSun - uHazeAnti) * ca + (0.5 * (uHazeSun + uHazeAnti) - uHazeCol.rgb) * ca * ca);
+        hazeTo = mix(uDeck.rgb, hz, (uHazeCol.w - uDeck.w) / max(1e-4, 1.0 - uDeck.w));
+    }
+    L = L * fog + (1.0 - T) * (keep - fog) * hazeTo;
     T = 1.0 - (1.0 - T) * keep;
     outColor = vec4(L, T);
     outDist = vec2(dist, sd);

@@ -142,6 +142,18 @@ public final class Weather {
     /** Zeitkonstante der Böen in Sekunden (Echtzeit). */
     public volatile double gustTau = 6;
     /**
+     * Seit LituyaBay1958 W7: Faktor auf alle Trägheiten ({@link Var#tauH}); 1 = wie bisher, 0,25 = viermal so schnell,
+     * 0 = sofort. Damit wählt eine App die Dauer eines Wetterwechsels (etwa ein Regler „Übergang“ in Minuten).
+     */
+    public volatile double inertia = 1;
+    /**
+     * Seit LituyaBay1958 W7: Nässe der Oberflächen (Fels, Holz, Boden). Wasserfilm in mm, bei dem eine Fläche ganz nass
+     * aussieht ({@link Snapshot#wetness} = 1), und wie schnell sie bei klarer, trockener Luft, Sonne und 5 m/s Wind
+     * abtrocknet (Anteil je Stunde) [G: ein nasser Felsen ist nach einem Schauer in der Sonne nach rund einer Stunde
+     * fleckig hell, bei 95 % Feuchte nach einem halben Tag noch dunkel].
+     */
+    public volatile double wetFilm = 0.4, dryRate = 1.2;
+    /**
      * Seit Haithabu Phase 12: die Regie kennt die Jahreszeit. Monatsmittel der Lufttemperatur (12 Werte, °C, etwa aus
      * {@code com.dan.season.Climate}); die Lagen liegen dann um das Mittel des Tags statt um {@link #TARGET_MEAN}, der
      * Tagesgang ist im Winter flacher, Gewitter kommen fast nur im Sommer, Seenebel öfter im Herbst, Stürme öfter im
@@ -192,6 +204,8 @@ public final class Weather {
     private final double[] x = new double[N], override = new double[N];
     private double time = Double.NaN, frozenOffset;
     private double gust, gustNow;
+    /** Seit LituyaBay1958 W7: Nässe 0..1 (Wasserfilm geteilt durch {@link #wetFilm}). */
+    private double wet;
     private Random rnd = new Random(1885);
     private Random gustRnd = new Random(7);
     /** Verlauf des Luftdrucks (alle 10 min Szenenzeit) für die Tendenz über 3 Stunden; Regen der letzten Stunde. */
@@ -237,6 +251,27 @@ public final class Weather {
         }
         extend(t + s.hours() * 3600 + 72 * 3600);
         settle(t);
+    }
+
+    /**
+     * Seit LituyaBay1958 W7: Wechsel ohne Sprung. Wie {@link #start}, aber die Größen, Handregler, Böen, Nässe und der
+     * Verlauf des Luftdrucks bleiben; ab t gilt das neue Szenario, und jede Größe gleitet mit ihrer Trägheit
+     * (· {@link #inertia}) zu ihm hinüber. Ohne bisherigen Zustand wie {@link #start}.
+     */
+    public synchronized void change(Scenario s, double t) {
+        if (Double.isNaN(time) || timeline.isEmpty() || snapshot == null) { start(s, t); return; }
+        double tt = t - frozenOffset;
+        scenario = s;
+        scenarioStart = t;
+        timeline.clear();
+        double t0 = tt;
+        int i = 0;
+        for (Scenario.Step st : s.steps()) {
+            timeline.add(new Segment(st.phase(), t0, st.hours() * 3600, st, i++));
+            t0 += st.hours() * 3600;
+        }
+        extend(tt + s.hours() * 3600 + 72 * 3600);
+        snapshot = build();
     }
 
     /** Das laufende Szenario oder null. */
@@ -312,6 +347,7 @@ public final class Weather {
 
     private void settle(double t) {
         for (Var v : Var.values()) x[v.ordinal()] = Double.isNaN(override[v.ordinal()]) ? target(v, t + v.leadH * 3600) : override[v.ordinal()];
+        wet = wetEquilibrium();
         histT = Double.NaN;
         histN = 0;
         time = t + frozenOffset;
@@ -329,13 +365,42 @@ public final class Weather {
                 if (!Double.isNaN(override[i])) { x[i] = override[i]; continue; }
                 double g = target(v, ts + v.leadH * 3600);
                 if (v.tauH <= 0) { x[i] = g; continue; }
-                double k = 1 - Math.exp(-h / (v.tauH * 3600));
+                double k = inertia <= 0 ? 1 : 1 - Math.exp(-h / (v.tauH * 3600 * inertia));
                 if (v == Var.DIRECTION) x[i] = norm(x[i] + angle(g - x[i]) * k);
                 else if (v == Var.VISIBILITY) x[i] = Math.exp(Math.log(Math.max(0.05, x[i])) + (Math.log(Math.max(0.05, g)) - Math.log(Math.max(0.05, x[i]))) * k);
                 else x[i] += (g - x[i]) * k;
             }
+            wet = wetStep(wet, h);
         }
     }
+
+    // ------------------------------------------------------------------ Nässe (seit LituyaBay1958 W7)
+
+    /** Wie schnell es abtrocknet (1/h): mit Wind schneller, bei feuchter Luft langsamer, bei Bedeckung langsamer [G]. */
+    private double dryPerHour() {
+        double wind = Math.max(0, x[Var.WIND.ordinal()]), rh = clamp(x[Var.HUMIDITY.ordinal()], 20, 100), cov = clamp(x[Var.COVER.ordinal()], 0, 8);
+        double air = Math.max(0.03, (100 - rh) / 30.0), sun = 1 - 0.6 * cov / 8;
+        return dryRate * air * (0.35 + 0.13 * wind) * sun;
+    }
+
+    /** Ein Schritt der Nässe über h Sekunden: Regen benetzt (Film in mm), Luft und Wind trocknen. */
+    private double wetStep(double w, double h) {
+        double rain = Math.max(0, x[Var.RAIN.ordinal()]), fog = clamp(x[Var.FOG.ordinal()], 0, 1);
+        double wetIn = (rain + 0.08 * fog) / Math.max(1e-3, wetFilm);       // 1/h; Nebel netzt schwach (Nebeltau) [G]
+        double dry = dryPerHour();
+        double eq = wetIn / (wetIn + dry), rate = (wetIn + dry) / 3600;
+        return eq + (w - eq) * Math.exp(-rate * h);
+    }
+
+    /** Nässe im Gleichgewicht mit Regen und Luft (für Sprünge der Uhr). */
+    private double wetEquilibrium() {
+        double rain = Math.max(0, x[Var.RAIN.ordinal()]), fog = clamp(x[Var.FOG.ordinal()], 0, 1);
+        double wetIn = (rain + 0.08 * fog) / Math.max(1e-3, wetFilm);
+        return wetIn / (wetIn + dryPerHour());
+    }
+
+    /** Seit LituyaBay1958 W7: die Nässe von Hand setzen (etwa für ein Standbild kurz nach einem Schauer), 0..1. */
+    public synchronized void setWetness(double w) { wet = clamp(w, 0, 1); snapshot = build(); }
 
     private void stepGust(double realDt) {
         if (realDt <= 0) return;
@@ -598,7 +663,7 @@ public final class Weather {
                            double humidity, double dewPoint, double swellHeight, double swellPeriod, double swellFromDeg, int thunder,
                            double showerEnd, boolean[] overridden, boolean running, Phase next, double nextInH,
                            double refHeight, double lapse, double cloudBase, double cloudTop, double inversionBase, double inversionTop,
-                           double inversionDelta) {
+                           double inversionDelta, double wetness) {
 
         /** Seit Brocken Phase 3: hat die Regie eine Bezugshöhe ({@link Weather#refHeight})? */
         public boolean hasHeight() { return !Double.isNaN(refHeight); }
@@ -651,6 +716,22 @@ public final class Weather {
 
         /** Sicht mit Nebel (km). */
         public double effectiveVisibilityKm() { return visibilityKm * (1 - 0.97 * fog); }
+
+        /**
+         * Seit LituyaBay1958 W7: Nullgradgrenze (m über dem Meer) aus der Temperatur in der Höhe (Halbierung zwischen 0 und
+         * 9 km, Inversionen eingeschlossen); unter dem Meer 0, ohne Bezugshöhe aus der Temperatur der Regie mit 6,5 K/km.
+         */
+        public double freezingLevel() {
+            if (!hasHeight()) return Math.max(0, temperature / 6.5 * 1000);
+            if (temperatureAt(0) <= 0) return 0;
+            double lo = 0, hi = 9000;
+            if (temperatureAt(hi) > 0) return hi;
+            for (int i = 0; i < 40; i++) { double m = (lo + hi) / 2; if (temperatureAt(m) > 0) lo = m; else hi = m; }
+            return (lo + hi) / 2;
+        }
+
+        /** Seit LituyaBay1958 W7: Schneefallgrenze (m), nach der Faustregel rund 300 m unter der Nullgradgrenze. */
+        public double snowLevel() { return Math.max(0, freezingLevel() - 300); }
     }
 
     private Snapshot build() {
@@ -685,7 +766,7 @@ public final class Weather {
                 Math.max(0.05, x[Var.VISIBILITY.ordinal()]), clamp(x[Var.FOG.ordinal()], 0, 1), x[Var.PRESSURE.ordinal()], tend, temp, hum,
                 dewPoint(temp, hum), swell, 7 + 2.2 * Math.sqrt(swell * 4), norm(x[Var.DIRECTION.ordinal()] + 25),
                 (int) clamp(Math.round(x[Var.THUNDER.ordinal()]), 0, 4), shower, ov, running, n.phase(), (n.t0() - t) / 3600,
-                ref, lapse, base, top, layerAt(L_INV_BASE, t), layerAt(L_INV_TOP, t), layerAt(L_INV_DELTA, t));
+                ref, lapse, base, top, layerAt(L_INV_BASE, t), layerAt(L_INV_TOP, t), layerAt(L_INV_DELTA, t), clamp(wet, 0, 1));
     }
 
     // ------------------------------------------------------------------ Hilfen

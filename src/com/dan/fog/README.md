@@ -129,3 +129,28 @@ terrainFogGl.draw(gl, nebel.snapshot(), view, l);
 Grenzen: Die Schatten gelten nur dem direkten Licht; vielfach gestreutes Licht füllt sie nicht von der Seite her auf.
 Der Mond nimmt die Phasenfunktion, wirft aber keine Schatten. An sehr dünnen Kanten (einzelne Bildpunkte) kann das
 Hochrechnen um einen Texel danebenliegen.
+
+## Seit LituyaBay1958 W7: Vorstoß des Nebelmeers
+
+Das Nebelmeer lag bisher überall zugleich. Jetzt kann es als Bank vorstoßen: `TerrainFog.advance` ist der Weg (m), den die Front vom Rand der Karte auf der Seite zurückgelegt hat, von der der Nebel kommt (NaN = kein Vorstoß, alles wie bisher). `advanceRate` (m/s) schreibt ihn in `step` fort, negativ zieht er sich zurück.
+
+- **Weg statt Luftlinie:** Die Karte rechnet in Kanal 3 (bisher frei) für jede Zelle den Weg des Nebels (Dijkstra über acht Nachbarn). Start an den Rändern zur Herkunft mit dem Abstand in Windrichtung (eine gerade Front kommt an), weiter durch Gelände, das `advancePass` (Vorgabe 40 m) unter der Obergrenze liegt; quer zum Wind zählt ein Schritt 1,5-mal, gegen ihn 3,3-mal [G]. Grate über der Obergrenze halten ihn auf. So kriecht Seenebel durch den Eingang einer Bucht und füllt sie von dort aus, durch Sunde und Täler, statt über Kämme zu springen.
+- **Front:** Breite `advanceSoft` (Vorgabe 350 m), Finger und Zungen aus Rauschen (`advanceFingers`, 0..1, ziehen mit den Schwaden). Außerhalb der Karte zählt der Weg in Windrichtung vom Rand.
+- **Richtung:** `advanceFromDeg` (NaN = aus dem Wind am Anker). Ändern sich Richtung (über 5°) oder Obergrenze (über 20 m), baut die Karte neu (`mapVersion` von selbst).
+- Java (`advanceFactor`) und GLSL (`tfAdvance`) gleich; `selfCheck` vergleicht wie bisher. Ohne Karte zeigt der Shader die Front noch nirgends (kein Aufblitzen des ganzen Meers).
+- `FogCheck` prüft an einer Bucht hinter einem Küstenkamm mit einem Eingang von 600 m: der Rand der Bucht hinter dem Kamm ist nur durch den Eingang erreichbar (Umweg), der Kamm gar nicht; vor dem Eingang Nebel auf See und die Bucht klar, später die ganze Bucht wie ohne Vorstoß, über dem Kamm klar; die Front stößt mit der Geschwindigkeit vor; ohne Vorstoß Kanal 3 = 0.
+
+```java
+nebel.seaBaseTarget = -40; nebel.seaTopTarget = 230;   // Seenebel bis 230 m
+nebel.advance = 9_800;          // m Weg: die Front 2 km vor dem Eingang
+nebel.advanceRate = 1.2;        // m/s [G]
+nebel.step(dt);
+```
+
+## Seit LituyaBay1958 W7 Runde 1c: Quellen auf dem Nebelmeer
+
+`TerrainFog.billows` (Vorgabe 0 = wie bisher) und `billowSize` (320 m): kleine Kuppen auf der Obergrenze des Nebelmeers (± `billows` m, oben breit, unten schmal), die mit dem Wind ziehen. Von oben gesehen tragen sie Licht und Schatten: nahe der Obergrenze wird das Sonnenlicht nach der Neigung der Kuppe zur Sonne gewichtet (die Seite zur Sonne hell, die andere im Schatten). Vorher war ein Nebelmeer von oben eine glatte weiße Fläche. Java (`seaTopAt`, `billow`) und GLSL (`tfSeaTop`, `tfBillow`) gleich; `FogCheck` prüft: aus glatt, an rund ± 15 m um die Obergrenze, stetig.
+
+```java
+nebel.billows = 35; nebel.billowSize = 240;   // LituyaBay1958, Küstennebel [G]
+```

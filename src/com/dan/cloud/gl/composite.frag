@@ -17,6 +17,7 @@ uniform vec3 uCam;
 uniform float uMaxDist;         // ohne Wolke im Blick steht dort die größte Entfernung: dann kein Licht
 uniform sampler2D uDepth;       // seit Brocken Phase 3: Tiefe der Szene in voller Größe (uUseDepth = 1)
 uniform int uUseDepth;
+uniform int uGeomOnly;          // seit LituyaBay1958 W7: nur über Geometrie auflegen (Spiegelbild), der Himmel bleibt
 const float PI = 3.14159265;
 void main() {
     vec4 c = texture(uClouds, vUV);
@@ -36,6 +37,7 @@ void main() {
         vec4 sg = textureGather(uDist, vUV, 1);
         vec4 w = vec4((1.0 - f.x) * f.y, f.x * f.y, f.x * (1.0 - f.y), (1.0 - f.x) * (1.0 - f.y));
         bool sky = sd > 1e29;
+        if (sky && uGeomOnly == 1) discard;
         vec4 diff = sky ? vec4(greaterThan(sg, vec4(1e29))) : abs(sg - vec4(sd)) / max(sd, 1.0);
         vec4 ok = sky ? diff : vec4(lessThan(diff, vec4(0.05)));
         vec4 wk = w * ok;

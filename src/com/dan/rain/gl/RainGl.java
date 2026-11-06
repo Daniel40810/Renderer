@@ -68,6 +68,15 @@ public final class RainGl {
      * spritzt der Regen nicht weiß; eine Szene mit Strand und Dünen setzt etwa 0,4 (nur auf dem Wasser und im Schwall).
      */
     public volatile double crownBand = 6;
+    /**
+     * Seit LituyaBay1958 W7: Regenvorhänge ohne Streifenmuster. Die Schleier (35 m quer zum Wind) wurden in der Ferne mit
+     * wenigen Schritten je Strahl abgetastet; benachbarte Spalten trafen verschiedene Schleier und das Bild zerfiel in
+     * senkrechte Balken. Mit true werden die Schleier im langen Schritt und nah am Auge (bis rund 1 km) zu ihrem Mittel
+     * geglättet und die Schritte je Bildpunkt versetzt (Rauschen statt Balken, die zeitliche Mischung glättet es). Vorgabe
+     * false: wie bisher.
+     */
+    public volatile boolean curtainSmooth = false;
+    private int curtainFrame;
 
     public boolean ready() { return ready; }
     public String info() { return info; }
@@ -258,6 +267,8 @@ public final class RainGl {
             gl.glUniformMatrix4fv(gl.glGetUniformLocation(curtainProg, "uInvVP"), 1, false, v.invViewProj, 0);
             gl.glUniform1f(gl.glGetUniformLocation(curtainProg, "uStart"), (float) (s.box() * 0.8));
             gl.glUniform1i(gl.glGetUniformLocation(curtainProg, "uSteps"), s.quality().curtainSteps);
+            gl.glUniform1i(gl.glGetUniformLocation(curtainProg, "uSmooth"), curtainSmooth ? 1 : 0);
+            gl.glUniform1i(gl.glGetUniformLocation(curtainProg, "uFrame"), curtainFrame++);
             gl.glUniform1f(gl.glGetUniformLocation(curtainProg, "uTime"), (float) (s.time() % 3600));
             gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
         }

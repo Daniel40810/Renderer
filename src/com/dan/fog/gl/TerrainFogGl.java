@@ -43,6 +43,11 @@ public final class TerrainFogGl {
         public double curvature;
         /** Seit Brocken Phase 7: Auflösung des Durchgangs (1, 2, 3); 0 = nach der Stufe ({@link TerrainFog.Quality#scale}). */
         public int scale;
+        /**
+         * Seit LituyaBay1958 W7: nur über Geometrie auflegen (Bildpunkte mit Tiefe); der Himmel und die Deckkraft des Ziels
+         * bleiben. Für ein Spiegelbild im Wasser, dessen Himmel aus einem Rundumbild kommt. Vorgabe false.
+         */
+        public boolean geometryOnly;
     }
 
     /** Licht, vorbelichtet: Sonne und Mond (Richtung, Farbe), Himmel oben und am Horizont; Sonne unter der Decke 0..1. */
@@ -191,7 +196,8 @@ public final class TerrainFogGl {
             gl.glUniform1i(gl.glGetUniformLocation(upProg, "uLowDist"), 6);
         }
         gl.glEnable(GL.GL_BLEND);
-        gl.glBlendFunc(GL.GL_ONE, GL.GL_SRC_ALPHA);
+        if (view.geometryOnly) gl.glBlendFuncSeparate(GL.GL_ONE, GL.GL_SRC_ALPHA, GL.GL_ZERO, GL.GL_ONE);
+        else gl.glBlendFunc(GL.GL_ONE, GL.GL_SRC_ALPHA);
         gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
         gl.glBindVertexArray(0);
         gl.glDisable(GL.GL_BLEND);
@@ -213,6 +219,7 @@ public final class TerrainFogGl {
         set3(gl, p, "uCam", view.eye);
         gl.glUniform1i(gl.glGetUniformLocation(p, "uReversed"), view.reversedZ ? 1 : 0);
         gl.glUniform1i(gl.glGetUniformLocation(p, "uSteps"), s.quality().steps);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uGeomOnly"), view.geometryOnly ? 1 : 0);
         gl.glUniform1i(gl.glGetUniformLocation(p, "uScale"), scale);
         gl.glUniform1f(gl.glGetUniformLocation(p, "uMaxDist"), (float) view.maxDistance);
         gl.glUniform1f(gl.glGetUniformLocation(p, "uCurv"), (float) view.curvature);
@@ -310,7 +317,14 @@ public final class TerrainFogGl {
         gl.glUniform4f(gl.glGetUniformLocation(p, "uTfValley"), (float) s.valleyFill(), (float) s.valleySigma(), 0f, 0f);
         gl.glUniform4f(gl.glGetUniformLocation(p, "uTfCap"), (float) s.capBase(), (float) s.capSigma(), (float) s.capBelt(), 0f);
         gl.glUniform4f(gl.glGetUniformLocation(p, "uTfNoise"), (float) s.bankSize(), (float) s.wisps(), (float) s.offX(), (float) s.offZ());
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uTfSea2"), (float) s.billows(), (float) s.billowSize(), 0f, 0f);
         gl.glUniform1i(gl.glGetUniformLocation(p, "uTfSeed"), s.seed());
+        // seit LituyaBay1958 W7: Vorstoß (Weg je Zelle in Kanal A der Karte)
+        // ohne Karte noch kein Weg: die Front ist dann nirgends angekommen (kein kurzes Aufblitzen des ganzen Meers)
+        boolean adv = s.advancing();
+        float way = adv && mapTex != 0 ? (float) s.advance() : -1e9f;
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uTfAdv"), adv ? way : 0f, (float) s.advanceSoft(), (float) s.advanceFingers(), adv ? 1f : 0f);
+        gl.glUniform2f(gl.glGetUniformLocation(p, "uTfAdvTo"), (float) s.toX(), (float) s.toZ());
         gl.glUniform4f(gl.glGetUniformLocation(p, "uTfMapRect"), (float) mapRect[0], (float) mapRect[1], (float) Math.max(1, mapRect[2]), (float) mapN);
         gl.glActiveTexture(GL.GL_TEXTURE1);
         gl.glBindTexture(GL.GL_TEXTURE_2D, mapTex);

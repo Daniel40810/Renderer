@@ -48,6 +48,8 @@ public final class CloudCheck {
         shadowAndRain();
         lens();
         mountains();
+        gelaende();
+        smoothNoise();
         gpuContract();
         return lines;
     }
@@ -345,6 +347,177 @@ public final class CloudCheck {
         check(q && Clouds.Quality.MEDIUM.divisor == 4 && Clouds.Quality.HIGH.divisor == 2,
                 f("Stufen: Mittel 1/%d bis %d Schritte, Hoch 1/%d bis %d Schritte", Clouds.Quality.MEDIUM.divisor, Clouds.Quality.MEDIUM.maxSteps,
                         Clouds.Quality.HIGH.divisor, Clouds.Quality.HIGH.maxSteps));
+        // seit LituyaBay1958 W7: lange Brennweite – kleinere Bildpunkte, langsamer wachsende Schritte (höchstens 4×); 60° wie bisher
+        CloudGl g = new CloudGl();
+        double aus = g.teleFactor(proj(Math.toDegrees(2 * Math.atan(12 / 200.0)), 1080), Clouds.Quality.HIGH);
+        g.teleMax = 4;
+        double t60 = g.teleFactor(proj(60, 1080), Clouds.Quality.HIGH), t200 = g.teleFactor(proj(Math.toDegrees(2 * Math.atan(12 / 200.0)), 1080), Clouds.Quality.HIGH);
+        Map<String, CloudGl.U> m60 = g.uniforms(c.snapshot(), new CloudGl.Light(), proj(60, 1080)).get("march");
+        check(aus == 1 && Math.abs(t60 - 1) < 1e-6 && Math.abs(t200 - 4) < 1e-6 && Math.abs(m60.get("uStepGrow").v()[0] - 5000) < 1e-3,
+                f("Lange Brennweite (teleMax 4, Vorgabe 1 = aus): 60° ×%.2f, 200 mm ×%.2f (Schritte wachsen ab %.0f m statt 5 000 m)", t60, t200, 5000 * t200));
+    }
+
+    /**
+     * Seit LituyaBay1958 W7: Mischen mit stetiger Ableitung (smoothNoise). Aus: genau wie bisher. An: auf einer Linie durch
+     * eine Wolke in 1 m Schritten (ein Texel der Feinheit sind dort rund 14 m) springt die Steigung der Dichte an den
+     * Texelgrenzen nicht mehr (größte zweite Differenz klein gegen ohne), die Dichte bleibt im Mittel dieselbe.
+     */
+    void smoothNoise() {
+        Clouds a = Clouds.of(CloudType.CUMULUS, 6);
+        Clouds b = Clouds.of(CloudType.CUMULUS, 6);
+        b.smoothNoise = true;
+        Clouds.Snapshot sa0 = a.snapshot(), sb0 = b.snapshot();
+        // Knicke an den Grenzen der Texel der Feinheit (x-Richtung): mittlere |zweite Differenz| dort gegen den Rest
+        double ds = sa0.detailTile(), cell = ds / Noise.DETAIL;
+        double[] onA = new double[2], offA = new double[2], onB = new double[2], offB = new double[2];
+        double sa = 0, sb = 0;
+        int n = 0;
+        for (int line = 0; line < 12; line++) {
+            double y = 1500 + line * 60, z = line * 311.0;
+            double pa0 = Double.NaN, pa1 = Double.NaN, pb0 = Double.NaN, pb1 = Double.NaN;
+            for (int i = 0; i < 4000; i++) {
+                double x = -2000 + i * 1.0;
+                double da = Clouds.density(sa0, x, y, z, true), db = Clouds.density(sb0, x, y, z, true);
+                if (!Double.isNaN(pa0) && da > 0 && pa1 > 0 && pa0 > 0 && db > 0 && pb1 > 0 && pb0 > 0) {
+                    double xm = x - 1, g = (xm + sa0.offX()) / cell - 0.5, fr = g - Math.floor(g);
+                    boolean grenze = fr < 0.5 / cell || fr > 1 - 0.5 / cell;
+                    double ka = Math.abs(da - 2 * pa1 + pa0), kb = Math.abs(db - 2 * pb1 + pb0);
+                    if (grenze) { onA[0] += ka; onA[1]++; onB[0] += kb; onB[1]++; } else { offA[0] += ka; offA[1]++; offB[0] += kb; offB[1]++; }
+                }
+                pa0 = pa1; pa1 = da; pb0 = pb1; pb1 = db;
+                sa += da; sb += db; n++;
+            }
+        }
+        double ra = (onA[0] / Math.max(1, onA[1])) / Math.max(1e-30, offA[0] / Math.max(1, offA[1]));
+        double rb = (onB[0] / Math.max(1, onB[1])) / Math.max(1e-30, offB[0] / Math.max(1, offB[1]));
+        Clouds c = Clouds.of(CloudType.CUMULUS, 6);
+        double same = 0;
+        for (int i = 0; i < 200; i++) same = Math.max(same, Math.abs(Clouds.density(c.snapshot(), i * 37.0, 1600, i * 53.0, true) - Clouds.density(sa0, i * 37.0, 1600, i * 53.0, true)));
+        check(same == 0 && ra > 2 && rb < 0.5 * ra && Math.abs(sb - sa) < 0.15 * sa,
+                f("Mischen mit stetiger Ableitung: Knicke an den Texelgrenzen der Feinheit %.1f× so stark wie dazwischen, vorher %.1f×; mittlere Dichte %.4f statt %.4f/m (aus: wie bisher)", rb, ra, sb / n, sa / n));
+    }
+
+    /** Eine Ansicht mit senkrechtem Blickfeld fovy (Grad) und h Zeilen, Blick nach Norden. */
+    static CloudGl.View proj(double fovy, int h) {
+        CloudGl.View v = new CloudGl.View();
+        double f = 1 / Math.tan(Math.toRadians(fovy) / 2);
+        // Spaltenweise: Zeile 1 der Projektion · Blick (Einheitsvektor oben = y) – nur die Länge der zweiten Zeile zählt
+        v.viewProj = new float[16];
+        v.viewProj[0] = (float) (f * 1080 / 1920.0);
+        v.viewProj[5] = (float) f;
+        v.viewProj[10] = -1;
+        v.viewProj[11] = -1;
+        v.invViewProj = new float[16];
+        v.width = h * 16 / 9;
+        v.height = h;
+        return v;
+    }
+
+    /**
+     * Seit LituyaBay1958 W7: Wolken am Gelände. Ein Testberg (Gauß, 4 600 m, Halbmesser 5 km) über einem Meer von 60 km: die Bank hängt am Hang und nicht über dem Meer, am Luvhang dichter; die Kappe sitzt über
+     * dem Gipfel ab dem Kondensationsniveau; Quellwolken über Land, Lücken im Lee; ohne Stärken bleibt alles wie bisher.
+     */
+    void gelaende() {
+        int n = 512;
+        double size = 60_000, x0 = -30_000, z0 = -30_000;
+        float[] hgt = new float[n * n];
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < n; i++) {
+                double x = x0 + (i + 0.5) * size / n, z = z0 + (j + 0.5) * size / n;
+                double berg = 4600 * Math.exp(-(x * x + z * z) / (2 * 5000.0 * 5000));
+                hgt[j * n + i] = (float) berg;
+            }
+        Clouds.Terrain t = new Clouds.Terrain(x0, z0, size, n, hgt);
+        Clouds c = Clouds.of(CloudType.STRATOCUMULUS, 0.0);
+        c.windFromDeg = 270;   // Westwind: Luv im Westen
+        c.terrain = t;
+        Clouds.Snapshot s0 = c.snapshot();
+        check(s0.oro() == null && s0.shellLow() == s0.base() && s0.shellHigh() == s0.top(), "Gelände ohne Stärken: keine Strömungskarte, Schicht wie bisher");
+        c.bank = 1;
+        c.bankBase = 1200;
+        c.bankTop = 2600;
+        c.cap = 1;
+        c.capBase = 3900;
+        Clouds.Snapshot s = c.snapshot();
+        Clouds.Oro o = s.oro();
+        check(o != null && Math.abs(o.peak() - 4600) < 60 && s.shellLow() < 1200 && s.shellHigh() > 5000,
+                f("Strömungskarte %d², höchster Gipfel %.0f m, Wolken von %.0f bis %.0f m", o == null ? 0 : o.n(), o == null ? 0 : o.peak(), s.shellLow(), s.shellHigh()));
+        // Bank: am Westhang (Luv) in 1 800 m, am Osthang (Lee) in derselben Höhe, über dem Meer
+        double luv = 0, lee = 0, meer = 0;
+        int k = 0;
+        double[] g = new double[4];
+        for (int a = 0; a < 40; a++)
+            for (int b = 0; b < 20; b++) {
+                double z = -3000 + a * 150, y = 1600 + b * 20;
+                // Abstand vom Gipfel, in dem das geglättete Gelände gerade 1 700 m hoch ist (Westen und Osten)
+                double xr = 5000 * Math.sqrt(2 * Math.log(4600 / 1700.0));
+                luv += Clouds.density(s, -xr, y, z, false);
+                lee += Clouds.density(s, xr, y, z, false);
+                meer += Clouds.density(s, -22_000, y, z, false);
+                k++;
+            }
+        Clouds.oroAt(o, -5000 * Math.sqrt(2 * Math.log(4600 / 1700.0)), 0, g);
+        check(luv / k > 2e-3 && meer == 0 && luv > lee, f("Bank am Hang: Luv %.4f/m, Lee %.4f/m, über dem Meer %.4f/m (Hang dort %.0f m, Steigung %.2f gegen den Wind)", luv / k, lee / k, meer / k, g[0], g[1]));
+        // Kappe: über dem Gipfel in 4 300 m dicht, in 3 700 m (unter dem Kondensationsniveau) und 8 km daneben in 4 300 m leer
+        double kap = 0, unten = 0, neben = 0;
+        for (int a = 0; a < 25; a++) {
+            double x = -600 + (a % 5) * 300, z = -600 + (a / 5) * 300;
+            kap += Clouds.density(s, x, 4400, z, false);
+            unten += Clouds.density(s, x, 3700, z, false);
+            neben += Clouds.density(s, x + 8000, 4400, z, false);
+        }
+        check(kap / 25 > 5e-3 && unten == 0 && neben == 0, f("Kappe über dem Gipfel %.4f/m, unter dem Kondensationsniveau %.4f/m, 8 km daneben %.4f/m", kap / 25, unten / 25, neben / 25));
+        // seit Runde 1b: die Kappe ohne Wände – auf einer Linie quer durch ihren Rand in 4 200 m (ohne Feinheit, 10 m Schritt)
+        // ändert sich die Bedeckung stetig; der Rand der Hülle liegt dort, wo das Gelände nahe 3 900 m erreicht
+        double sprung = 0, groesste = 0, vor = Double.NaN;
+        for (int i = 0; i <= 600; i++) {
+            double x = i * 10.0;
+            double[] gg = new double[4];
+            Clouds.oroAt(o, x - o.windToX() * 400, 0, gg);
+            double[] cs = Clouds.oroCover(s, o, gg, x, 0, 4200);
+            double cv = cs == null ? 0 : cs[0];
+            if (!Double.isNaN(vor)) sprung = Math.max(sprung, Math.abs(cv - vor));
+            groesste = Math.max(groesste, cv);
+            vor = cv;
+        }
+        check(groesste > 0.5 && sprung < 0.05 * groesste, f("Kappe ohne Wände: Bedeckung bis %.2f, größter Sprung je 10 m %.3f", groesste, sprung));
+        double[] sun = {0.2, 0.9, 0.1};
+        double up = Clouds.upperShadow(s, 0, 4500, 0, sun), frei = Clouds.upperShadow(s, 15_000, 4500, 15_000, sun);
+        check(up < 0.6 && frei > 0.99, f("Schatten der Kappe in Kanal G: unter ihr %.2f, frei %.2f", up, frei));
+        // Quellwolken über Land und Lücken im Lee: Bedeckung der Wetterkarte über dem Berg, über dem Meer, im Lee
+        Clouds q = Clouds.of(CloudType.CUMULUS, 3);
+        q.windFromDeg = 270;
+        q.terrain = t;
+        double meerOhne = cover(q.snapshot(), -22_000, 0), bergOhne = cover(q.snapshot(), 0, 0);
+        q.convection = 1;
+        double meerMit = cover(q.snapshot(), -22_000, 0), bergMit = cover(q.snapshot(), 0, 0);
+        q.convection = 0;
+        q.lee = 1;
+        double leeMit = cover(q.snapshot(), 5500, 0), leeOhne = 0;
+        q.lee = 0;
+        q.bank = 0.0001;   // Karte an, Stärken fast aus
+        leeOhne = cover(q.snapshot(), 5500, 0);
+        check(bergMit > bergOhne + 0.1 && meerMit < meerOhne - 0.05 && leeMit < leeOhne - 0.05,
+                f("Quellwolken über Land: Berg %.2f → %.2f, Meer %.2f → %.2f; Lee %.2f → %.2f", bergOhne, bergMit, meerOhne, meerMit, leeOhne, leeMit));
+        // Gleichheit: Bank so schwach, dass sie nirgends dichter als die Schicht ist → wie ohne Gelände
+        Clouds a = Clouds.of(CloudType.CUMULUS, 4), b = Clouds.of(CloudType.CUMULUS, 4);
+        b.terrain = t;
+        b.lee = 1e-9;
+        double dmax = 0;
+        for (int i = 0; i < 400; i++) {
+            double x = -20_000 + (i * 977) % 40_000, z = -20_000 + (i * 613) % 40_000, y = 900 + (i * 37) % 1500;
+            dmax = Math.max(dmax, Math.abs(Clouds.density(a.snapshot(), x, y, z, true) - Clouds.density(b.snapshot(), x, y, z, true)));
+        }
+        check(dmax < 1e-4, f("ohne Stärken gleich der Schicht: größte Abweichung %.1e/m an 400 Orten", dmax));
+    }
+
+    /** Mittlere Bedeckung der Wetterkarte in einem Kreis von 3 km. */
+    static double cover(Clouds.Snapshot s, double x, double z) {
+        double sum = 0;
+        int k = 0;
+        for (int a = 0; a < 15; a++)
+            for (int b = 0; b < 15; b++) { sum += Clouds.coverage(s, x - 3000 + a * 430, z - 3000 + b * 430); k++; }
+        return sum / k;
     }
 
     static String read(String file) {
