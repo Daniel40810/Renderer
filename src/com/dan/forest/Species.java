@@ -20,6 +20,12 @@ public final class Species {
 
     /** Blattform: breites Blatt, rundes (Espe), gelapptes (Eiche), kleines (Birke), Nadelbüschel. */
     public enum Leaf { OVAL, ROUND, LOBED, SMALL, NEEDLES }
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Muster der Rinde in der Nähe ({@code forest.frag}, nur mit
+     * {@code ForestGpu.barkDetail} bzw. {@code ForestGl.barkDetail}): glatt mit Korkporen und Flechten (Erle, Buche),
+     * gefurcht mit Rippen (Hemlock, Douglasie, Eiche), schuppig (Fichte), Platten (Kiefer), Papier (Birke) [G].
+     */
+    public enum BarkStyle { NONE, SMOOTH, FURROWED, SCALY, PLATED, PAPER }
 
     public final String name, latin;
     public boolean conifer, deciduous;
@@ -70,6 +76,9 @@ public final class Species {
     /** Rinde im oberen Stamm (Waldkiefer: orange „Spiegelrinde“) ab diesem Anteil der Höhe; null = wie unten. */
     public float[] barkTop;
     public float barkTopFrom = 0.5f;
+    /** Seit W6 Runde 5: Muster der Rinde ({@link BarkStyle}) und Anteil der Flechten darauf (0..1) [G]. */
+    public BarkStyle barkStyle = BarkStyle.NONE;
+    public float lichen = 0;
     /**
      * Zapfen: wie viele je Ast erster Ordnung (0 = keine), Länge (m), Farbe; aufrecht (Tannen, Zirbe) oder
      * hängend (Fichten); nur im oberen Teil der Krone (Anteil, 1 = überall).
@@ -165,6 +174,7 @@ public final class Species {
         s.summer = new float[]{0.035f, 0.085f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.22f, 0.08f};
         s.leafOut = 160;
         s.cones = 1.5f; s.coneSize = 0.045f; s.coneColor = new float[]{0.20f, 0.14f, 0.08f}; s.coneZone = 0.6f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.1f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -181,6 +191,7 @@ public final class Species {
         s.spring = new float[]{0.18f, 0.38f, 0.06f}; s.summer = new float[]{0.08f, 0.22f, 0.04f};
         s.autumn = new float[][]{{0.75f, 0.52f, 0.02f}, {0.80f, 0.45f, 0.01f}, {0.62f, 0.50f, 0.03f}};
         s.leafOut = 150; s.colorStart = 250; s.colorFull = 268; s.bare = 290;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.25f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -197,6 +208,7 @@ public final class Species {
         s.summer = new float[]{0.03f, 0.075f, 0.035f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.23f, 0.09f};
         s.leafOut = 150;
         s.cones = 2; s.coneSize = 0.08f; s.coneColor = new float[]{0.23f, 0.14f, 0.08f}; s.coneZone = 0.5f;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -214,6 +226,7 @@ public final class Species {
         s.spring = new float[]{0.14f, 0.30f, 0.05f}; s.summer = new float[]{0.045f, 0.13f, 0.025f};
         s.autumn = new float[][]{{0.25f, 0.13f, 0.03f}, {0.32f, 0.20f, 0.04f}, {0.20f, 0.14f, 0.05f}};
         s.leafOut = 125; s.colorStart = 275; s.colorFull = 300; s.bare = 330;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.25f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -230,6 +243,7 @@ public final class Species {
         s.spring = new float[]{0.20f, 0.42f, 0.06f}; s.summer = new float[]{0.05f, 0.15f, 0.03f};
         s.autumn = new float[][]{{0.45f, 0.18f, 0.03f}, {0.55f, 0.28f, 0.04f}, {0.40f, 0.12f, 0.02f}};
         s.leafOut = 120; s.colorStart = 280; s.colorFull = 298; s.bare = 320;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -246,6 +260,7 @@ public final class Species {
         s.spring = new float[]{0.20f, 0.45f, 0.07f}; s.summer = new float[]{0.07f, 0.20f, 0.035f};
         s.autumn = new float[][]{{0.70f, 0.55f, 0.04f}, {0.60f, 0.48f, 0.05f}};
         s.leafOut = 115; s.colorStart = 265; s.colorFull = 285; s.bare = 310;
+        s.barkStyle = BarkStyle.PAPER; s.lichen = 0.0f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -262,6 +277,7 @@ public final class Species {
         s.summer = new float[]{0.02f, 0.06f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.24f, 0.08f};
         s.leafOut = 135;
         s.cones = 2.5f; s.coneSize = 0.12f; s.coneColor = new float[]{0.24f, 0.13f, 0.07f}; s.coneZone = 0.35f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.2f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -280,6 +296,7 @@ public final class Species {
         s.summer = new float[]{0.025f, 0.058f, 0.048f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.22f, 0.13f};
         s.leafOut = 160;
         s.cones = 2.5f; s.coneSize = 0.055f; s.coneColor = new float[]{0.24f, 0.13f, 0.07f}; s.coneZone = 0.45f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.2f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -296,6 +313,7 @@ public final class Species {
         s.summer = new float[]{0.018f, 0.048f, 0.030f}; s.spring = s.summer; s.shoots = new float[]{0.09f, 0.20f, 0.10f};
         s.leafOut = 165;
         s.cones = 2; s.coneSize = 0.08f; s.coneColor = new float[]{0.14f, 0.06f, 0.13f}; s.coneUpright = true; s.coneZone = 0.2f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -313,6 +331,7 @@ public final class Species {
         s.summer = new float[]{0.05f, 0.10f, 0.035f}; s.spring = s.summer; s.shoots = new float[]{0.12f, 0.22f, 0.08f};
         s.leafOut = 165;
         s.cones = 1.2f; s.coneSize = 0.07f; s.coneColor = new float[]{0.16f, 0.09f, 0.10f}; s.coneUpright = true; s.coneZone = 0.4f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.2f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -329,6 +348,7 @@ public final class Species {
         s.summer = new float[]{0.02f, 0.065f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.24f, 0.08f};
         s.leafOut = 140;
         s.cones = 1.5f; s.coneSize = 0.12f; s.coneColor = new float[]{0.20f, 0.14f, 0.07f}; s.coneUpright = true; s.coneZone = 0.15f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -346,6 +366,7 @@ public final class Species {
         s.summer = new float[]{0.03f, 0.068f, 0.048f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.20f, 0.10f};
         s.leafOut = 130;
         s.cones = 1.5f; s.coneSize = 0.045f; s.coneColor = new float[]{0.22f, 0.18f, 0.13f}; s.coneZone = 0.7f;
+        s.barkStyle = BarkStyle.PLATED; s.lichen = 0.05f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -364,6 +385,7 @@ public final class Species {
         s.autumn = new float[][]{{0.72f, 0.46f, 0.05f}, {0.64f, 0.38f, 0.04f}, {0.78f, 0.55f, 0.08f}};
         s.leafOut = 115; s.colorStart = 280; s.colorFull = 296; s.bare = 318;
         s.cones = 3; s.coneSize = 0.03f; s.coneColor = new float[]{0.20f, 0.12f, 0.07f}; s.coneUpright = true; s.coneZone = 0.9f;
+        s.barkStyle = BarkStyle.PLATED; s.lichen = 0.15f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -380,6 +402,7 @@ public final class Species {
         s.summer = new float[]{0.028f, 0.072f, 0.045f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.20f, 0.10f};
         s.leafOut = 165;
         s.cones = 1.2f; s.coneSize = 0.07f; s.coneColor = new float[]{0.14f, 0.10f, 0.20f}; s.coneUpright = true; s.coneZone = 0.25f;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -401,6 +424,7 @@ public final class Species {
         s.spring = new float[]{0.10f, 0.26f, 0.05f}; s.summer = new float[]{0.030f, 0.095f, 0.025f};
         s.autumn = new float[][]{{0.06f, 0.10f, 0.03f}, {0.10f, 0.11f, 0.035f}, {0.14f, 0.11f, 0.04f}};
         s.leafOut = 110; s.colorStart = 290; s.colorFull = 312; s.bare = 322;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.45f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -425,6 +449,7 @@ public final class Species {
         s.spring = new float[]{0.16f, 0.36f, 0.06f}; s.summer = new float[]{0.05f, 0.15f, 0.03f};
         s.autumn = new float[][]{{0.48f, 0.07f, 0.03f}, {0.58f, 0.18f, 0.03f}, {0.62f, 0.33f, 0.04f}, {0.40f, 0.06f, 0.04f}};
         s.leafOut = 118; s.colorStart = 268; s.colorFull = 285; s.bare = 305;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.5f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -445,6 +470,7 @@ public final class Species {
         s.spring = new float[]{0.15f, 0.32f, 0.06f}; s.summer = new float[]{0.055f, 0.14f, 0.035f};
         s.autumn = new float[][]{{0.42f, 0.09f, 0.04f}, {0.35f, 0.14f, 0.05f}, {0.28f, 0.10f, 0.05f}};
         s.leafOut = 120; s.colorStart = 262; s.colorFull = 280; s.bare = 300;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.5f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -463,6 +489,7 @@ public final class Species {
         s.bark = new float[]{0.10f, 0.085f, 0.07f};
         s.spring = new float[]{0.06f, 0.14f, 0.04f}; s.summer = new float[]{0.022f, 0.065f, 0.022f};
         s.leafOut = 120;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.4f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -543,6 +570,7 @@ public final class Species {
         s.autumn = new float[][]{{0.62f, 0.12f, 0.03f}, {0.70f, 0.30f, 0.03f}, {0.50f, 0.20f, 0.04f}};
         s.leafOut = 140; s.colorStart = 255; s.colorFull = 275; s.bare = 300;
         s.cones = 1.2f; s.coneSize = 0.08f; s.coneColor = new float[]{0.55f, 0.06f, 0.03f}; s.coneZone = 0.7f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -551,6 +579,7 @@ public final class Species {
         Species s = birch().copy("Moorbirke", "Betula pubescens");
         s.heightMin = 4; s.heightMax = 14; s.trunkWobble = 0.08f; s.tropism = new float[]{0, 0.05f, 0.02f, 0.0f};
         s.bark = new float[]{0.52f, 0.50f, 0.46f};
+        s.barkStyle = BarkStyle.PAPER; s.lichen = 0.05f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -573,6 +602,7 @@ public final class Species {
         s.summer = new float[]{0.024f, 0.064f, 0.052f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.23f, 0.12f};
         s.leafOut = 150;
         s.cones = 2.2f; s.coneSize = 0.08f; s.coneColor = new float[]{0.26f, 0.17f, 0.09f}; s.coneZone = 0.35f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.35f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -595,6 +625,7 @@ public final class Species {
         s.leafOut = 150;
         s.cones = 4; s.coneSize = 0.025f; s.coneColor = new float[]{0.22f, 0.14f, 0.08f}; s.coneZone = 0.6f;
         s.leaderDroop = 0.7f;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.3f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -603,6 +634,7 @@ public final class Species {
         Species s = sitkaSpruce().copy("Sitka-Fichte, jung", "Picea sitchensis");
         s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
         s.count = new float[]{0, 60, 5}; s.lengthRatio = new float[]{0, 0.28f, 0.35f}; s.cones = 0;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.25f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -611,6 +643,7 @@ public final class Species {
         Species s = westernHemlock().copy("Westliche Hemlocktanne, jung", "Tsuga heterophylla");
         s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
         s.count = new float[]{0, 50, 6}; s.lengthRatio = new float[]{0, 0.3f, 0.42f}; s.cones = 0;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -624,6 +657,7 @@ public final class Species {
         s.bark = new float[]{0.30f, 0.30f, 0.27f}; s.barkMarks = 0.3f; s.barkMark = new float[]{0.55f, 0.56f, 0.52f};
         s.leaf = Leaf.OVAL; s.leafSize = 0.1f; s.leafAspect = 0.65f;
         s.leafOut = 125; s.colorStart = 280; s.colorFull = 300; s.bare = 315;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.7f;   // W6 Runde 5 [G]
         return s;
     }
 
@@ -643,8 +677,8 @@ public final class Species {
         s.barkMarks = 0;
         switch (d) {
             case BROKEN -> { s.snag = 0.3f; s.branchKeep = 0.5f; }
-            case STRIPPED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.15f; }
-            case FELLED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.1f; s.lying = true; }
+            case STRIPPED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.15f; s.barkStyle = BarkStyle.NONE; s.lichen = 0; }
+            case FELLED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.1f; s.lying = true; s.barkStyle = BarkStyle.NONE; s.lichen = 0; }
         }
         return s;
     }

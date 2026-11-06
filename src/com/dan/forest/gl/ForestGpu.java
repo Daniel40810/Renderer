@@ -78,6 +78,17 @@ public final class ForestGpu {
      * {@link TreeMesh#build(TreeModel, int, int, boolean)}. Vor {@link #init} setzen (wirkt beim nächsten Backen).
      */
     public boolean fineNeedles;
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Rinde mit Muster in der Nähe (Furchen, Schuppen, Platten, Korkporen, Flechten nach
+     * {@link Species#barkStyle}, mit Relief für das Licht); Vorgabe aus, dann wie bisher.
+     */
+    public boolean barkDetail;
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Nadeln als Triebe beleuchten (ein Volumen aus Nadeln: hell, wenn man von der
+     * Sonnenseite schaut, dunkel im Gegenlicht, kaum Durchscheinen) statt als einzelne Blattebenen. Nimmt den gekreuzten
+     * Bürsten der Stufen 1 und 2 die hellen Flocken. Vorgabe aus, dann wie bisher.
+     */
+    public boolean shootLight;
     private int framePx = 96, capacity = 1_200_000;
 
     private int cullProg, scanProg, meshProg, shadowProg, impProg, bakeProg;
@@ -782,6 +793,8 @@ public final class ForestGpu {
         gl.glUseProgram(meshProg);
         common(gl, meshProg, v.viewProj, v.eye, t);
         light(gl, meshProg, v, l);
+        gl.glUniform1i(loc(gl, meshProg, "uBark"), barkDetail ? 1 : 0);   // seit W6 Runde 5
+        gl.glUniform1i(loc(gl, meshProg, "uShoot"), shootLight ? 1 : 0);
         gl.glBindVertexArray(meshVao);
         gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, 0, 3 * T, 20);
         if (T - S * V > 0) gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, (3L * T + S * V) * 20, T - S * V, 20);
@@ -807,14 +820,21 @@ public final class ForestGpu {
     }
 
     /** Nahe Bäume (Stufe 0 und 1 der letzten Kultur) in eine gebundene Tiefen-Schattenkarte (lightVP: Welt → Licht). */
-    public void drawShadow(GL4 gl, float[] lightVP, double t) {
-        if (!uploaded) return;
+    public void drawShadow(GL4 gl, float[] lightVP, double t) { drawShadow(gl, lightVP, t, 2); }
+
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: nur die ersten levels Stufen der letzten Prüfung (1 = Stufe 0, 2 = Stufen 0 und 1)
+     * in die gebundene Schattenkarte. Die Auswahl ist die des letzten {@link #cull}/{@link #update}: Bäume außerhalb des
+     * Blicks werfen keinen Schatten herein.
+     */
+    public void drawShadow(GL4 gl, float[] lightVP, double t, int levels) {
+        if (!uploaded || levels <= 0) return;
         gl.glUseProgram(shadowProg);
         common(gl, shadowProg, lightVP, new double[]{0, 0, 0}, t);
         gl.glDisable(GL.GL_CULL_FACE);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, cmdBuf);
         gl.glBindVertexArray(meshVao);
-        gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, 0, 2 * T, 20);
+        gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, 0, Math.min(2, levels) * T, 20);
         gl.glBindVertexArray(0);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, 0);
         gl.glUseProgram(0);
@@ -854,7 +874,7 @@ public final class ForestGpu {
         gl.glUniform1i(loc(gl, p, "uSkyOn"), l.skyTexture != 0 ? 1 : 0);
         boolean ss = l.sunShadowTexture != 0 && l.sunShadowMatrix != null;
         gl.glUniformMatrix4fv(loc(gl, p, "uSunShadowM"), 1, false, ss ? l.sunShadowMatrix : new float[16], 0);
-        gl.glUniform2f(loc(gl, p, "uSunShadowP"), ss ? 1f : 0f, (float) l.sunShadowBias);
+        gl.glUniform2f(loc(gl, p, "uSunShadowP"), ss ? (l.sunShadowTaps == 1 ? 2f : 1f) : 0f, (float) l.sunShadowBias);
     }
 
     /** Die vier Seitenebenen aus Projektion·Blick (Spalten), normiert: a, b, c, d je Ebene. */

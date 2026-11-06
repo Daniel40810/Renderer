@@ -24,6 +24,8 @@ public final class BalticPine {
         s.flutter = 0.35f;
         s.season.evergreen = true;
         s.season.summer = new float[]{0.035f, 0.06f, 0.03f};
+        s.barkStyle = TreeSpecies.BARK_PLATED;   // seit LituyaBay1958 W6 Runde 5 [G]
+        s.lichen = 0.05f;
         return s;
     }
 }

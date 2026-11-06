@@ -32,6 +32,8 @@ public final class EuropeanBeech {
         s.season.spring = new float[]{0.16f, 0.34f, 0.04f};
         s.season.summer = new float[]{0.035f, 0.085f, 0.02f};
         s.season.autumn = new float[][]{{0.32f, 0.22f, 0.03f}, {0.28f, 0.10f, 0.02f}, {0.20f, 0.07f, 0.015f}};
+        s.barkStyle = TreeSpecies.BARK_SMOOTH;   // seit LituyaBay1958 W6 Runde 5 [G]
+        s.lichen = 0.3f;
         return s;
     }
 }

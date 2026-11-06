@@ -35,6 +35,18 @@ import java.util.concurrent.Future;
  * Shader: {@code forest.vert}, {@code forest.frag}, {@code forest_shadow.frag} als Ressourcen in diesem Package.
  */
 public final class ForestGl {
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Rinde mit Muster in der Nähe (Furchen, Schuppen, Platten, Korkporen, Flechten nach
+     * {@link Species#barkStyle}, mit Relief für das Licht); Vorgabe aus, dann wie bisher.
+     */
+    public boolean barkDetail;
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Nadeln als Triebe beleuchten (ein Volumen aus Nadeln: hell, wenn man von der
+     * Sonnenseite schaut, dunkel im Gegenlicht, kaum Durchscheinen) statt als einzelne Blattebenen. Nimmt den gekreuzten
+     * Bürsten der Stufen 1 und 2 die hellen Flocken. Vorgabe aus, dann wie bisher.
+     */
+    public boolean shootLight;
+
     /** Blick: Projektion·Blick, Auge, Tiefenkonvention. */
     public static final class View {
         public float[] viewProj;
@@ -62,6 +74,8 @@ public final class ForestGl {
         public int sunShadowTexture;
         public float[] sunShadowMatrix;
         public double sunShadowBias = 0.0015;
+        /** Seit LituyaBay1958 W6 Runde 5: Abrufe der Sonnenschattenkarte je Bildpunkt, 9 (3×3, Vorgabe) oder 1 (bilinear, günstig bei viel Laub). */
+        public int sunShadowTaps = 9;
     }
 
     /** Ecke im Puffer: Lage 3, Normale 3, Farbe 3 (linear, mit Verdeckung), Höhe 0..1, Laub (1 Blatt, 0,5 Kronenhülle, 0 Holz). */
@@ -194,6 +208,12 @@ public final class ForestGl {
         return out;
     }
 
+    /** Seit W6 Runde 5: Stil und Flechten der Rinde für den Shader, −(Stil + 0,1 · Flechten), 0 ohne Muster. */
+    public static float barkCode(Species sp) {
+        if (sp.barkStyle == null || sp.barkStyle == Species.BarkStyle.NONE) return 0;
+        return -(sp.barkStyle.ordinal() + 0.1f * Math.max(0, Math.min(0.99f, sp.lichen)));
+    }
+
     /**
      * Ein Netz mit Jahreszeit: Farben, gefallene Blätter weg, Ballen mit gestreuten Normalen. keep &lt; 1 behält nur
      * diesen Anteil der Blattbüschel und vergrößert sie um grow (um ihren Ansatz).
@@ -257,7 +277,9 @@ public final class ForestGl {
             // liegende Stämme (seit Brocken Phase 9): ohne Höhe im Baum, also weder Biegung im Wind noch Verbreiterung
             v[o + 9] = sp.lying ? 0 : Math.max(0, Math.min(1, t.pos[3 * i + 1] / H));
             // Laub 1, Hülle einer Silhouette 0,5 (scheint gegen die Sonne kaum durch: das Innere der Krone ist dunkel), Holz 0
-            v[o + 10] = leafy ? (p == TreeMesh.CLUMP && t.lod >= 3 ? 0.5f : 1f) : 0;
+            // seit W6 Runde 5: Holz trägt das Muster der Rinde als negativen Wert: −(Stil + 0,1 · Flechten)
+            // seit W6 Runde 5: Nadeln 0,95 (wie Laub, nur forest.frag mit uShoot erkennt sie als Triebe)
+            v[o + 10] = leafy ? (p == TreeMesh.CLUMP && t.lod >= 3 ? 0.5f : p == TreeMesh.NEEDLES ? 0.95f : 1f) : p == TreeMesh.BARK ? barkCode(sp) : 0;
         }
         // Laubballen der Stufe 2 (je 12 Ecken ein Ikosaeder) etwas kleiner: sie stehen für lichtes Laub, nicht für Kugeln
         if (t.lod == 2)
@@ -383,6 +405,8 @@ public final class ForestGl {
         gl.glUniform1f(loc(gl, program, "uSkyWeight"), (float) l.skyWeight);
         gl.glUniform1f(loc(gl, program, "uWet"), (float) l.wetness);
         gl.glUniform2f(loc(gl, program, "uTone"), v.tonemap ? 1f : 0f, (float) v.exposure);
+        gl.glUniform1i(loc(gl, program, "uBark"), barkDetail ? 1 : 0);   // seit W6 Runde 5
+        gl.glUniform1i(loc(gl, program, "uShoot"), shootLight ? 1 : 0);
         gl.glActiveTexture(GL.GL_TEXTURE5);
         gl.glBindTexture(GL.GL_TEXTURE_2D, l.shadowTexture);
         gl.glActiveTexture(GL.GL_TEXTURE6);
@@ -397,7 +421,7 @@ public final class ForestGl {
         gl.glUniform1i(loc(gl, program, "uSkyOn"), l.skyTexture != 0 ? 1 : 0);
         boolean ss = l.sunShadowTexture != 0 && l.sunShadowMatrix != null;
         gl.glUniformMatrix4fv(loc(gl, program, "uSunShadowM"), 1, false, ss ? l.sunShadowMatrix : new float[16], 0);
-        gl.glUniform2f(loc(gl, program, "uSunShadowP"), ss ? 1f : 0f, (float) l.sunShadowBias);
+        gl.glUniform2f(loc(gl, program, "uSunShadowP"), ss ? (l.sunShadowTaps == 1 ? 2f : 1f) : 0f, (float) l.sunShadowBias);
         gl.glEnable(GL.GL_DEPTH_TEST);
         gl.glDepthFunc(v.reversedZ ? GL.GL_GREATER : GL.GL_LESS);
         gl.glDisable(GL.GL_CULL_FACE);

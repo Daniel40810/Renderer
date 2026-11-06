@@ -44,7 +44,13 @@ floeGl.draw(gl, view, light, sekunden);                                    // na
 
 `BergCheck` prüft dazu: keine zwei Stücke zu nah, ein Teil entfällt wegen größerer Nachbarn; die Matrix der Schattenkarte legt die Mitte auf 0 und gibt 150 m zur Sonne hin die Tiefe −0,5.
 
-**Grenzen.** Die Stücke stoßen sich nicht (dafür `Bergs`). Der Schatten auf dem Wasser bleibt ein Abbild entlang der Sonne; wo sich zwei Schatten überdecken, dunkeln sie doppelt. Die Seiten unter Wasser sieht man nur, wenn das Wasser keine Tiefe schreibt.
+**Seit W6 Runde 5: Schatten auf dem Wasser nach der Physik** (`FloeGl.Light.waterShadowMap`, Vorgabe aus = wie bisher). Das Wasser zeigt zweierlei: den Spiegel (Himmel, Ufer, die Stücke selbst), Anteil F nach Fresnel, und Licht aus dem Wasser (Streuung im Wasserkörper), Anteil 1 − F. Ein Schatten nimmt nur dem Licht aus dem Wasser die Sonne; der Spiegel bleibt. Faktor auf die Farbe des Wassers:
+
+f = 1 − k · (1 − F) · (1 − Sicht),  F = 0,02 + 0,98 · (1 − cos θ)⁵ (Schlick, F0 = 0,02 für Wasser),
+
+mit k = `Light.shadow` als Anteil der Sonne am Licht aus dem Wasser, θ zur Senkrechten, Sicht aus der Schattenkarte der Stücke (3×3-PCF). Eine Fläche knapp über dem Spiegel (`waterLift`, 5 cm, mit Polygonversatz) um das Auge liest die Karte. So wird jeder Ort des Wassers genau einmal abgedunkelt, auch wo sich die Schatten zweier Stücke überdecken (vorher zwei Schattenflächen, doppelt dunkel), und bei flachem Blick verschwindet der Schatten, wie auf echtem Wasser. Die Schattenkarte rechnet seit Runde 5 mit Tiefe −1..1, auch wenn die App `glClipControl` auf 0..1 gestellt hat (vorher fiel dort die sonnennahe Hälfte weg, und die Schatten der Stücke aufeinander aus Runde 4 fehlten). `FloeGl.waterShadow(k, cosθ, Sicht)` rechnet dasselbe in Java; `BergCheck` prüft senkrecht (1 − 0,45 · 0,98), streifend (88°: über 0,9), frei (1) und halb.
+
+**Grenzen.** Die Stücke stoßen sich nicht (dafür `Bergs`). Ohne `waterShadowMap` bleibt der Schatten ein Abbild entlang der Sonne, doppelt dunkel, wo sich zwei überdecken. k ist eine Annahme der App [G]; im trüben Gletscherwasser ist das Licht aus dem Wasser groß, in klarem, tiefem Wasser klein. Die Fläche liegt eben; Wellen höher als `waterLift` können den Schatten in den Tälern verdecken. Die Seiten unter Wasser sieht man nur, wenn das Wasser keine Tiefe schreibt.
 
 ## Katamaran und mehr (seit Glacier Phase 10)
 

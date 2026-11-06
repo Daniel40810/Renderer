@@ -182,3 +182,22 @@ l.shadowTexture = waldLicht.shadowTexture;  l.shadowRect = waldLicht.shadowRect;
 l.skyTexture = waldLicht.skyTexture;        l.skyWeight = waldLicht.skyWeight;
 ```
 
+## Seit LituyaBay1958 W6 Runde 5: Rinde mit Muster und eigener Schatten
+
+Beides voreingestellt aus.
+
+- **Rinde mit Muster** (`TreeGl.barkDetail`; je Art `TreeSpecies.barkStyle` mit `BARK_NONE`, `BARK_SMOOTH`, `BARK_FURROWED`, `BARK_SCALY`, `BARK_PLATED`, `BARK_PAPER`, dazu `lichen` 0..1): Holz ohne Textur (die Röhren aus dem Skelett tragen keine Texturkoordinaten) bekommt dasselbe Muster wie `com.dan.forest` (Shadertext gleich, siehe dort; geprüft über denselben Fingerabdruck). Der Ort im Muster ist der im Baum vor Wind und Drehung (`tree.vert`, `vLocal`). Schwarzerle: glatt, Flechten 0,65; Rotbuche glatt 0,3; Waldkiefer Platten 0,05 [G].
+- **Schatten in eine Sonnenschattenkarte** (`TreeGl.drawShadow(gl, lichtVP, t)`): dieselben Stufen und Eimer wie im letzten `update`, Wind wie im letzten Bild, Laub mit Textur schneidet an seiner Deckung aus (`tree_shadow.frag`). Mit `com.dan.forest.gl.SunShadowMap` in einer gemeinsamen Karte mit `forest`; `Light.sunShadowTexture` und `sunShadowMatrix` lesen sie.
+
+```java
+erle.barkStyle = TreeSpecies.BARK_SMOOTH;  erle.lichen = 0.7f;
+TreeGl gl = new TreeGl(erle);  gl.barkDetail = true;
+// je Bild, Karte gebunden:
+gl.drawShadow(gl4, karte.matrix, t);
+```
+
+- `TreeGl.Light.sunShadowTaps` wie in `forest` (9 oder 1 Abruf je Bildpunkt).
+- **Bestand** (`TreeGl.Light.standAo`, Vorgabe 1 = frei stehend): Anteil des Himmels, den das Holz am Fuß eines Baums im Bestand sieht. Das Holz wird nach unten dunkler (mal mix(standAo, 1, h²), h = Höhe im Baum), wie die Verdeckung, die `forest` in die Farbe backt (am Stamm rund 0,45). Die Netze aus Nature haben am Fuß keine Verdeckung (1,0 im untersten Fünftel); zwischen Bäumen aus `forest` standen ihre Stämme sonst hell.
+
+`TreeCheck` prüft den Fingerabdruck des Rindenblocks in `tree.frag`, die Nummern der Stile und die Schwarzerle.
+

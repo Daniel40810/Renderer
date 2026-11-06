@@ -16,6 +16,7 @@ uniform vec3 uLeafLo, uLeafHi, uBark;   // linear
 uniform float uSnow;
 uniform vec3 uLeafRef;                  // Sommergrün: Laubtexturen werden mit Farbe / Bezug getönt
 uniform ivec2 uTextured;                // Rinde, Laub mit Textur
+uniform float uStand;                   // seit W6 Runde 5: Himmel am Fuß im Bestand (1 = frei), siehe TreeGl.Light.standAo
 out vec3 vWorld;
 out vec3 vNormal;
 out vec3 vColor;
@@ -23,6 +24,7 @@ out float vLeaf;
 out float vAo;
 out vec2 vUv;
 out float vTex;                         // 0 keine, 1 Rinde, 2 Laub
+out vec3 vLocal;                        // seit W6 Runde 5: Ort im Baum (m), vor Wind und Drehung, für das Muster der Rinde
 
 const float TAU = 6.2832;
 
@@ -33,7 +35,7 @@ void main() {
     if (kind > 0.5 && (rand < uVisible.x || rand >= uVisible.y)) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);            // ganzes Blatt fällt weg (alle Ecken gleich)
         vWorld = vec3(0.0); vNormal = vec3(0.0, 1.0, 0.0); vColor = vec3(0.0); vLeaf = 0.0; vAo = 0.0;
-        vUv = vec2(0.0); vTex = 0.0;
+        vUv = vec2(0.0); vTex = 0.0; vLocal = vec3(0.0);
         return;
     }
     float c = cos(iA.w), s = sin(iA.w);
@@ -47,6 +49,7 @@ void main() {
     float sB = sqrt(bend) * gust;
     float t = uTime;
     vec3 p = aPos;
+    vLocal = aPos * iB.x;
     vec3 d = vec3(0.0);
 
     float h = max(0.0, p.y) / max(iB.y, 1.0);
@@ -93,6 +96,8 @@ void main() {
         col *= (0.85 + 0.3 * fract(rand * 7.31)) * ao;
     } else {
         col = (vTex > 0.5 ? vec3(1.0) : uBark) * (0.85 + 0.3 * rand) * (0.55 + 0.45 * ao);
+        float hb = clamp(aPos.y / max(iB.y, 1.0), 0.0, 1.0);
+        col *= mix(uStand, 1.0, hb * hb);   // im Bestand verdecken die Nachbarn den Himmel, unten am meisten
     }
     float snow = uSnow * smoothstep(0.25, 0.8, aNrm.y) * (kind > 0.5 ? 0.6 : 1.0);
     vColor = mix(col, vec3(0.85), snow);

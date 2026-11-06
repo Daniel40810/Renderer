@@ -57,6 +57,20 @@ public final class TreeCheck {
             bestanden += c.passed;
             fehler += c.failed;
         }
+        // seit LituyaBay1958 W6 Runde 5: Muster der Rinde. Der Shadertext steht gleich in com.dan.forest (forest.frag);
+        // die Packages sehen sich nicht, darum prüfen beide denselben Fingerabdruck RINDE_CRC (ForestCheck ebenso).
+        {
+            TreeCheck c = new TreeCheck();
+            String a = rinde(com.dan.tree.gl.TreeGl.source("tree.frag"));
+            long crc = crc(a);
+            c.check(crc == RINDE_CRC, String.format("Rinde: Block RINDE BEGINN … RINDE ENDE in tree.frag, CRC %08x (erwartet %08x, sonst forest.frag mitziehen)", crc, RINDE_CRC));
+            c.check(TreeSpecies.BARK_NONE == 0 && TreeSpecies.BARK_SMOOTH == 1 && TreeSpecies.BARK_FURROWED == 2 && TreeSpecies.BARK_SCALY == 3
+                    && TreeSpecies.BARK_PLATED == 4 && TreeSpecies.BARK_PAPER == 5, "Rinde: Stile 0 bis 5 wie im Shader nummeriert");
+            TreeSpecies erle = com.dan.tree.blackalder.BlackAlder.species();
+            c.check(erle.barkStyle == TreeSpecies.BARK_SMOOTH && erle.lichen > 0.3f, "Rinde: Schwarzerle glatt mit Flechten (" + erle.lichen + ")");
+            bestanden += c.passed;
+            fehler += c.failed;
+        }
         ende(bestanden, fehler);
     }
 
@@ -349,5 +363,23 @@ public final class TreeCheck {
         int leafVerts = 0;
         for (int i = 0; i < m.vertices; i++) if (m.leaf(i)) leafVerts++;
         check(shown > 0 && shown < leafVerts, "beim Laubfall sind nur manche Blätter da (" + shown + " von " + leafVerts + " Punkten)");
+    }
+
+    /** Fingerabdruck des Rindenblocks (CRC32 über den Text mit zusammengezogenem Leerraum), gleich in ForestCheck. */
+    static final long RINDE_CRC = 0x73a54b64L;
+
+    /** Text zwischen den Marken RINDE BEGINN und RINDE ENDE (ohne die erste Zeile), oder null. */
+    static String rinde(String s) {
+        if (s == null) return null;
+        int a = s.indexOf("// RINDE BEGINN"), b = s.indexOf("// RINDE ENDE");
+        if (a < 0 || b < a) return null;
+        return s.substring(s.indexOf('\n', a) + 1, b);
+    }
+
+    static long crc(String s) {
+        if (s == null) return -1;
+        java.util.zip.CRC32 c = new java.util.zip.CRC32();
+        c.update(String.join(" ", s.trim().split("\\s+")).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return c.getValue();
     }
 }

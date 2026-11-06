@@ -29,6 +29,8 @@ public final class BlackAlder {
         s.season.spring = new float[]{0.10f, 0.26f, 0.05f};
         s.season.summer = new float[]{0.03f, 0.095f, 0.025f};
         s.season.autumn = new float[][]{{0.06f, 0.10f, 0.03f}, {0.10f, 0.11f, 0.035f}, {0.14f, 0.11f, 0.04f}};
+        s.barkStyle = TreeSpecies.BARK_SMOOTH;   // seit LituyaBay1958 W6 Runde 5 [G]
+        s.lichen = 0.65f;
         return s;
     }
 }

@@ -33,10 +33,31 @@ public final class FloeGl {
         public double fogDistance = 25_000, shadow = 0.45;
         /** Seit LituyaBay1958 W6 Runde 4: Schatten der Stücke aufeinander (eigene Schattenkarte), Halbmesser um das Auge (m); 0 = aus. */
         public double shadowRadius = 300;
+        /**
+         * Seit LituyaBay1958 W6 Runde 5: Schatten auf dem Wasser aus der Schattenkarte statt aus Deckeln, die entlang der
+         * Sonne auf den Spiegel gelegt werden. Eine Fläche um das Auge liest die Karte; jeder Ort wird genau einmal
+         * abgedunkelt (zwei Schatten übereinander nicht doppelt), und nur das Licht aus dem Wasser, nicht der Spiegel
+         * ({@link #waterShadow}). {@link #shadow} ist dann der Anteil der Sonne am Licht aus dem Wasser. Braucht
+         * {@link #shadowRadius} &gt; 0. Vorgabe aus: wie bisher.
+         */
+        public boolean waterShadowMap;
+    }
+
+    /**
+     * Seit W6 Runde 5, gleiche Rechnung wie floe.frag: Faktor auf die Farbe des Wassers an einem Ort mit Sichtbarkeit
+     * der Sonne vis (0 Schatten, 1 frei), Blick mit cosView = Kosinus zur Senkrechten, k = Anteil der Sonne am Licht
+     * aus dem Wasser. Fresnel nach Schlick mit F0 = 0,02: senkrecht dunkelt der Schatten k · 0,98, streifend fast nicht.
+     */
+    public static double waterShadow(double k, double cosView, double vis) {
+        double c = Math.max(0, Math.min(1, cosView));
+        double F = 0.02 + 0.98 * Math.pow(1 - c, 5);
+        return 1 - k * (1 - F) * (1 - Math.max(0, Math.min(1, vis)));
     }
 
     /** Seit W6 Runde 4: Kante der Schattenkarte (Bildpunkte) und Textureinheit, auf der sie beim Zeichnen liegt. */
     public int shadowSize = 2048, shadowUnit = 6;
+    /** Seit W6 Runde 5: Höhe der Schattenfläche über dem Wasserspiegel der Stücke (m), gegen Flimmern mit dem Wasser. */
+    public double waterLift = 0.05;
     private int shadowFbo, shadowTex;
     private float waterY;
     private final float[] shadowM = new float[16];
@@ -225,6 +246,13 @@ public final class FloeGl {
             gl.glGetFloatv(GL.GL_DEPTH_CLEAR_VALUE, cd, 0);
             gl.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING, fb, 0);
             gl.glGetIntegerv(GL.GL_VIEWPORT, vp, 0);
+            // seit W6 Runde 5: die Karte mit Tiefe −1..1, auch wenn die App glClipControl auf 0..1 gestellt hat (sonst fiel die
+            // sonnennahe Hälfte weg, und die Tiefen passten nicht zu floe.frag)
+            int[] clip = new int[2];
+            gl.glGetIntegerv(0x935C, clip, 0);
+            gl.glGetIntegerv(0x935D, clip, 1);
+            boolean umstellen = clip[1] != 0x935E && clip[1] != 0;
+            if (umstellen) gl.glClipControl(clip[0], 0x935E);
             lightMatrix(s0, view.eye[0], waterY, view.eye[2], light.shadowRadius, shadowM);
             gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, shadowFbo);
             gl.glViewport(0, 0, shadowSize, shadowSize);
@@ -245,12 +273,14 @@ public final class FloeGl {
             gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fb[0]);
             gl.glViewport(vp[0], vp[1], vp[2], vp[3]);
             gl.glClearDepth(cd[0]);
+            if (umstellen) gl.glClipControl(clip[0], clip[1]);
         }
         gl.glActiveTexture(GL.GL_TEXTURE0 + shadowUnit);
         gl.glBindTexture(GL.GL_TEXTURE_2D, shadowTex);
         gl.glActiveTexture(GL.GL_TEXTURE0);
         gl.glUniform1i(loc(gl, "uFloeShadow"), shadowUnit);
         gl.glUniform1i(loc(gl, "uFloeShadowOn"), floeShadow ? 1 : 0);
+        gl.glUniform1f(loc(gl, "uFloeShadowTexel"), (float) (2 * light.shadowRadius / shadowSize));
         gl.glUniformMatrix4fv(loc(gl, "uFloeShadowM"), 1, false, shadowM, 0);
         gl.glUniformMatrix4fv(loc(gl, "uVP"), 1, false, view.viewProj, 0);
         gl.glUniform3f(loc(gl, "uCam"), (float) view.eye[0], (float) view.eye[1], (float) view.eye[2]);
@@ -269,14 +299,24 @@ public final class FloeGl {
         double el = s[1] / sl;
         if (light.shadow > 0 && el > 0.07) {
             double k = light.shadow * Math.min(1, (el - 0.07) / 0.1);
-            gl.glUniform1i(loc(gl, "uShadow"), 1);
             gl.glUniform1f(loc(gl, "uShadowK"), (float) k);
             gl.glDepthMask(false);
             gl.glEnable(GL.GL_BLEND);
             gl.glBlendFunc(GL.GL_ZERO, GL.GL_SRC_COLOR);
-            for (int f = 0; f < Floes.VARIANTS; f++) {
-                if (count[f] == 0) continue;
-                gl.glDrawElementsInstancedBaseInstance(GL.GL_TRIANGLES, capCount[f], GL.GL_UNSIGNED_INT, capFirst[f] * 4L, count[f], start[f]);
+            if (light.waterShadowMap && floeShadow) {
+                // seit W6 Runde 5: eine Fläche knapp über dem Spiegel liest die Schattenkarte (jeder Ort einmal)
+                gl.glUniform1i(loc(gl, "uShadow"), 3);
+                gl.glUniform4f(loc(gl, "uQuad"), (float) view.eye[0], waterY + (float) waterLift, (float) view.eye[2], (float) light.shadowRadius);
+                gl.glEnable(GL.GL_POLYGON_OFFSET_FILL);
+                gl.glPolygonOffset(view.reversedZ ? 1 : -1, view.reversedZ ? 1 : -1);
+                gl.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4);
+                gl.glDisable(GL.GL_POLYGON_OFFSET_FILL);
+            } else {
+                gl.glUniform1i(loc(gl, "uShadow"), 1);
+                for (int f = 0; f < Floes.VARIANTS; f++) {
+                    if (count[f] == 0) continue;
+                    gl.glDrawElementsInstancedBaseInstance(GL.GL_TRIANGLES, capCount[f], GL.GL_UNSIGNED_INT, capFirst[f] * 4L, count[f], start[f]);
+                }
             }
             gl.glDisable(GL.GL_BLEND);
         }

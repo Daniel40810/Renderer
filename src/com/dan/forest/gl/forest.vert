@@ -20,6 +20,7 @@ out vec3 vColor;
 out float vLeafy;
 out float vH;
 out float vRime;                        // Dicke des Eises an dieser Ecke (m)
+out vec3 vLocal;                        // seit W6 Runde 5: Ort im Baum (m), vor Wind und Drehung, für das Muster der Rinde
 #endif
 
 void main() {
@@ -61,5 +62,6 @@ void main() {
     vLeafy = aAux.y;
     vH = aAux.x;
     vRime = dicke;
+    vLocal = aPos * iB.x;
 #endif
 }

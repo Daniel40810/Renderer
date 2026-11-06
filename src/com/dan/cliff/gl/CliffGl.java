@@ -149,6 +149,7 @@ public final class CliffGl {
         gl.glUniform2f(gl.glGetUniformLocation(prog, "uCliffSheet"), (float) c.sheetSpacing, (float) c.blockRound);
         gl.glUniform1f(gl.glGetUniformLocation(prog, "uCliffForce"), 0f);
         gl.glUniform1f(gl.glGetUniformLocation(prog, "uCliffPillow"), 1f);
+        gl.glUniform1f(gl.glGetUniformLocation(prog, "uCliffFar"), c.farBands ? 1f : 0f);   // seit W6 Runde 5
         gl.glUniform1f(gl.glGetUniformLocation(prog, "uCliffTopMoss"), (float) Math.max(0, Math.min(1, c.topMoss)));
         gl.glActiveTexture(GL.GL_TEXTURE0 + unit);
         gl.glBindTexture(GL.GL_TEXTURE_2D, mapTex);
@@ -498,7 +499,10 @@ public final class CliffGl {
      * Rechnet 64 Punkte (an einer Wand, im Umkreis von 200 m um den Ursprung) auf der Grafikkarte und vergleicht Farbe
      * und Relief mit dem Prozessor (ohne Wandkarte). Ergebnis: „Grafikkarte = Prozessor: Farbe ± 0,4 %, Relief ± 1 mm“.
      */
-    public String selfCheck(GL4 gl, Cliff c) {
+    public String selfCheck(GL4 gl, Cliff c) { return selfCheck(gl, c, 0.05); }
+
+    /** Seit LituyaBay1958 W6 Runde 5: derselbe Vergleich für einen anderen Fußabdruck fp (m je Bildpunkt), etwa für die Fernstufe. */
+    public String selfCheck(GL4 gl, Cliff c, double fp) {
         int n = 64;
         float[] pts = new float[n * 6];
         java.util.Random r = new java.util.Random(c.seed);
@@ -511,7 +515,6 @@ public final class CliffGl {
             pts[i * 6 + 4] = (float) Math.cos(sl);
             pts[i * 6 + 5] = (float) (-Math.sin(sl) * Math.cos(a));
         }
-        double fp = 0.05;
         int[] save = new int[4];
         gl.glGetIntegerv(GL.GL_VIEWPORT, save, 0);
         int[] fbo = new int[1], tex = new int[1];
