@@ -89,6 +89,11 @@ public final class ForestGpu {
      * Bürsten der Stufen 1 und 2 die hellen Flocken. Vorgabe aus, dann wie bisher.
      */
     public boolean shootLight;
+    /**
+     * Seit LituyaBay1958 W6 Runde 6: Bartflechten in Stufe 0 an den Ästen der Arten mit {@link com.dan.forest.Species#beard}
+     * &gt; 0 (zwei gekreuzte, sich verjüngende Bänder je Strähne). Vor init bzw. vor dem Backen setzen. Vorgabe aus.
+     */
+    public boolean beardLichen;
     private int framePx = 96, capacity = 1_200_000;
 
     private int cullProg, scanProg, meshProg, shadowProg, impProg, bakeProg;
@@ -226,7 +231,7 @@ public final class ForestGpu {
             Season se = Season.of(m.species, day, snow);
             long k = culture.seed + t * 31L;
             TreeMesh mid = TreeMesh.build(m, 1, 2, fineNeedles);
-            out[t] = ForestGl.pack(TreeMesh.build(m, 0, 0, fineNeedles), se, k, 1, 1);
+            out[t] = ForestGl.pack(TreeMesh.build(m, 0, 0, fineNeedles, beardLichen), se, k, 1, 1);
             out[T + t] = ForestGl.pack(mid, se, k + 1, 1, 1);
             out[2 * T + t] = ForestGl.pack(mid, se, k + 2, 0.15f, 2.0f);
             boolean standing = t < S * V;
@@ -385,6 +390,26 @@ public final class ForestGpu {
         gl.glGetIntegerv(GL.GL_VIEWPORT, vp, 0);
         int[] prevFbo = new int[1];
         gl.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
+        // seit LituyaBay1958 W6 Runde 6: das Backen rechnet mit Tiefe −1..1 (forestgpu_bake.vert: die dem Auge zugewandte
+        // Hälfte des Baums hat z < 0). Stellt die App glClipControl auf 0..1 (umgekehrte Tiefe), fiel genau diese Hälfte weg:
+        // die Impostors zeigten den Baum von innen, mit freien Stämmen. Für das Backen zurückstellen, danach wiederherstellen.
+        int[] clip = new int[2], st = new int[1];
+        gl.glGetIntegerv(SunShadowMap.CLIP_ORIGIN, clip, 0);
+        gl.glGetIntegerv(SunShadowMap.CLIP_DEPTH_MODE, clip, 1);
+        gl.glGetIntegerv(GL.GL_DEPTH_FUNC, st, 0);
+        boolean depthOn = gl.glIsEnabled(GL.GL_DEPTH_TEST), cullOn = gl.glIsEnabled(GL.GL_CULL_FACE), blendOn = gl.glIsEnabled(GL.GL_BLEND);
+        // Runde 6b: auch Schreibmaske der Tiefe und der Farben, Schere. Mit glDepthMask(false) aus einem Durchgang davor
+        // (Lituya: durchsichtige Durchgänge) blieb die Tiefe beim Backen leer, der zuletzt gezeichnete Teil lag oben: Stämme
+        // und Äste vor der Krone, je nachdem, ob die Sonnenschattenkarte (sie setzt die Maske) vorher lief
+        byte[] dm = new byte[1], cm = new byte[4];
+        gl.glGetBooleanv(GL.GL_DEPTH_WRITEMASK, dm, 0);
+        gl.glGetBooleanv(GL.GL_COLOR_WRITEMASK, cm, 0);
+        boolean scissorOn = gl.glIsEnabled(GL.GL_SCISSOR_TEST);
+        gl.glDepthMask(true);
+        gl.glColorMask(true, true, true, true);
+        gl.glDisable(GL.GL_SCISSOR_TEST);
+        boolean umstellen = clip[1] != SunShadowMap.NEGATIVE_ONE_TO_ONE && clip[1] != 0;
+        if (umstellen) gl.glClipControl(clip[0], SunShadowMap.NEGATIVE_ONE_TO_ONE);
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, bakeFbo);
         gl.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_ATTACHMENT, GL.GL_RENDERBUFFER, bakeDepth);
         gl.glDrawBuffers(2, new int[]{GL.GL_COLOR_ATTACHMENT0, GL2ES2.GL_COLOR_ATTACHMENT1}, 0);
@@ -425,6 +450,15 @@ public final class ForestGpu {
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, prevFbo[0]);
         gl.glDrawBuffers(1, new int[]{prevFbo[0] == 0 ? GL.GL_BACK : GL.GL_COLOR_ATTACHMENT0}, 0);
         gl.glViewport(vp[0], vp[1], vp[2], vp[3]);
+        if (umstellen) gl.glClipControl(clip[0], clip[1]);
+        gl.glDepthFunc(st[0]);
+        if (!depthOn) gl.glDisable(GL.GL_DEPTH_TEST);
+        if (cullOn) gl.glEnable(GL.GL_CULL_FACE);
+        if (blendOn) gl.glEnable(GL.GL_BLEND);
+        gl.glDepthMask(dm[0] != 0);
+        gl.glColorMask(cm[0] != 0, cm[1] != 0, cm[2] != 0, cm[3] != 0);
+        if (scissorOn) gl.glEnable(GL.GL_SCISSOR_TEST);
+        impBakes++;
         for (int tex : new int[]{albTex, nrmTex}) {
             gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, tex);
             gl.glGenerateMipmap(GL2ES3.GL_TEXTURE_2D_ARRAY);
@@ -433,6 +467,8 @@ public final class ForestGpu {
     }
 
     private int impLevels = 1;
+    /** Wie oft die Impostors gebacken wurden (Prüfung, Protokoll). */
+    public int impBakes;
 
     private static float[] meanLeafColor(float[] v) {
         double r = 0, g = 0, b = 0;
@@ -525,7 +561,79 @@ public final class ForestGpu {
     public void cull(GL4 gl, float[] vp, double[] eye) {
         double sp = culture.spacing;
         int n = 2 * (int) Math.ceil((radius + sp) / sp) + 2;
-        int i0 = (int) Math.floor(eye[0] / sp) - n / 2, j0 = (int) Math.floor(eye[2] / sp) - n / 2;
+        cullInto(gl, vp, eye, eye[0], eye[2], n, cntBuf, cmdBuf, instBuf, statBuf, capacity);
+        slots = (long) n * n;
+    }
+
+    /**
+     * Seit LituyaBay1958 W6 Runde 6: eine eigene Auswahl für eine Schattenkarte, mit den Seitenebenen von lightVP (Licht,
+     * senkrecht projiziert) statt des Blicks, in eigenen Puffern: Bäume außerhalb des Blicks werfen ihre Schatten hinein.
+     * Stufen und Reichweite wie im Bild (nach dem Auge eye); das Fenster der geprüften Plätze ist ein Quadrat der halben
+     * Kante half (m) um (cx, cz) am Boden. Danach {@link #drawShadowCulled}.
+     */
+    public void cullShadow(GL4 gl, float[] lightVP, double[] eye, double cx, double cz, double half) {
+        if (!uploaded) return;
+        double sp = culture.spacing;
+        int n = 2 * (int) Math.ceil((half + sp) / sp) + 2;
+        int cap = Math.max(4096, Math.min(capacity, n * n));
+        if (shVao == 0 || cap > shCap) shadowBuffers(gl, cap);
+        cullInto(gl, lightVP, eye, cx, cz, n, shCnt, shCmd, shInst, shStat, shCap);
+        shadowCulled = true;
+    }
+
+    /** Bäume der eigenen Schattenauswahl ({@link #cullShadow}), die ersten levels Stufen, in die gebundene Karte. */
+    public void drawShadowCulled(GL4 gl, float[] lightVP, double t, int levels) {
+        if (!uploaded || !shadowCulled || levels <= 0) return;
+        gl.glUseProgram(shadowProg);
+        common(gl, shadowProg, lightVP, new double[]{0, 0, 0}, t);
+        gl.glDisable(GL.GL_CULL_FACE);
+        gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, shCmd);
+        gl.glBindVertexArray(shVao);
+        gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, 0, Math.min(2, levels) * T, 20);
+        gl.glBindVertexArray(0);
+        gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, 0);
+        gl.glUseProgram(0);
+    }
+
+    private int shCnt, shCmd, shInst, shStat, shVao, shCap;
+    private boolean shadowCulled;
+
+    private void shadowBuffers(GL4 gl, int cap) {
+        int bins = LODS * T;
+        if (shVao == 0) {
+            int[] b = new int[4];
+            gl.glGenBuffers(4, b, 0);
+            shCnt = b[0]; shCmd = b[1]; shInst = b[2]; shStat = b[3];
+            alloc(gl, shCnt, bins * 4L, GL4.GL_DYNAMIC_COPY);
+            alloc(gl, shCmd, bins * 20L, GL4.GL_DYNAMIC_COPY);
+            alloc(gl, shStat, (bins + 2) * 4L, GL4.GL_DYNAMIC_READ);
+            int[] va = new int[1];
+            gl.glGenVertexArrays(1, va, 0);
+            shVao = va[0];
+        }
+        alloc(gl, shInst, (long) cap * 32, GL4.GL_DYNAMIC_COPY);
+        shCap = cap;
+        gl.glBindVertexArray(shVao);
+        gl.glBindBuffer(GL.GL_ARRAY_BUFFER, vbo);
+        int st = VSTRIDE * 4;
+        gl.glEnableVertexAttribArray(0); gl.glVertexAttribPointer(0, 3, GL.GL_FLOAT, false, st, 0);
+        gl.glEnableVertexAttribArray(1); gl.glVertexAttribPointer(1, 3, GL.GL_FLOAT, false, st, 12);
+        gl.glEnableVertexAttribArray(2); gl.glVertexAttribPointer(2, 3, GL.GL_FLOAT, false, st, 24);
+        gl.glEnableVertexAttribArray(3); gl.glVertexAttribPointer(3, 2, GL.GL_FLOAT, false, st, 36);
+        gl.glBindBuffer(GL.GL_ELEMENT_ARRAY_BUFFER, ibo);
+        gl.glBindBuffer(GL.GL_ARRAY_BUFFER, shInst);
+        for (int a = 0; a < 2; a++) {
+            gl.glEnableVertexAttribArray(4 + a);
+            gl.glVertexAttribPointer(4 + a, 4, GL.GL_FLOAT, false, 32, a * 16L);
+            gl.glVertexAttribDivisor(4 + a, 1);
+        }
+        gl.glBindVertexArray(0);
+        gl.glBindBuffer(GL.GL_ARRAY_BUFFER, 0);
+    }
+
+    private void cullInto(GL4 gl, float[] vp, double[] eye, double cx, double cz, int n, int cnt, int cmd, int inst, int stat, int cap) {
+        double sp = culture.spacing;
+        int i0 = (int) Math.floor(cx / sp) - n / 2, j0 = (int) Math.floor(cz / sp) - n / 2;
         float[] planes = planes(vp);
         gl.glUseProgram(cullProg);
         int p = cullProg;
@@ -569,16 +677,16 @@ public final class ForestGpu {
         gl.glUniform1i(loc(gl, p, "uDensity"), 0);
         gl.glUniform1i(loc(gl, p, "uHeight"), 1);
         gl.glUniform1i(loc(gl, p, "uStates"), 2);
-        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 0, cntBuf);
-        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 1, cmdBuf);
-        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 2, instBuf);
+        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 0, cnt);
+        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 1, cmd);
+        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 2, inst);
         gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 3, typeBuf);
         gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 4, meshBuf);
-        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 5, statBuf);
+        gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 5, stat);
         int groups = (n + 15) / 16;
         // Zähler auf 0 (der Schreiblauf des letzten Bilds hat sie wieder hochgezählt)
         if (zeros == null) zeros = Buffers.newDirectIntBuffer(LODS * T);
-        gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cntBuf);
+        gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cnt);
         gl.glBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, LODS * T * 4L, zeros);
         gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
         gl.glUniform4i(loc(gl, p, "uWin"), i0, j0, n, 0);
@@ -586,7 +694,7 @@ public final class ForestGpu {
         gl.glMemoryBarrier(GL4.GL_SHADER_STORAGE_BARRIER_BIT);
         gl.glUseProgram(scanProg);
         gl.glUniform1ui(loc(gl, scanProg, "uBins"), LODS * T);
-        gl.glUniform1ui(loc(gl, scanProg, "uCap"), capacity);
+        gl.glUniform1ui(loc(gl, scanProg, "uCap"), cap);
         gl.glDispatchCompute(1, 1, 1);
         gl.glMemoryBarrier(GL4.GL_SHADER_STORAGE_BARRIER_BIT);
         gl.glUseProgram(cullProg);
@@ -594,7 +702,6 @@ public final class ForestGpu {
         gl.glDispatchCompute(groups, groups, 1);
         gl.glMemoryBarrier(GL4.GL_SHADER_STORAGE_BARRIER_BIT | GL4.GL_COMMAND_BARRIER_BIT | GL4.GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
         gl.glUseProgram(0);
-        slots = (long) n * n;
     }
 
     private long slots;
@@ -625,6 +732,23 @@ public final class ForestGpu {
 
     public long triangles() { return triangles; }
 
+    /** Seit W6 Runde 6: die Impostors sofort neu backen (Prüfungen; sonst backt {@link #update} selbst). */
+    public void rebakeImpostors(GL4 gl) { if (uploaded) bakeImpostors(gl); }
+
+    /** Seit W6 Runde 6: der ganze Farbatlas (RGBA8, alle Schichten, Stufe 0); wartet auf die Grafikkarte, nur für Prüfungen. */
+    public byte[] atlasBytes(GL4 gl) {
+        int A = impPx * FRAMES, layers = S * V;
+        if (impPx == 0) return new byte[0];
+        ByteBuffer bb = Buffers.newDirectByteBuffer(A * A * 4 * layers);
+        gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, albTex);
+        gl.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1);
+        ((com.jogamp.opengl.GL2GL3) gl).glGetTexImage(GL2ES3.GL_TEXTURE_2D_ARRAY, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, bb);
+        gl.glBindTexture(GL2ES3.GL_TEXTURE_2D_ARRAY, 0);
+        byte[] out = new byte[bb.capacity()];
+        bb.get(out);
+        return out;
+    }
+
     /** Anteil gedeckter Bildpunkte (Alpha ≥ 0,5) je Schicht des Farbatlas, Stufe 0; wartet auf die Grafikkarte, nur für Prüfungen. */
     public double[] atlasCoverage(GL4 gl) {
         int A = impPx * FRAMES, layers = S * V;
@@ -644,7 +768,12 @@ public final class ForestGpu {
     }
 
     /** Die Instanzen der letzten Kultur je Eimer (je Baum 8 Werte wie im Puffer); wartet auf die Grafikkarte, nur für Prüfungen. */
-    public float[][] readInstances(GL4 gl) {
+    public float[][] readInstances(GL4 gl) { return readInstances(gl, cmdBuf, instBuf); }
+
+    /** Wie {@link #readInstances}, aber die der letzten {@link #cullShadow} (null ohne); nur für Prüfungen. */
+    public float[][] readShadowInstances(GL4 gl) { return shadowCulled ? readInstances(gl, shCmd, shInst) : null; }
+
+    private float[][] readInstances(GL4 gl, int cmdBuf, int instBuf) {
         int bins = LODS * T;
         IntBuffer cb = Buffers.newDirectIntBuffer(5 * bins);
         gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cmdBuf);
@@ -785,6 +914,11 @@ public final class ForestGpu {
     /** Zeichnet die Bäume der letzten Kultur (nach {@link #update}). */
     public void draw(GL4 gl, ForestGl.View v, ForestGl.Light l, double t) {
         if (!uploaded) return;
+        // Runde 6c: Tiefe schreiben, was die App auch zuvor eingestellt hat (danach wie vorher). Mit glDepthMask(false) aus
+        // einem durchsichtigen Durchgang davor lagen Stämme vor den Kronen, je nach Reihenfolge der Eimer
+        byte[] dm = new byte[1];
+        gl.glGetBooleanv(GL.GL_DEPTH_WRITEMASK, dm, 0);
+        gl.glDepthMask(true);
         gl.glEnable(GL.GL_DEPTH_TEST);
         gl.glDepthFunc(v.reversedZ ? GL.GL_GREATER : GL.GL_LESS);
         gl.glDisable(GL.GL_CULL_FACE);
@@ -795,6 +929,7 @@ public final class ForestGpu {
         light(gl, meshProg, v, l);
         gl.glUniform1i(loc(gl, meshProg, "uBark"), barkDetail ? 1 : 0);   // seit W6 Runde 5
         gl.glUniform1i(loc(gl, meshProg, "uShoot"), shootLight ? 1 : 0);
+        gl.glUniform3f(loc(gl, meshProg, "uMossSide"), (float) l.mossSide[0], (float) l.mossSide[1], (float) l.mossSide[2]);
         gl.glBindVertexArray(meshVao);
         gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, 0, 3 * T, 20);
         if (T - S * V > 0) gl.glMultiDrawElementsIndirect(GL.GL_TRIANGLES, GL.GL_UNSIGNED_INT, (3L * T + S * V) * 20, T - S * V, 20);
@@ -817,6 +952,7 @@ public final class ForestGpu {
         gl.glBindVertexArray(0);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, 0);
         gl.glUseProgram(0);
+        gl.glDepthMask(dm[0] != 0);
     }
 
     /** Nahe Bäume (Stufe 0 und 1 der letzten Kultur) in eine gebundene Tiefen-Schattenkarte (lightVP: Welt → Licht). */
@@ -897,6 +1033,7 @@ public final class ForestGpu {
         for (int p : new int[]{cullProg, scanProg, meshProg, shadowProg, impProg, bakeProg}) gl.glDeleteProgram(p);
         gl.glDeleteBuffers(10, new int[]{vbo, ibo, quadVbo, quadIbo, instBuf, cntBuf, cmdBuf, typeBuf, meshBuf, statBuf}, 0);
         gl.glDeleteVertexArrays(2, new int[]{meshVao, impVao}, 0);
+        if (shVao != 0) { gl.glDeleteVertexArrays(1, new int[]{shVao}, 0); gl.glDeleteBuffers(4, new int[]{shCnt, shCmd, shInst, shStat}, 0); shVao = 0; }
         gl.glDeleteTextures(5, new int[]{denTex, hgtTex, stTex, albTex, nrmTex}, 0);
         gl.glDeleteFramebuffers(1, new int[]{bakeFbo}, 0);
         gl.glDeleteRenderbuffers(1, new int[]{bakeDepth}, 0);

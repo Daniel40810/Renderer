@@ -52,6 +52,19 @@ public final class ForestCheck {
                 check(s.name + ": feine Nadeln in Stufe 0 gültig (" + fn.nt + " statt " + g.nt + " Dreiecke), Stufe 1 unverändert",
                         ok && TreeMesh.build(m1, 1, 1, true).nt == TreeMesh.build(m1, 1).nt);
             }
+            if (s.beard > 0 && !s.lying) {
+                // seit W6 Runde 6: Bartflechten in Stufe 0 (nicht an liegenden Stämmen)
+                TreeMesh fn = TreeMesh.build(m1, 0, 0, true), bt = TreeMesh.build(m1, 0, 0, true, true), bt2 = TreeMesh.build(m1, 0, 0, true, true);
+                boolean ok = bt.beardTriangles > 0 && bt.nt == fn.nt + bt.beardTriangles && bt.nt == bt2.nt;
+                float tief = Float.MAX_VALUE;
+                for (int i = fn.nv; ok && i < bt.nv; i++) {
+                    ok = Float.isFinite(bt.pos[3 * i]) && Float.isFinite(bt.pos[3 * i + 1]) && bt.part[i] == TreeMesh.NEEDLES && bt.pos[3 * i + 1] <= 0.9f * m1.height + 0.01f;
+                    tief = Math.min(tief, bt.pos[3 * i + 1]);
+                }
+                for (int i = 0; ok && i < 3 * fn.nv; i++) ok = bt.col[i] == fn.col[i];   // das übrige Netz unverändert
+                check(String.format(java.util.Locale.GERMAN, "%s: Bartflechten in Stufe 0 (%d Dreiecke, tiefste Strähne bei %.1f m), übriges Netz unverändert, Stufe 1 ohne",
+                        s.name, bt.beardTriangles, tief), ok && TreeMesh.build(m1, 1, 1, true, true).nt == TreeMesh.build(m1, 1, 1, true).nt);
+            }
             // Wind: ohne Wind still, mit Wind bewegt sich die Spitze deutlich, der Fuß kaum
             TreeMesh t = TreeMesh.build(m1, 1);
             TreeAnimator an = new TreeAnimator(t);
@@ -412,11 +425,22 @@ public final class ForestCheck {
      * der Shadertext gleich dem in com.dan.tree (beide Prüfungen kennen denselben Fingerabdruck RINDE_CRC).
      */
     static void rinde() {
-        float c = com.dan.forest.gl.ForestGl.barkCode(Species.sitkaSpruce());
-        int st = (int) Math.floor(-c + 0.01f);
-        float fl = (float) ((-c + 0.001) - Math.floor(-c + 0.001)) * 10;
-        check(String.format(java.util.Locale.GERMAN, "Rinde: Sitka schuppig mit Flechten %.2f (Kode %.3f)", fl, c),
-                st == Species.BarkStyle.SCALY.ordinal() && Math.abs(fl - Species.sitkaSpruce().lichen) < 0.02f);
+        Species si = Species.sitkaSpruce();
+        float c = com.dan.forest.gl.ForestGl.barkCode(si);
+        float[] dk = com.dan.forest.gl.ForestGl.barkDecode(c);
+        check(String.format(java.util.Locale.GERMAN, "Rinde: Sitka schuppig, Flechten %.2f (%.2f), Moos %.2f (%.2f) zurückgelesen (Kode %.3f)", dk[1], si.lichen, dk[2], si.moss, c),
+                (int) dk[0] == Species.BarkStyle.SCALY.ordinal() && Math.abs(dk[1] - si.lichen) <= 0.056f && Math.abs(dk[2] - si.moss) <= 0.056f);
+        boolean alle = true;
+        for (Species.BarkStyle bs : Species.BarkStyle.values())
+            for (int l = 0; l <= 9; l++)
+                for (int m = 0; m <= 9; m++) {
+                    if (bs == Species.BarkStyle.NONE) continue;
+                    Species t = Species.sitkaSpruce();
+                    t.barkStyle = bs; t.lichen = l / 9f; t.moss = m / 9f;
+                    float[] d = com.dan.forest.gl.ForestGl.barkDecode((float) com.dan.forest.gl.ForestGl.barkCode(t));
+                    alle &= (int) d[0] == bs.ordinal() && Math.round(d[1] * 9) == l && Math.round(d[2] * 9) == m;
+                }
+        check("Rinde: alle Stile, Flechten und Moos in Neunteln eindeutig kodiert (500 Fälle, float wie im Netz)", alle);
         check("Rinde: Stile 0 bis 5 wie im Shader nummeriert", Species.BarkStyle.values().length == 6 && Species.BarkStyle.SMOOTH.ordinal() == 1
                 && Species.BarkStyle.PAPER.ordinal() == 5);
         check("Rinde: entrindet und umgelegt ohne Muster", com.dan.forest.gl.ForestGl.barkCode(Species.damaged(Species.sitkaSpruce(), Species.Damage.STRIPPED)) == 0
@@ -437,7 +461,7 @@ public final class ForestCheck {
         check(String.format("Rinde: Block in forest.frag, CRC %08x (erwartet %08x, sonst tree.frag mitziehen)", crc, RINDE_CRC), crc == RINDE_CRC);
     }
 
-    static final long RINDE_CRC = 0x73a54b64L;
+    static final long RINDE_CRC = 0xb39e9755L;
 
     private static void check(String what, boolean ok) {
         System.out.println((ok ? "  ok    " : "  FEHLER ") + what);

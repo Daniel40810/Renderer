@@ -250,6 +250,8 @@ public final class Cliff {
      * {@code cliffGranitBlock}.
      */
     public double granitBlock(double x, double y, double z, double footprint) {
+        double band = CNoise.band(blockRound * sheetSpacing * 2, footprint);
+        if (band <= 0) return PILL_MEAN;   // seit W6 Runde 6: in der Ferne ohne Abrufe (gleiches Ergebnis)
         double pill = 1;
         for (int k = 0; k < 3; k++) {
             double sp, u, open;
@@ -268,7 +270,7 @@ public final class Cliff {
             double toJoint = (0.5 - Math.abs(u - Math.floor(u) - 0.5)) * sp;
             pill *= 1 - open * (1 - smooth(0, blockRound * sp, toJoint));
         }
-        return PILL_MEAN + (pill - PILL_MEAN) * CNoise.band(blockRound * sheetSpacing * 2, footprint);
+        return PILL_MEAN + (pill - PILL_MEAN) * band;
     }
 
     /**
@@ -300,11 +302,15 @@ public final class Cliff {
      * Seit LituyaBay1958 W6 Runde 5, Fernstufe: auch die großen Bänder der Schieferung (33 und 7 m), Feldspat (4,5 m),
      * Sickerstreifen (3,5 m quer), Flechten (2,2 m) und Moos (3,5 m) gehen über {@link CNoise#band} in ihr Mittel, sobald
      * ein Bildpunkt sie nicht mehr trägt. In der Nähe gleiches Bild, in der Ferne kein Flimmern und kaum Abrufe des
-     * Rauschens (Kosten der Landschaft). Gleich in cliff.glsl ({@code uCliffFar}). Vorgabe aus: wie bisher.
+     * Rauschens (Kosten der Landschaft). Gleich in cliff.glsl ({@code uCliffFar}). Vorgabe aus: wie bisher. Seit W6 Runde 6
+     * auch Granit (Flecken 3 und 0,9 m) und Lockergestein (wellige Grenzen 9 m, Flecken des Lehms 4 und 1,1 m, Runsen,
+     * Rieselzungen 1,1 m, Sickerstreifen 2,2 m, Gras 0,4 m).
      */
     public volatile boolean farBands = false;
     /** Mittel der Schwellen über Wertrauschen (gleich in cliff.glsl, CliffCheck misst sie nach). */
     public static final double FEL_MEAN = 0.11, SEEP_MEAN = 0.155, LICHEN_MEAN = 0.314, MOSS_MEAN = 0.484;
+    /** Seit W6 Runde 6 für Lockergestein: Runse (smoothstep 0,55..0,85), Rieselzunge (0,7..0,85), Sickern (0,62..0,76). */
+    public static final double GULLY_MEAN = 0.187, TONGUE_MEAN = 0.097, SEEP_LOCKER_MEAN = 0.192;
 
     double farBand(double lambda, double footprint) { return farBands ? CNoise.band(lambda, footprint) : 1; }
 
@@ -358,12 +364,13 @@ public final class Cliff {
             double[] st = strataAt(x, z);
             double[] q0 = rot(x, y, z);
             // Grenzen wellig (m): 3D-Rauschen hebt und senkt sie
-            double wv = (CNoise.value(x / 9, y / 9, z / 9, seed + 51) - 0.5) * 0.8
+            double wv = (toMean(0.5, farBand(9, footprint), () -> CNoise.value(x / 9, y / 9, z / 9, seed + 51)) - 0.5) * 0.8
                     + (CNoise.value(q0[0] / 2.5, q0[1] / 2.5, q0[2] / 2.5, seed + 52) - 0.5) * 0.3 * CNoise.band(2.5, footprint);
             double d = st[0] - y + wv, aa = Math.max(footprint, 0.04);
             double zN = sodThick, zF = zN + st[2], zB = zF + bleachThick, zP = zB + podsolThick, zS = zP + stoneThick;
             // Geschiebelehm: rostrot, fleckig, körnig
-            double mot = 0.6 * CNoise.value(q0[0] / 4, q0[1] / 4, q0[2] / 4, seed + 58) + 0.4 * CNoise.value(q0[0] / 1.1, q0[1] / 1.1, q0[2] / 1.1, seed + 59);
+            double mot = 0.6 * toMean(0.5, farBand(4, footprint), () -> CNoise.value(q0[0] / 4, q0[1] / 4, q0[2] / 4, seed + 58))
+                    + 0.4 * toMean(0.5, farBand(1.1, footprint), () -> CNoise.value(q0[0] / 1.1, q0[1] / 1.1, q0[2] / 1.1, seed + 59));
             double[] lc = mix(lehmDark, lehm, smooth(0.25, 0.75, mot));
             lc = scale(lc, 1 + (CNoise.value(q0[0] / 0.3, q0[1] / 0.3, q0[2] / 0.3, seed + 60) - 0.5) * 0.15 * CNoise.band(0.3, footprint));
             // Findlinge im Lehm: Flint, Granit, Porphyr, grau bis rötlich
@@ -392,18 +399,19 @@ public final class Cliff {
             topDepth = d;
             lehmTop = d - zS;
             // Runsen und Rieselsand: Sand aus den Lagen darüber rieselt in die Rinnen und in Zungen über den Lehm
-            double gu = gully(x, y, z) * wall;
-            double tongue = smooth(0.7, 0.85, CNoise.value(x / 1.1, y / 25, z / 1.1, seed + 56));
+            double gu = toMean(GULLY_MEAN * gullyAmount, farBand(gullySpacing, footprint), () -> gully(x, y, z)) * wall;
+            double tongue = toMean(TONGUE_MEAN, farBand(1.1, footprint), () -> smooth(0.7, 0.85, CNoise.value(x / 1.1, y / 25, z / 1.1, seed + 56)));
             double tr = trickleAmount * Math.max(gu * 0.9, tongue * 0.6) * lehmShare;
             col = scale(col, 1 - 0.18 * gu * lehmShare);                 // in der Rinne Schatten
             col = mix(col, scale(sand, 0.95), tr);
             // Gras auf allem, was oben an der Kante nach oben schaut (Netz der Grasnarbe)
             double gr = smooth(0.55, 0.8, ny) * (1 - smooth(zN, zN + 0.4, d));
-            col = mix(col, scale(grass, 0.8 + 0.4 * CNoise.value(q0[0] / 0.4, q0[1] / 0.4, q0[2] / 0.4, seed + 64)), gr);
+            col = mix(col, scale(grass, 0.8 + 0.4 * toMean(0.5, farBand(0.4, footprint), () -> CNoise.value(q0[0] / 0.4, q0[1] / 0.4, q0[2] / 0.4, seed + 64))), gr);
         } else if (rock == Rock.GRANIT) {
             // Granit: keine Bänder, Flecken in zwei Maßstäben, rötlicher Feldspat und dunkler Glimmer als Korn
             double[] q0 = rot(x, y, z);
-            double mo = 0.6 * CNoise.value(q0[0] / 3.0, q0[1] / 3.0, q0[2] / 3.0, seed + 3) + 0.4 * CNoise.value(q0[0] / 0.9, q0[1] / 0.9, q0[2] / 0.9, seed + 4);
+            double mo = 0.6 * toMean(0.5, farBand(3, footprint), () -> CNoise.value(q0[0] / 3.0, q0[1] / 3.0, q0[2] / 3.0, seed + 3))
+                    + 0.4 * toMean(0.5, farBand(0.9, footprint), () -> CNoise.value(q0[0] / 0.9, q0[1] / 0.9, q0[2] / 0.9, seed + 4));
             col = mix(gneissDark, gneissLight, smooth(0.2, 0.8, mo));
             double bf = CNoise.band(0.035, footprint), bb = CNoise.band(0.02, footprint);   // Korn: Feldspat 3,5 cm, Biotit 2 cm
             double fel = smooth(0.58, 0.88, CNoise.value(q0[0] / 0.035, q0[1] / 0.035, q0[2] / 0.035, seed + 6)) * feldsparAmount;
@@ -447,7 +455,7 @@ public final class Cliff {
         // Sickerstreifen: senkrecht gestrecktes Rauschen (gewollt), dazu die Nässe der Karte (unter Fällen) und der Regen
         double seep = rock == Rock.LOCKER
                 // Lockergestein: Wasser staut auf dem Lehm und tritt an der Grenze aus, Streifen von dort hinab
-                ? smooth(0.62, 0.76, CNoise.value(x / 2.2, y / 45, z / 2.2, seed + 57)) * seepAmount * wall * smooth(-0.3, 0.2, lehmTop) * (1 - smooth(1, seepLength, lehmTop))
+                ? toMean(SEEP_LOCKER_MEAN, farBand(2.2, footprint), () -> smooth(0.62, 0.76, CNoise.value(x / 2.2, y / 45, z / 2.2, seed + 57))) * seepAmount * wall * smooth(-0.3, 0.2, lehmTop) * (1 - smooth(1, seepLength, lehmTop))
                 : wall > 0 ? farMix(SEEP_MEAN, 3.5, footprint, () -> smooth(0.66, 0.78, CNoise.value(x / 3.5, y / 70, z / 3.5, seed + 9))) * seepAmount * wall : 0;
         s.wet = clamp(Math.max(Math.max(wetMap * fallWet, seep), rainWet * s.rock));
         if (rock == Rock.LOCKER) {

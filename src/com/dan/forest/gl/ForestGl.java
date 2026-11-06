@@ -46,6 +46,11 @@ public final class ForestGl {
      * Bürsten der Stufen 1 und 2 die hellen Flocken. Vorgabe aus, dann wie bisher.
      */
     public boolean shootLight;
+    /**
+     * Seit LituyaBay1958 W6 Runde 6: Bartflechten in Stufe 0 an den Ästen der Arten mit {@link com.dan.forest.Species#beard}
+     * &gt; 0 (zwei gekreuzte, sich verjüngende Bänder je Strähne). Vor init bzw. vor dem Backen setzen. Vorgabe aus.
+     */
+    public boolean beardLichen;
 
     /** Blick: Projektion·Blick, Auge, Tiefenkonvention. */
     public static final class View {
@@ -76,6 +81,8 @@ public final class ForestGl {
         public double sunShadowBias = 0.0015;
         /** Seit LituyaBay1958 W6 Runde 5: Abrufe der Sonnenschattenkarte je Bildpunkt, 9 (3×3, Vorgabe) oder 1 (bilinear, günstig bei viel Laub). */
         public int sunShadowTaps = 9;
+        /** Seit W6 Runde 6: feuchte Seite der Stämme (Welt, waagerecht, etwa die Wetterseite); dort reicht das Moos höher. 0 = keine. */
+        public double[] mossSide = {0, 0, 0};
     }
 
     /** Ecke im Puffer: Lage 3, Normale 3, Farbe 3 (linear, mit Verdeckung), Höhe 0..1, Laub (1 Blatt, 0,5 Kronenhülle, 0 Holz). */
@@ -197,7 +204,7 @@ public final class ForestGl {
                 TreeModel m = models[s][v];
                 TreeMesh mid = TreeMesh.build(m, 1, 2);
                 long k = seed + s * 31 + v * 7;
-                out[bucketOf(s, v, 0)] = pack(TreeMesh.build(m, 0), se, k, 1, 1);
+                out[bucketOf(s, v, 0)] = pack(TreeMesh.build(m, 0, 0, false, beardLichen), se, k, 1, 1);
                 out[bucketOf(s, v, 1)] = pack(mid, se, k + 1, 1, 1);
                 // Stufe 2: dieselben Blattbüschel, nur jedes siebte, dafür doppelt so groß (gezackt wie nah, ein Zehntel der Dreiecke)
                 out[bucketOf(s, v, 2)] = pack(mid, se, k + 2, 0.15f, 2.0f);
@@ -208,10 +215,23 @@ public final class ForestGl {
         return out;
     }
 
-    /** Seit W6 Runde 5: Stil und Flechten der Rinde für den Shader, −(Stil + 0,1 · Flechten), 0 ohne Muster. */
+    /**
+     * Seit W6 Runde 5: Stil, Flechten und (seit Runde 6) Moos der Rinde für den Shader: −(Stil + l/10 + m/100 + 0,001), l
+     * und m die Anteile in Neunteln (0..9); 0 ohne Muster. forest.frag liest l = ⌊f·10⌋, m = ⌊f·100 − 10 l⌋.
+     */
     public static float barkCode(Species sp) {
         if (sp.barkStyle == null || sp.barkStyle == Species.BarkStyle.NONE) return 0;
-        return -(sp.barkStyle.ordinal() + 0.1f * Math.max(0, Math.min(0.99f, sp.lichen)));
+        int l = Math.round(9 * Math.max(0, Math.min(1, sp.lichen))), m = Math.round(9 * Math.max(0, Math.min(1, sp.moss)));
+        return -(sp.barkStyle.ordinal() + l / 10f + m / 100f + 0.001f);
+    }
+
+    /** Umkehr von {@link #barkCode}: Stil, Flechten, Moos (Anteile in Neunteln wie der Shader). */
+    public static float[] barkDecode(float code) {
+        float c = -code;
+        int st = (int) Math.floor(c + 0.004f);
+        float fr = c - st;
+        float l9 = (float) Math.floor(fr * 10 + 0.002f), m9 = (float) Math.floor(fr * 100 - l9 * 10 + 0.02f);
+        return new float[]{st, l9 / 9, m9 / 9};
     }
 
     /**
@@ -407,6 +427,7 @@ public final class ForestGl {
         gl.glUniform2f(loc(gl, program, "uTone"), v.tonemap ? 1f : 0f, (float) v.exposure);
         gl.glUniform1i(loc(gl, program, "uBark"), barkDetail ? 1 : 0);   // seit W6 Runde 5
         gl.glUniform1i(loc(gl, program, "uShoot"), shootLight ? 1 : 0);
+        gl.glUniform3f(loc(gl, program, "uMossSide"), (float) l.mossSide[0], (float) l.mossSide[1], (float) l.mossSide[2]);
         gl.glActiveTexture(GL.GL_TEXTURE5);
         gl.glBindTexture(GL.GL_TEXTURE_2D, l.shadowTexture);
         gl.glActiveTexture(GL.GL_TEXTURE6);

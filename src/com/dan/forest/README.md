@@ -304,5 +304,45 @@ licht.sunShadowTexture = sm.texture();  licht.sunShadowMatrix = sm.matrix;  lich
 
 **Prüfung.** `ForestCheck.rinde`: Kodierung (Sitka schuppig, Flechten zurückgelesen), Stile 0 bis 5, entrindet und umgelegt ohne Muster, die Hauptarten haben ein Muster. Der Shadertext der Rinde steht gleich in `com.dan.tree` (`tree.frag`). Weil sich die Packages nicht sehen, prüfen `ForestCheck` und `TreeCheck` beide denselben Fingerabdruck des Blocks zwischen `// RINDE BEGINN` und `// RINDE ENDE` (CRC32 über den Text mit zusammengezogenem Leerraum). Wer den Block ändert, zieht beide Dateien und beide Prüfungen mit.
 
-**Grenzen.** Das Muster ist gestaltet [G], keine Textur aus Fotos. Die Rinde trägt kein Moos und keine Bartflechten. Bäume, die die letzte Prüfung nicht im Blick hatte, werfen keinen Schatten in die Karte.
+**Grenzen.** Das Muster ist gestaltet [G], keine Textur aus Fotos. Stand Runde 5: die Rinde trägt kein Moos und keine Bartflechten, Bäume außerhalb der letzten Prüfung werfen keinen Schatten in die Karte. Beides kam in Runde 6, siehe unten.
 
+## Seit LituyaBay1958 W6 Runde 6: Moos, Bartflechten, Impostors unter glClipControl, eigene Schattenauswahl
+
+Alles Neue ist voreingestellt aus, oder es wirkt erst, wenn die App einen Wert setzt. Ausgenommen ist die Behebung beim Backen der Impostors: sie gilt immer.
+
+- **Moos am Stamm** (`Species.moss` 0..1; `Light.mossSide`): Teil des Rindenblocks (`barkMoss` zwischen `RINDE BEGINN` und `RINDE ENDE`, gleich in `com.dan.tree`).
+  - Wo es wächst: Polster am Fuß, bis rund (0,4 + 2,2 · moss) m hoch. Auf der feuchten Seite reicht es höher (bis 1,6-fach), auf der trockenen weniger hoch (0,5-fach). Dazu kommt Moos auf der Oberseite der Äste ab 1 m.
+  - Farbe: dunkel- bis gelbgrün im Verhältnis zur Helligkeit der Rinde, wie die Flechten, damit es im Schatten nicht leuchtet.
+  - Relief: die Polster tragen das Relief der Rinde mit; in der Nähe bekommen sie eine weiche Höhe.
+  - Ferne: das Muster läuft ab 8 cm je Bildpunkt in sein Mittel aus. Die grüne Tönung bleibt in jeder Entfernung (ein bemooster Stamm ist auch von fern grünlich).
+  - `Light.mossSide`: waagerechte Richtung zur feuchten Seite (Welt; 0 = rundum gleich). In Lituya ist es SSE, die Seite zum Golf.
+  - Kodierung im Netz: −(Stil + Flechten/10 + Moos/100 + 0,001), Flechten und Moos je in Neunteln (`ForestGl.barkCode`, Umkehr `barkDecode`). `ForestCheck` prüft alle 500 Fälle.
+  - Werte [G]: Sitka 0,6, Hemlock 0,65, Roterle 0,55, junge Sitka und junger Hemlock 0,5, Erle und Eiche 0,3, Fichte 0,15. Entrindete und umgelegte Bäume haben kein Moos.
+- **Bartflechten** (*Usnea*, *Alectoria*; `Species.beard` 0..1; `ForestGl.beardLichen`, `ForestGpu.beardLichen`, beim Backen): `TreeMesh.build(m, lod, barkLod, fine, beard)` hängt in Stufe 0 an einen Anteil `beard` der Äste erster bis dritter Ordnung je 1 bis 3 Strähnen.
+  - Form: 8 bis 35 cm lang, zwei gekreuzte, spitz zulaufende Bänder, Laubart NEEDLES (Wind, Schattenkarte), Farbe graugrün (0,40 0,44 0,34) mal Tönung.
+  - Ausgelassen: die obersten 10 % der Krone, Strähnen, die unter 0,4 m reichten, und liegende Bäume.
+  - Werte [G]: Hemlock 0,6, Sitka 0,5, junger Hemlock 0,3, junge Sitka 0,2, Fichte 0,15, Roterle 0,1. `TreeMesh.beardTriangles` zählt die Dreiecke.
+- **Impostors unabhängig von `glClipControl`**: `bakeImpostors` stellt für das Backen die Tiefe auf −1..1 und danach alles zurück: Tiefe 0..1 oder −1..1, Tiefenvergleich, Tiefentest, Rückseiten, Mischen.
+  - Vorher fehlte in Lituya (umgekehrte Tiefe, 0..1) beim Backen die dem Auge zugewandte Hälfte jedes Baums. Die Impostors zeigten das Innere der Krone und hinten liegende Stämme in der Sonne.
+  - Runde 6b: auch die Schreibmaske der Tiefe (`glDepthMask`), die Farbmaske und die Schere werden gesetzt und zurückgestellt. In Lituya stand die Maske nach durchsichtigen Durchgängen auf aus. Die Tiefe blieb beim Backen leer, und der zuletzt gezeichnete Teil lag oben: Stämme vor der Krone. Ob das geschah, hing davon ab, ob vorher die Sonnenschattenkarte gelaufen war (sie setzt die Maske). Daher die hellen fernen Erlenstämme mit Karte in Runde 5 und ohne Karte in Runde 6. `SunShadowMap.end` stellt die Maske jetzt zurück. Runde 6c: `ForestGpu.draw` schreibt die Tiefe selbst (`glDepthMask(true)`, danach wie vorher), denn mit der zurückgestellten Maske zeichnete Lituya den Wald nach der Schattenkarte ohne Tiefe: wieder Stämme vor den Kronen.
+  - `ForestGpuCheck` backt einmal ohne und einmal mit einem feindlichen Zustand (Tiefe 0..1, Maske der Tiefe aus, GREATER, Schere an), vergleicht die Atlanten (größte Abweichung ≤ 1 von 255) und prüft, dass der Zustand danach wieder derselbe ist.
+  - Dazu `rebakeImpostors(gl)`, `atlasBytes(gl)` und `impBakes` für Prüfungen.
+  - `SunShadowMap.begin`/`end` merken nun auch Tiefenvergleich, Tiefentest und Mischen. Die Konstanten `CLIP_*` sind öffentlich.
+- **Eigene Schattenauswahl** (`ForestGpu.cullShadow(gl, lichtVP, auge, cx, cz, halb)`, danach `drawShadowCulled(gl, lichtVP, t, stufen)`): dieselbe Prüfung wie `cull`, aber mit den Seitenebenen der Lichtkarte statt des Blicks, in eigenen Puffern. Damit werfen Bäume hinter oder neben dem Auge ihre Schatten herein.
+  - Stufen und Reichweite: wie im Bild, nach dem Auge.
+  - Geprüfte Plätze: ein Quadrat der halben Kante `halb` um (cx, cz). Es soll über die Karte hinaus um die Länge des längsten Schattens reichen. Die Seitenebenen bilden eine Säule entlang der Sonne; mehr Plätze kosten nur Rechnen.
+  - Puffer: angelegt beim ersten Aufruf, 32 Byte je Platz, höchstens `Quality.capacity`.
+  - `drawShadow` (Auswahl des Blicks) bleibt.
+  - `ForestGpuCheck`: eine Karte hinter dem Auge; `cullShadow` findet dort die Bäume, die Auswahl des Blicks kaum welche, und Grafikkarte = Prozessor (`cullCpu` mit der Lichtmatrix). Für Prüfungen gibt es `readShadowInstances`.
+
+```java
+wald.beardLichen = true;                         // vor dem ersten update (backt Stufe 0)
+licht.mossSide = new double[]{0.35, 0, 0.94};    // feuchte Seite
+// Schatten: eigene Auswahl, dann zeichnen
+karte.begin(gl, sonne, mx, my, mz);
+wald.cullShadow(gl, karte.matrix, auge, mx, mz, karte.radius + 250);
+wald.drawShadowCulled(gl, karte.matrix, t, 2);
+karte.end(gl);
+```
+
+**Grenzen.** Moos und Flechten sind gestaltet [G] und stammen nicht aus Fotos. Es gibt kein Moos auf dem Boden der Krone und keine Epiphyten (Farne, Lebermoose) auf den Ästen. Die Bartflechten hängen nur in Stufe 0, schon in Stufe 1 fehlen sie.

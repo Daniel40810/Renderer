@@ -64,6 +64,8 @@ public final class TreeGl {
         public double standAo = 1;
         /** Seit W6 Runde 5: Abrufe der Sonnenschattenkarte je Bildpunkt, 9 (3×3, Vorgabe) oder 1 (bilinear), wie {@code ForestGl.Light}. */
         public int sunShadowTaps = 9;
+        /** Seit W6 Runde 6: feuchte Seite der Stämme (Welt, waagerecht), wie {@code com.dan.forest.gl.ForestGl.Light}. */
+        public double[] mossSide = {0, 0, 0};
         /**
          * Seit LituyaBay1958 W6 Runde 4, wie {@code com.dan.forest.gl.ForestGl.Light}, damit Bäume aus beiden Packages in
          * einer Szene gleich hell stehen: Schattenkarte von oben (r = Durchlässigkeit, etwa Gelände oder Wolken; 0 = keine)
@@ -375,8 +377,9 @@ public final class TreeGl {
         gl.glUniform1f(loc(gl, "uStand"), (float) Math.max(0, Math.min(1, light.standAo)));
         gl.glUniform1i(loc(gl, "uBarkTex"), 0);
         gl.glUniform1i(loc(gl, "uLeafTex"), 1);
-        gl.glUniform3f(loc(gl, "uBarkPat"), barkDetail && species.barkStyle != TreeSpecies.BARK_NONE ? 1f : 0f, species.barkStyle,
-                Math.max(0, Math.min(1, species.lichen)));
+        gl.glUniform4f(loc(gl, "uBarkPat"), barkDetail && species.barkStyle != TreeSpecies.BARK_NONE ? 1f : 0f, species.barkStyle,
+                Math.max(0, Math.min(1, species.lichen)), Math.max(0, Math.min(1, species.moss)));
+        gl.glUniform3f(loc(gl, "uMossSide"), (float) light.mossSide[0], (float) light.mossSide[1], (float) light.mossSide[2]);
         double[] sd = light.sunDir;
         double sl = Math.sqrt(sd[0] * sd[0] + sd[1] * sd[1] + sd[2] * sd[2]);
         gl.glUniform3f(loc(gl, "uSunDir"), (float) (sd[0] / sl), (float) (sd[1] / sl), (float) (sd[2] / sl));

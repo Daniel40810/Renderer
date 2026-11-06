@@ -48,7 +48,29 @@ public final class TreeMesh {
      * unten stehen; die dunklen Ballen innen kleiner (seit LituyaBay1958 W6 Runde 3, Runde 4 schmaler und dunkler, für
      * Bäume aus der Nähe). Rund siebenmal so viele Dreiecke im Laub der Stufe 0.
      */
-    public static TreeMesh build(TreeModel m, int lod, int barkLod, boolean fine) {
+    public static TreeMesh build(TreeModel m, int lod, int barkLod, boolean fine) { return build(m, lod, barkLod, fine, false); }
+
+    /**
+     * Wie {@link #build(TreeModel, int, int, boolean)}; mit beard hängen in Stufe 0 Bartflechten an den Ästen (seit
+     * LituyaBay1958 W6 Runde 6): an einem Anteil {@link Species#beard} der Äste erster bis dritter Ordnung je 1 bis 3
+     * Strähnen, 8 bis 35 cm lang, blass graugrün, als zwei gekreuzte, sich verjüngende Bänder, die mit dem Ast schwingen
+     * und flattern (Art Nadeln) [G]. Nicht im oberen Zehntel der Krone (dort ist es zu trocken und zu hell).
+     */
+    public static TreeMesh build(TreeModel m, int lod, int barkLod, boolean fine, boolean beard) {
+        TreeMesh t = build0(m, lod, barkLod, fine);
+        if (beard && lod == 0 && m.species.beard > 0) {
+            int before = t.nt, v0 = t.nv;
+            t.beard(new java.util.Random(m.seed ^ 0xBEA2DL));
+            t.beardTriangles = t.nt - before;
+            t.ambient(v0);   // Verdeckung für alle, die Farbe nur der Strähnen (die übrigen sind schon verdeckt)
+        }
+        return t;
+    }
+
+    /** Seit W6 Runde 6: Dreiecke der Bartflechten in diesem Netz. */
+    public int beardTriangles;
+
+    private static TreeMesh build0(TreeModel m, int lod, int barkLod, boolean fine) {
         TreeMesh t = new TreeMesh(m, lod);
         t.fine = fine && lod == 0;
         t.mild = fine && lod <= 1;   // W6 Runde 4: auch Stufe 1 ohne helle Spitzen der Bürsten
@@ -486,7 +508,10 @@ public final class TreeMesh {
      */
     public float[] ao;
 
-    private void ambient() {
+    private void ambient() { ambient(0); }
+
+    /** Verdeckung für alle Punkte; die Farbe nur ab Punkt from (seit W6 Runde 6: Strähnen nachträglich). */
+    private void ambient(int from) {
         ao = new float[nv];
         float H = model.height, R = model.crownRadius;
         for (int i = 0; i < nv; i++) {
@@ -496,7 +521,46 @@ public final class TreeMesh {
             float a = 0.35f + 0.65f * (0.25f + 0.75f * out) * (0.55f + 0.45f * h);
             if (model.leaves.isEmpty()) a = 0.8f + 0.2f * h;   // ohne Laub (Totholz): keine Krone, die beschattet
             ao[i] = Math.min(1, a);
-            col[3 * i] *= ao[i]; col[3 * i + 1] *= ao[i]; col[3 * i + 2] *= ao[i];
+            if (i >= from) { col[3 * i] *= ao[i]; col[3 * i + 1] *= ao[i]; col[3 * i + 2] *= ao[i]; }
+        }
+    }
+
+    /** Seit W6 Runde 6: Bartflechten (Usnea, Alectoria) an Ästen erster bis dritter Ordnung [G]. */
+    private void beard(java.util.Random r) {
+        Species sp = model.species;
+        float H = model.height;
+        if (sp.lying) return;
+        for (TreeModel.Branch b : model.branches) {
+            if (b.level < 1 || b.level > 3 || b.nodes() < 2) continue;
+            if (r.nextFloat() >= sp.beard) continue;
+            int strands = 1 + r.nextInt(3);
+            for (int k = 0; k < strands; k++) {
+                int i = 1 + r.nextInt(b.nodes() - 1);
+                float f = r.nextFloat();
+                float x = b.x[i - 1] + (b.x[i] - b.x[i - 1]) * f, y = b.y[i - 1] + (b.y[i] - b.y[i - 1]) * f, z = b.z[i - 1] + (b.z[i] - b.z[i - 1]) * f;
+                if (y > 0.9f * H) continue;
+                float rr = b.r[i - 1] + (b.r[i] - b.r[i - 1]) * f;
+                y -= rr * 0.8f;   // an der Unterseite des Asts
+                float len = 0.08f + 0.27f * r.nextFloat() * r.nextFloat(), w = 0.02f + 0.02f * r.nextFloat();
+                if (y - len < 0.4f) continue;   // nicht bis in den Boden
+                float drift = 0.15f * len, an = (float) (r.nextFloat() * Math.PI);
+                float tone = 0.85f + 0.3f * r.nextFloat();
+                float cr = 0.40f * tone, cg = 0.44f * tone, cb = 0.34f * tone;   // blass graugrün [G]
+                float s = b.length > 0 ? (b.cum[i - 1] + (b.cum[i] - b.cum[i - 1]) * f) / b.length : 0;
+                float dx0 = (r.nextFloat() - 0.5f) * drift, dz0 = (r.nextFloat() - 0.5f) * drift;
+                for (int q = 0; q < 2; q++) {
+                    float dx = (float) Math.cos(an + q * Math.PI / 2), dz = (float) Math.sin(an + q * Math.PI / 2);
+                    float nx = -dz, nz = dx;
+                    int a = vertex(x - dx * w * 0.5f, y, z - dz * w * 0.5f, nx, 0.2f, nz, cr, cg, cb, b.id, s, -1, NEEDLES);
+                    int c = vertex(x + dx * w * 0.5f, y, z + dz * w * 0.5f, nx, 0.2f, nz, cr, cg, cb, b.id, s, -1, NEEDLES);
+                    int m1 = vertex(x + dx0 * 0.5f - dx * w * 0.3f, y - len * 0.55f, z + dz0 * 0.5f - dz * w * 0.3f, nx, 0.2f, nz, cr * 0.95f, cg * 0.95f, cb * 0.95f, b.id, s, -1, NEEDLES);
+                    int m2 = vertex(x + dx0 * 0.5f + dx * w * 0.3f, y - len * 0.55f, z + dz0 * 0.5f + dz * w * 0.3f, nx, 0.2f, nz, cr * 0.95f, cg * 0.95f, cb * 0.95f, b.id, s, -1, NEEDLES);
+                    int e = vertex(x + dx0, y - len, z + dz0, nx, 0.2f, nz, cr * 0.9f, cg * 0.9f, cb * 0.9f, b.id, s, -1, NEEDLES);
+                    triangle(a, c, m2, true);
+                    triangle(a, m2, m1, true);
+                    triangle(m1, m2, e, true);
+                }
+            }
         }
     }
 

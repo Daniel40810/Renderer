@@ -102,6 +102,7 @@ public final class CliffCheck {
         granit();
         locker();
         fern();
+        fern2();
         System.out.println(c.describe());
         System.out.println(m.describe());
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Fehler.");
@@ -239,6 +240,45 @@ public final class CliffCheck {
         check(Math.abs(m[0] - Cliff.FEL_MEAN) < 0.01 && Math.abs(m[1] - Cliff.SEEP_MEAN) < 0.01 && Math.abs(m[2] - Cliff.LICHEN_MEAN) < 0.01
                 && Math.abs(m[3] - Cliff.MOSS_MEAN) < 0.01, String.format(Locale.GERMAN, "Fernstufe: Mittel Feldspat %.3f, Sickern %.3f, Flechten %.3f, Moos %.3f gemessen",
                 m[0], m[1], m[2], m[3]));
+    }
+
+    /** Seit W6 Runde 6: Fernstufe auch für Granit und Lockergestein; nah gleich, fern weniger Streuung, Mittel nachgemessen. */
+    static void fern2() {
+        for (int art = 0; art < 2; art++) {
+            Cliff aus = art == 0 ? Cliff.granit() : Cliff.rotesKliff(), an = art == 0 ? Cliff.granit() : Cliff.rotesKliff();
+            an.farBands = true;
+            java.util.Random r = new java.util.Random(13 + art);
+            double nah = 0, sAus = 0, sAn = 0, mAus = 0, mAn = 0;
+            int n = 400;
+            double[] fa = new double[n], fb = new double[n];
+            for (int i = 0; i < n; i++) {
+                double x = r.nextDouble() * 2000 - 1000, y = art == 1 ? r.nextDouble() * 40 : r.nextDouble() * 900, z = r.nextDouble() * 2000 - 1000;
+                double sl = Math.toRadians(50 + r.nextDouble() * 35), az = r.nextDouble() * 6.28;
+                double nx = Math.sin(sl) * Math.sin(az), ny = Math.cos(sl), nz = -Math.sin(sl) * Math.cos(az);
+                Cliff.Sample a = aus.material(x, y, z, nx, ny, nz, null, 0, 0, 0.05), b = an.material(x, y, z, nx, ny, nz, null, 0, 0, 0.05);
+                for (int k = 0; k < 3; k++) nah = Math.max(nah, Math.abs(a.albedo[k] - b.albedo[k]));
+                fa[i] = aus.material(x, y, z, nx, ny, nz, null, 0, 0, 60).albedo[1];
+                fb[i] = an.material(x, y, z, nx, ny, nz, null, 0, 0, 60).albedo[1];
+                mAus += fa[i] / n;
+                mAn += fb[i] / n;
+            }
+            for (int i = 0; i < n; i++) { sAus += Math.pow(fa[i] - mAus, 2) / n; sAn += Math.pow(fb[i] - mAn, 2) / n; }
+            String name = art == 0 ? "Granit" : "Lockergestein";
+            check(nah < 1e-12 && Math.sqrt(sAn) < Math.sqrt(sAus) && Math.abs(mAn - mAus) < 0.1 * mAus,
+                    String.format(Locale.GERMAN, "Fernstufe %s: nah gleich (± %.1e), bei 60 m je Bildpunkt Streuung %.4f statt %.4f, Mittel %.3f statt %.3f",
+                            name, nah, Math.sqrt(sAn), Math.sqrt(sAus), mAn, mAus));
+        }
+        double[] m = new double[3];
+        java.util.Random r = new java.util.Random(17);
+        int N = 200000;
+        for (int i = 0; i < N; i++) {
+            double v = CNoise.value(r.nextDouble() * 640, r.nextDouble() * 640, r.nextDouble() * 640, r.nextInt(64));
+            m[0] += Cliff.smooth(0.55, 0.85, v) / N;
+            m[1] += Cliff.smooth(0.7, 0.85, v) / N;
+            m[2] += Cliff.smooth(0.62, 0.76, v) / N;
+        }
+        check(Math.abs(m[0] - Cliff.GULLY_MEAN) < 0.01 && Math.abs(m[1] - Cliff.TONGUE_MEAN) < 0.01 && Math.abs(m[2] - Cliff.SEEP_LOCKER_MEAN) < 0.01,
+                String.format(Locale.GERMAN, "Fernstufe: Mittel Runse %.3f, Rieselzunge %.3f, Sickern im Lehm %.3f gemessen", m[0], m[1], m[2]));
     }
 
     /** Seit Sylt Phase 4: Lockergestein (Rotes Kliff). */

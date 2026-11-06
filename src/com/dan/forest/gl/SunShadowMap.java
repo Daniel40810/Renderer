@@ -30,9 +30,11 @@ public final class SunShadowMap {
     private final int[] saveFb = new int[1], saveVp = new int[4];
     private final float[] saveClear = new float[1];
     private boolean saveCull;
-    private final int[] saveClip = new int[2];
+    private final int[] saveClip = new int[2], saveFunc = new int[1];
+    private final byte[] saveMask = new byte[1];
+    private boolean saveDepth, saveBlend;
     /** GL_CLIP_ORIGIN, GL_CLIP_DEPTH_MODE, GL_NEGATIVE_ONE_TO_ONE (OpenGL 4.5, ARB_clip_control). */
-    static final int CLIP_ORIGIN = 0x935C, CLIP_DEPTH_MODE = 0x935D, NEGATIVE_ONE_TO_ONE = 0x935E;
+    public static final int CLIP_ORIGIN = 0x935C, CLIP_DEPTH_MODE = 0x935D, NEGATIVE_ONE_TO_ONE = 0x935E;
 
     public int texture() { return tex; }
 
@@ -69,6 +71,10 @@ public final class SunShadowMap {
         gl.glGetIntegerv(GL.GL_VIEWPORT, saveVp, 0);
         gl.glGetFloatv(GL.GL_DEPTH_CLEAR_VALUE, saveClear, 0);
         saveCull = gl.glIsEnabled(GL.GL_CULL_FACE);
+        saveDepth = gl.glIsEnabled(GL.GL_DEPTH_TEST);
+        saveBlend = gl.glIsEnabled(GL.GL_BLEND);
+        gl.glGetIntegerv(GL.GL_DEPTH_FUNC, saveFunc, 0);
+        gl.glGetBooleanv(GL.GL_DEPTH_WRITEMASK, saveMask, 0);
         // Die Karte rechnet mit Tiefe −1..1 (wie die Leser: q · 0,5 + 0,5). Hat die App glClipControl auf 0..1 gestellt
         // (umgekehrte Tiefe), fiele die sonnennahe Hälfte weg und die Tiefen passten nicht: für die Karte zurückstellen.
         gl.glGetIntegerv(CLIP_ORIGIN, saveClip, 0);
@@ -85,13 +91,17 @@ public final class SunShadowMap {
         gl.glDisable(GL.GL_CULL_FACE);
     }
 
-    /** Vorige Zustände (Ziel, Ausschnitt, Leerwert der Tiefe, Rückseiten, Clip-Steuerung) zurück. */
+    /** Vorige Zustände (Ziel, Ausschnitt, Leerwert der Tiefe, Rückseiten, Clip-Steuerung, Tiefenvergleich, Mischen, Schreibmaske der Tiefe) zurück. */
     public void end(GL4 gl) {
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, saveFb[0]);
         gl.glViewport(saveVp[0], saveVp[1], saveVp[2], saveVp[3]);
         if (saveClip[1] != NEGATIVE_ONE_TO_ONE && saveClip[1] != 0) gl.glClipControl(saveClip[0], saveClip[1]);
         gl.glClearDepth(saveClear[0]);
         if (saveCull) gl.glEnable(GL.GL_CULL_FACE);
+        gl.glDepthFunc(saveFunc[0]);   // seit W6 Runde 6 auch Tiefenvergleich, Tiefentest und Mischen
+        if (!saveDepth) gl.glDisable(GL.GL_DEPTH_TEST);
+        if (saveBlend) gl.glEnable(GL.GL_BLEND);
+        gl.glDepthMask(saveMask[0] != 0);   // seit Runde 6b
     }
 
     public void dispose(GL4 gl) {

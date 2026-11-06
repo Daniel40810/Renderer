@@ -23,6 +23,7 @@ uniform vec4 uRime;          // Eis: Dicke (m), Art, woher x, z (wie forest.vert
 uniform vec2 uTone;         // Tonemapping an (1) / aus (0), Belichtung (nur Demos)
 uniform int uBark;          // seit W6 Runde 5: Rinde mit Muster (ForestGpu.barkDetail)
 uniform int uShoot;         // seit W6 Runde 5: Nadeln als Triebe (Volumen) statt als Blattebenen (ForestGpu.shootLight)
+uniform vec3 uMossSide;     // seit W6 Runde 6: feuchte Seite der Stämme (Welt, waagerecht; 0 = keine), Light.mossSide
 // RINDE BEGINN (bis RINDE ENDE gleich in forest.frag und tree.frag, geprüft von TreeCheck)
 // Rinde mit Muster (seit LituyaBay1958 W6 Runde 5) [G]; derselbe Text steht in com.dan.tree/gl/tree.frag.
 // q: Ort im Baum (m, vor Wind und Drehung, Fuß bei 0, y oben), n: Normale (Welt), wp: Ort (Welt), alb: Rindenfarbe der Art.
@@ -141,6 +142,28 @@ vec4 barkPattern(int style, vec3 q, vec3 alb, float flechte, float fp) {
     return vec4(c, clamp(h, 0.0, 1.0));
 }
 
+// Moos (seit LituyaBay1958 W6 Runde 6) [G]: Polster am Stammfuß (dort läuft das Wasser am Stamm ab, die Luft ist feucht),
+// auf der Oberseite waagerechter Äste und weiter hinauf auf der feuchten Seite (side: Richtung in der Welt, waagerecht;
+// Länge 0 = keine). Fleckig mit weichem Rand, gewölbte Polster als Relief. moos 0..1 (Art × App), nW: Normale (Welt),
+// fp: Fußabdruck (m). In der Ferne das Mittel ohne Muster. Rückgabe: Farbe, Höhe des Reliefs.
+vec4 barkMoss(vec3 c, float h, vec3 q, vec3 nW, vec3 side, float moos, float fp) {
+    if (moos <= 0.0) return vec4(c, h);
+    float rel = min(dot(c, vec3(0.2126, 0.7152, 0.0722)) / 0.30, 2.5);
+    float sl = length(side.xz), nl = length(nW.xz);
+    float seite = sl > 1e-3 && nl > 1e-3 ? 0.5 + 0.5 * dot(nW.xz / nl, side.xz / sl) : 0.5;
+    float w = bkFade(0.08, fp);
+    float hoch = (0.4 + 2.2 * moos) * mix(0.5, 1.6, seite) * (1.0 + 0.4 * (bkNoise(q * vec3(1.3, 0.4, 1.3)) - 0.5) * w);
+    float fuss = 1.0 - smoothstep(0.6 * hoch, hoch, q.y);
+    float oben = smoothstep(0.35, 0.8, nW.y) * smoothstep(1.0, 3.0, q.y);   // Oberseite der Äste (nicht der Wurzelanlauf)
+    float cover = moos * max(fuss, 0.8 * oben);
+    if (cover <= 0.001) return vec4(c, h);
+    float fleck = mix(0.5, bkFbm(q * vec3(4.0, 2.5, 4.0) + 13.0), w);
+    float m = smoothstep(0.78 - 0.65 * cover, 0.86 - 0.65 * cover, fleck) * w + (1.0 - w) * clamp(cover * 1.2, 0.0, 1.0) * 0.8;
+    vec3 mc = mix(vec3(0.060, 0.105, 0.028), vec3(0.125, 0.185, 0.045), bkNoise(q * 25.0)) * rel;
+    float polster = 0.65 + 0.25 * bkNoise(q * 35.0) * bkFade(0.02, fp);
+    return vec4(mix(c, mc, m), mix(h, polster, m));
+}
+
 // Normale aus dem Relief über die Ableitungen im Bild (gleichmäßiger Ablauf: je Dreieck nur Rinde)
 vec3 barkNormal(vec3 n, vec3 wp, float h, float depth) {
     vec3 dpx = dFdx(wp), dpy = dFdy(wp);
@@ -177,19 +200,27 @@ void main() {
     if (leaf) { if (dot(n, V) < 0.0) n = normalize(n - 1.3 * dot(n, V) * V); }
     else if (!gl_FrontFacing) n = -n;
     vec3 alb = vColor * (leaf ? 1.0 : 1.0 - 0.35 * uWet);
-    // seit W6 Runde 5: Muster der Rinde (vLeafy < 0: −(Stil + 0,1 · Flechten)); je Dreieck nur Holz oder Laub
-    // nur nah (unter 8 cm je Bildpunkt): weiter weg trägt kein Bildpunkt mehr Schuppen oder Korkporen, und das Muster
-    // kostet (Zellrauschen mit 27 Nachbarn); dazwischen weich
+    // seit W6 Runde 5: Muster der Rinde (vLeafy < 0: −(Stil + Flechten/10 + Moos/100), je in Neunteln, ForestGl.barkCode);
+    // je Dreieck nur Holz oder Laub. Muster nur nah (unter 8 cm je Bildpunkt): weiter weg trägt kein Bildpunkt mehr
+    // Schuppen oder Korkporen, und das Muster kostet (Zellrauschen); dazwischen weich. Moos (Runde 6) in jeder Entfernung.
     float bkFp = length(fwidth(vLocal));
-    if (uBark == 1 && vLeafy < -0.5 && bkFp < 0.08) {
+    if (uBark == 1 && vLeafy < -0.5) {
         float code = -vLeafy;
-        int style = int(floor(code + 0.01));
-        float flechte = clamp(fract(code + 0.001) * 10.0, 0.0, 1.0) * (1.0 - 0.6 * uWet);
-        vec4 b = barkPattern(style, vLocal, alb, flechte, max(bkFp, 1e-4));
-        float nahW = 1.0 - smoothstep(0.05, 0.08, bkFp);
-        alb = mix(alb, b.rgb, nahW);
+        int style = int(floor(code + 0.004));
+        float fr = code - float(style);   // Stil: floor(code + 0,004), Bruchteil bis 0,991
+        float l9 = floor(fr * 10.0 + 0.002), m9 = floor(fr * 100.0 - l9 * 10.0 + 0.02);
+        float flechte = clamp(l9 / 9.0, 0.0, 1.0) * (1.0 - 0.6 * uWet), moos = clamp(m9 / 9.0, 0.0, 1.0);
+        float hb = 0.5;
+        if (bkFp < 0.08) {
+            vec4 b = barkPattern(style, vLocal, alb, flechte, max(bkFp, 1e-4));
+            float nahW = 1.0 - smoothstep(0.05, 0.08, bkFp);
+            alb = mix(alb, b.rgb, nahW);
+            hb = mix(0.5, b.a, nahW);
+        }
+        vec4 mo = barkMoss(alb, hb, vLocal, n, uMossSide, moos, max(bkFp, 1e-4));
+        alb = mo.rgb;
         float tiefe = style == 1 ? 0.004 : style == 5 ? 0.003 : style == 3 ? 0.012 : 0.03;
-        n = barkNormal(n, vWorld, mix(0.5, b.a, nahW), tiefe);
+        if (bkFp < 0.08) n = barkNormal(n, vWorld, mo.a, tiefe);
     }
     // Eis (wie rime.glsl, ohne es einzubinden): Raueis auf der Luvseite, mit der Dicke um die Kanten; in Federn
     // aufgebrochen; Raureif überall, oben mehr; Klareis dunkel und glänzend
