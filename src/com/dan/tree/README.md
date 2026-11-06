@@ -201,3 +201,10 @@ gl.drawShadow(gl4, karte.matrix, t);
 
 `TreeCheck` prüft den Fingerabdruck des Rindenblocks in `tree.frag`, die Nummern der Stile und die Schwarzerle.
 
+## Seit LituyaBay1958 W6 Runde 6: Moos
+
+- **`TreeSpecies.moss`** (0..1, Vorgabe 0): Moospolster am Fuß und auf der Oberseite der Äste. Es ist derselbe Shadertext wie in `com.dan.forest` (`barkMoss` im Rindenblock, siehe dort) und wirkt nur mit `barkDetail`. `uBarkPat` ist nun ein vec4 (Muster an, Stil, Flechten, Moos).
+- **`TreeGl.Light.mossSide`**: waagerechte Richtung zur feuchten Seite (Welt; 0 = rundum gleich).
+- Schwarzerle: Moos 0,5 [G].
+
+`TreeCheck` prüft den Fingerabdruck des Rindenblocks (er hat sich mit dem Moos geändert, in beiden Packages gleich) und das Moos der Schwarzerle.

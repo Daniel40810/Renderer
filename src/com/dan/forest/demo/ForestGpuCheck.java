@@ -4,6 +4,7 @@ import com.dan.forest.ForestCulture;
 import com.dan.forest.TreeStates;
 import com.dan.forest.gl.ForestGl;
 import com.dan.forest.gl.ForestGpu;
+import com.dan.forest.gl.SunShadowMap;
 import com.jogamp.opengl.GL;
 import com.jogamp.opengl.GL2ES3;
 import com.jogamp.opengl.GL4;
@@ -152,12 +153,78 @@ public final class ForestGpuCheck {
                     weg, fehlt, nah.size(), gpuNah, naeher, gpuSlots.size(), mitSlots.size()), weg > 0 && fehlt == 0 && gpuNah == 0 && naeher == 0 && gpuSlots.equals(mitSlots));
             f.nearCut = null;
         }
+        // seit W6 Runde 6: eigene Auswahl für die Schattenkarte. Eine Lichtkarte hinter dem Auge (60 m halbe Kante, 70 m
+        // hinter ihm): die Auswahl des Blicks hat dort kaum Bäume, cullShadow alle, und zwar dieselben wie die Auswahl des
+        // Prozessors mit den Ebenen der Lichtkarte.
+        {
+            ForestGl.View cam = ForestGpuDemo.camera(0, 1920, 1080);
+            double[][] vw = ForestGpuDemo.view(0);
+            float[][] probe = f.cullCpu(cam.viewProj, cam.eye);
+            float[] fuss = null;
+            for (float[] bin : probe) if (bin.length >= 8) { fuss = bin; break; }
+            double[] eye = {fuss[0], fuss[1] + 2, fuss[2]};
+            double dx = vw[1][0] - vw[0][0], dz = vw[1][2] - vw[0][2], dl = Math.hypot(dx, dz);
+            dx /= dl; dz /= dl;
+            cam.eye = eye;
+            cam.viewProj = BayScene.mul(BayScene.perspective(55, 1920 / 1080.0, 0.5, 40000), BayScene.lookAt(eye, new double[]{eye[0] + dx * 100, eye[1], eye[2] + dz * 100}));
+            double[] sun = {0.3, 0.6, 0.74}, c = {eye[0] - dx * 70, eye[1], eye[2] - dz * 70};
+            double sl = Math.sqrt(sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]);
+            for (int k = 0; k < 3; k++) sun[k] /= sl;
+            float[] lvp = new float[16];
+            SunShadowMap.matrix(sun, c[0], c[1], c[2], 60, 300, 2048, lvp);
+            f.update(gl, cam);
+            int imBlick = 0;
+            for (float[] bin : f.readInstances(gl)) for (int k = 0; k < bin.length; k += 8) if (inBox(lvp, bin[k], bin[k + 1], bin[k + 2])) imBlick++;
+            f.cullShadow(gl, lvp, eye, eye[0], eye[2], 400);
+            float[][] gs = f.readShadowInstances(gl), cs = f.cullCpu(lvp, eye);
+            java.util.Set<Long> gSet = new java.util.HashSet<>(), cSet = new java.util.HashSet<>();
+            int innen = 0;
+            for (float[] bin : gs) for (int k = 0; k < bin.length; k += 8) {
+                if (Math.abs(bin[k] - eye[0]) < 380 && Math.abs(bin[k + 2] - eye[2]) < 380) gSet.add(slot(bin[k], bin[k + 2], f.culture().spacing));
+                if (inBox(lvp, bin[k], bin[k + 1], bin[k + 2])) innen++; }
+            // die Seitenebenen bilden eine Säule entlang der Sonne; der Prozessor prüft alle Plätze der Reichweite, die
+            // Grafikkarte nur das Fenster (400 m): verglichen wird innerhalb von 380 m
+            for (float[] bin : cs) for (int k = 0; k < bin.length; k += 8)
+                if (Math.abs(bin[k] - eye[0]) < 380 && Math.abs(bin[k + 2] - eye[2]) < 380) cSet.add(slot(bin[k], bin[k + 2], f.culture().spacing));
+            check(String.format(Locale.GERMAN, "Schattenauswahl hinter dem Auge: %,d Bäume in der Lichtkarte (Blick: %,d), Grafikkarte = Prozessor (%,d / %,d)",
+                    innen, imBlick, gSet.size(), cSet.size()), innen > 20 && innen > 4 * imBlick && gSet.equals(cSet));
+            f.update(gl, ForestGpuDemo.camera(0, 1920, 1080));
+        }
         // Atlanten: Deckung je Schicht (Anteil der Bildpunkte mit Baum)
         double[] cov = f.atlasCoverage(gl);
         double lo = 1, hi = 0;
         for (double c : cov) { lo = Math.min(lo, c); hi = Math.max(hi, c); }
         check(String.format(Locale.GERMAN, "Atlanten der Impostors: %d Schichten zu %d² (%d × %d Ansichten), Deckung %.0f bis %.0f %%",
                 cov.length, f.framePx() * ForestGpu.FRAMES, ForestGpu.FRAMES, ForestGpu.FRAMES, lo * 100, hi * 100), cov.length > 0 && lo > 0.03 && hi < 0.9);
+        // seit W6 Runde 6: Backen unabhängig von glClipControl der App (Lituya stellt die Tiefe auf 0..1; vorher fiel beim
+        // Backen die dem Auge zugewandte Hälfte jedes Baums weg)
+        {
+            byte[] a0 = f.atlasBytes(gl);
+            // Runde 6b: dazu ein feindlicher Zustand wie in Lituya nach durchsichtigen Durchgängen (keine Tiefe schreiben,
+            // umgekehrter Vergleich, Schere an)
+            gl.glClipControl(GL4.GL_LOWER_LEFT, GL4.GL_ZERO_TO_ONE);
+            gl.glDepthMask(false);
+            gl.glDepthFunc(GL.GL_GREATER);
+            gl.glEnable(GL.GL_SCISSOR_TEST);
+            gl.glScissor(0, 0, 8, 8);
+            f.rebakeImpostors(gl);
+            int[] cm = new int[1];
+            gl.glGetIntegerv(0x935D, cm, 0);
+            byte[] dmask = new byte[1];
+            gl.glGetBooleanv(GL.GL_DEPTH_WRITEMASK, dmask, 0);
+            int[] df = new int[1];
+            gl.glGetIntegerv(GL.GL_DEPTH_FUNC, df, 0);
+            boolean zustand = cm[0] == 0x935F && dmask[0] == 0 && df[0] == GL.GL_GREATER && gl.glIsEnabled(GL.GL_SCISSOR_TEST);
+            gl.glDisable(GL.GL_SCISSOR_TEST);
+            gl.glDepthMask(true);
+            gl.glDepthFunc(GL.GL_LESS);
+            gl.glClipControl(GL4.GL_LOWER_LEFT, GL4.GL_NEGATIVE_ONE_TO_ONE);
+            byte[] a1 = f.atlasBytes(gl);
+            int diff = 0;
+            for (int i = 0; i < Math.min(a0.length, a1.length); i++) diff = Math.max(diff, Math.abs((a0[i] & 255) - (a1[i] & 255)));
+            check(String.format(Locale.GERMAN, "Impostors unter glClipControl 0..1, ohne Schreiben der Tiefe, mit GREATER und Schere gebacken wie ohne (größte Abweichung %d von 255, Zustand danach wieder wie vorher: %s)",
+                    diff, zustand), a0.length == a1.length && a0.length > 0 && diff <= 1 && zustand);
+        }
         System.out.println(f.info());
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
         f.dispose(gl);
@@ -165,6 +232,12 @@ public final class ForestGpuCheck {
     }
 
     static String name(int v) { return ForestGpuDemo.VIEWS[v % 4] + (v == 4 ? " mit Nachwuchs" : ""); }
+
+    /** Fuß (x, y, z) in der Lichtkarte (Seiten ±1). */
+    static boolean inBox(float[] m, double x, double y, double z) {
+        double px = m[0] * x + m[4] * y + m[8] * z + m[12], py = m[1] * x + m[5] * y + m[9] * z + m[13];
+        return Math.abs(px) <= 1 && Math.abs(py) <= 1;
+    }
 
     static long slot(float x, float z, double sp) { return ((long) Math.floor(x / sp) << 32) ^ ((long) Math.floor(z / sp) & 0xffffffffL); }
 

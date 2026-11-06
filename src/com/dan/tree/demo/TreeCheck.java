@@ -67,7 +67,7 @@ public final class TreeCheck {
             c.check(TreeSpecies.BARK_NONE == 0 && TreeSpecies.BARK_SMOOTH == 1 && TreeSpecies.BARK_FURROWED == 2 && TreeSpecies.BARK_SCALY == 3
                     && TreeSpecies.BARK_PLATED == 4 && TreeSpecies.BARK_PAPER == 5, "Rinde: Stile 0 bis 5 wie im Shader nummeriert");
             TreeSpecies erle = com.dan.tree.blackalder.BlackAlder.species();
-            c.check(erle.barkStyle == TreeSpecies.BARK_SMOOTH && erle.lichen > 0.3f, "Rinde: Schwarzerle glatt mit Flechten (" + erle.lichen + ")");
+            c.check(erle.barkStyle == TreeSpecies.BARK_SMOOTH && erle.lichen > 0.3f && erle.moss > 0.2f, "Rinde: Schwarzerle glatt mit Flechten (" + erle.lichen + ") und Moos (" + erle.moss + ")");
             bestanden += c.passed;
             fehler += c.failed;
         }
@@ -366,7 +366,7 @@ public final class TreeCheck {
     }
 
     /** Fingerabdruck des Rindenblocks (CRC32 über den Text mit zusammengezogenem Leerraum), gleich in ForestCheck. */
-    static final long RINDE_CRC = 0x73a54b64L;
+    static final long RINDE_CRC = 0xb39e9755L;
 
     /** Text zwischen den Marken RINDE BEGINN und RINDE ENDE (ohne die erste Zeile), oder null. */
     static String rinde(String s) {

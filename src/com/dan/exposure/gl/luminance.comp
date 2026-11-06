@@ -1,0 +1,33 @@
+// luminance.comp — com.dan.exposure: Histogramm der Leuchtdichte eines HDR-Bilds in log2 (seit LituyaBay1958 W6 Runde 6).
+// Jeder Faden nimmt einen Bildpunkt aus einem Raster mit Schritt uStep, Gewicht zur Bildmitte hin größer (1 am Rand bis
+// 4 in der Mitte); die Fächer werden erst im geteilten Speicher, dann im Puffer gezählt (nur ganzzahlige Atomics).
+// Runde 6b: vier Kopien der Fächer im geteilten Speicher (Faden & 3), denn im dunklen Wald fallen fast alle Bildpunkte in
+// dieselben zwei, drei Fächer, und 256 Atomics auf eine Stelle laufen nacheinander.
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430, binding = 4) buffer Hist { uint bins[64]; };
+uniform sampler2D uHdr;
+uniform ivec2 uSize;     // Bildpunkte
+uniform int uStep;
+uniform vec2 uLog;       // log2 von, bis
+shared uint sh[256];
+void main() {
+    uint li = gl_LocalInvocationIndex;
+    sh[li] = 0u;
+    barrier();
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy) * uStep + uStep / 2;
+    if (all(lessThan(p, uSize))) {
+        vec3 c = texelFetch(uHdr, p, 0).rgb;
+        float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        if (L > 0.0 && !isnan(L) && !isinf(L)) {
+            float t = clamp((log2(L) - uLog.x) / (uLog.y - uLog.x), 0.0, 0.99999);
+            vec2 q = (vec2(p) + 0.5) / vec2(uSize) * 2.0 - 1.0;
+            uint w = 1u + uint(3.0 * (1.0 - clamp(dot(q, q), 0.0, 1.0)));
+            atomicAdd(sh[(li & 3u) * 64u + uint(t * 64.0)], w);
+        }
+    }
+    barrier();
+    if (li < 64u) {
+        uint s = sh[li] + sh[64u + li] + sh[128u + li] + sh[192u + li];
+        if (s > 0u) atomicAdd(bins[li], s);
+    }
+}

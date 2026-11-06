@@ -143,6 +143,8 @@ public final class TreeSpecies {
      */
     public int barkStyle = BARK_NONE;
     public float lichen = 0;
+    /** Seit W6 Runde 6: Moos an der Rinde 0..1 (wie {@code com.dan.forest.Species.moss}), nur mit Muster der Rinde. */
+    public float moss = 0;
     public static final int BARK_NONE = 0, BARK_SMOOTH = 1, BARK_FURROWED = 2, BARK_SCALY = 3, BARK_PLATED = 4, BARK_PAPER = 5;
 
     @Override

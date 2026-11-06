@@ -24,7 +24,8 @@ uniform int uSkyOn;
 uniform float uSkyWeight;               // > 0: Himmelslicht wie forest; 0: Halbkugel Himmel/Boden
 // seit LituyaBay1958 W6 Runde 5: Rinde mit Muster auf Holz ohne Textur (TreeGl.barkDetail, TreeSpecies.barkStyle)
 in vec3 vLocal;
-uniform vec3 uBarkPat;                  // an, Stil (wie com.dan.forest.Species.BarkStyle), Flechten 0..1
+uniform vec4 uBarkPat;                  // an, Stil (wie com.dan.forest.Species.BarkStyle), Flechten 0..1, Moos 0..1 (Runde 6)
+uniform vec3 uMossSide;                 // seit W6 Runde 6: feuchte Seite (Welt, waagerecht; 0 = keine), Light.mossSide
 out vec4 fragColor;
 
 // RINDE BEGINN (bis RINDE ENDE gleich in forest.frag und tree.frag, geprüft von TreeCheck)
@@ -145,6 +146,28 @@ vec4 barkPattern(int style, vec3 q, vec3 alb, float flechte, float fp) {
     return vec4(c, clamp(h, 0.0, 1.0));
 }
 
+// Moos (seit LituyaBay1958 W6 Runde 6) [G]: Polster am Stammfuß (dort läuft das Wasser am Stamm ab, die Luft ist feucht),
+// auf der Oberseite waagerechter Äste und weiter hinauf auf der feuchten Seite (side: Richtung in der Welt, waagerecht;
+// Länge 0 = keine). Fleckig mit weichem Rand, gewölbte Polster als Relief. moos 0..1 (Art × App), nW: Normale (Welt),
+// fp: Fußabdruck (m). In der Ferne das Mittel ohne Muster. Rückgabe: Farbe, Höhe des Reliefs.
+vec4 barkMoss(vec3 c, float h, vec3 q, vec3 nW, vec3 side, float moos, float fp) {
+    if (moos <= 0.0) return vec4(c, h);
+    float rel = min(dot(c, vec3(0.2126, 0.7152, 0.0722)) / 0.30, 2.5);
+    float sl = length(side.xz), nl = length(nW.xz);
+    float seite = sl > 1e-3 && nl > 1e-3 ? 0.5 + 0.5 * dot(nW.xz / nl, side.xz / sl) : 0.5;
+    float w = bkFade(0.08, fp);
+    float hoch = (0.4 + 2.2 * moos) * mix(0.5, 1.6, seite) * (1.0 + 0.4 * (bkNoise(q * vec3(1.3, 0.4, 1.3)) - 0.5) * w);
+    float fuss = 1.0 - smoothstep(0.6 * hoch, hoch, q.y);
+    float oben = smoothstep(0.35, 0.8, nW.y) * smoothstep(1.0, 3.0, q.y);   // Oberseite der Äste (nicht der Wurzelanlauf)
+    float cover = moos * max(fuss, 0.8 * oben);
+    if (cover <= 0.001) return vec4(c, h);
+    float fleck = mix(0.5, bkFbm(q * vec3(4.0, 2.5, 4.0) + 13.0), w);
+    float m = smoothstep(0.78 - 0.65 * cover, 0.86 - 0.65 * cover, fleck) * w + (1.0 - w) * clamp(cover * 1.2, 0.0, 1.0) * 0.8;
+    vec3 mc = mix(vec3(0.060, 0.105, 0.028), vec3(0.125, 0.185, 0.045), bkNoise(q * 25.0)) * rel;
+    float polster = 0.65 + 0.25 * bkNoise(q * 35.0) * bkFade(0.02, fp);
+    return vec4(mix(c, mc, m), mix(h, polster, m));
+}
+
 // Normale aus dem Relief über die Ableitungen im Bild (gleichmäßiger Ablauf: je Dreieck nur Rinde)
 vec3 barkNormal(vec3 n, vec3 wp, float h, float depth) {
     vec3 dpx = dFdx(wp), dpy = dFdy(wp);
@@ -182,15 +205,21 @@ void main() {
         albedo *= texture(uBarkTex, vUv).rgb;
     }
     vec3 n = normalize(vNormal);
-    float bkFp = length(fwidth(vLocal));   // nur nah (unter 8 cm je Bildpunkt), wie forest.frag
-    if (uBarkPat.x > 0.5 && vLeaf < 0.5 && vTex < 0.5 && bkFp < 0.08) {
+    float bkFp = length(fwidth(vLocal));   // Muster nur nah (unter 8 cm je Bildpunkt), Moos überall, wie forest.frag
+    if (uBarkPat.x > 0.5 && vLeaf < 0.5 && vTex < 0.5) {
         if (!gl_FrontFacing) n = -n;
         int style = int(uBarkPat.y + 0.5);
-        vec4 b = barkPattern(style, vLocal, albedo, uBarkPat.z, max(bkFp, 1e-4));
-        float nahW = 1.0 - smoothstep(0.05, 0.08, bkFp);
-        albedo = mix(albedo, b.rgb, nahW);
+        float hb = 0.5;
+        if (bkFp < 0.08) {
+            vec4 b = barkPattern(style, vLocal, albedo, uBarkPat.z, max(bkFp, 1e-4));
+            float nahW = 1.0 - smoothstep(0.05, 0.08, bkFp);
+            albedo = mix(albedo, b.rgb, nahW);
+            hb = mix(0.5, b.a, nahW);
+        }
+        vec4 mo = barkMoss(albedo, hb, vLocal, n, uMossSide, uBarkPat.w, max(bkFp, 1e-4));
+        albedo = mo.rgb;
         float tiefe = style == 1 ? 0.004 : style == 5 ? 0.003 : style == 3 ? 0.012 : 0.03;
-        n = barkNormal(n, vWorld, mix(0.5, b.a, nahW), tiefe);
+        if (bkFp < 0.08) n = barkNormal(n, vWorld, mo.a, tiefe);
     }
     vec3 v = normalize(uCam - vWorld);
     float trans = 0.0;

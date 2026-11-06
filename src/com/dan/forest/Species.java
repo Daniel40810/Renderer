@@ -80,6 +80,12 @@ public final class Species {
     public BarkStyle barkStyle = BarkStyle.NONE;
     public float lichen = 0;
     /**
+     * Seit W6 Runde 6: Moos an der Rinde (0..1: Polster am Stammfuß bis rund 0,4 + 2,2 · moss m hoch, auf der Oberseite
+     * der Äste, höher auf der feuchten Seite {@code ForestGl.Light.mossSide}) und Bartflechten (0..1: Anteil der Äste
+     * zweiter und dritter Ordnung, an denen Strähnen hängen; nur mit {@code ForestGpu.beardLichen}) [G].
+     */
+    public float moss = 0, beard = 0;
+    /**
      * Zapfen: wie viele je Ast erster Ordnung (0 = keine), Länge (m), Farbe; aufrecht (Tannen, Zirbe) oder
      * hängend (Fichten); nur im oberen Teil der Krone (Anteil, 1 = überall).
      */
@@ -226,7 +232,7 @@ public final class Species {
         s.spring = new float[]{0.14f, 0.30f, 0.05f}; s.summer = new float[]{0.045f, 0.13f, 0.025f};
         s.autumn = new float[][]{{0.25f, 0.13f, 0.03f}, {0.32f, 0.20f, 0.04f}, {0.20f, 0.14f, 0.05f}};
         s.leafOut = 125; s.colorStart = 275; s.colorFull = 300; s.bare = 330;
-        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.25f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.25f; s.moss = 0.3f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -277,7 +283,7 @@ public final class Species {
         s.summer = new float[]{0.02f, 0.06f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.24f, 0.08f};
         s.leafOut = 135;
         s.cones = 2.5f; s.coneSize = 0.12f; s.coneColor = new float[]{0.24f, 0.13f, 0.07f}; s.coneZone = 0.35f;
-        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.2f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.2f; s.moss = 0.15f; s.beard = 0.15f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -424,7 +430,7 @@ public final class Species {
         s.spring = new float[]{0.10f, 0.26f, 0.05f}; s.summer = new float[]{0.030f, 0.095f, 0.025f};
         s.autumn = new float[][]{{0.06f, 0.10f, 0.03f}, {0.10f, 0.11f, 0.035f}, {0.14f, 0.11f, 0.04f}};
         s.leafOut = 110; s.colorStart = 290; s.colorFull = 312; s.bare = 322;
-        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.45f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.45f; s.moss = 0.3f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -602,7 +608,7 @@ public final class Species {
         s.summer = new float[]{0.024f, 0.064f, 0.052f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.23f, 0.12f};
         s.leafOut = 150;
         s.cones = 2.2f; s.coneSize = 0.08f; s.coneColor = new float[]{0.26f, 0.17f, 0.09f}; s.coneZone = 0.35f;
-        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.35f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.35f; s.moss = 0.6f; s.beard = 0.5f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -625,7 +631,7 @@ public final class Species {
         s.leafOut = 150;
         s.cones = 4; s.coneSize = 0.025f; s.coneColor = new float[]{0.22f, 0.14f, 0.08f}; s.coneZone = 0.6f;
         s.leaderDroop = 0.7f;
-        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.3f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.3f; s.moss = 0.65f; s.beard = 0.6f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -634,7 +640,7 @@ public final class Species {
         Species s = sitkaSpruce().copy("Sitka-Fichte, jung", "Picea sitchensis");
         s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
         s.count = new float[]{0, 60, 5}; s.lengthRatio = new float[]{0, 0.28f, 0.35f}; s.cones = 0;
-        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.25f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.25f; s.moss = 0.5f; s.beard = 0.2f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -643,7 +649,7 @@ public final class Species {
         Species s = westernHemlock().copy("Westliche Hemlocktanne, jung", "Tsuga heterophylla");
         s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
         s.count = new float[]{0, 50, 6}; s.lengthRatio = new float[]{0, 0.3f, 0.42f}; s.cones = 0;
-        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f; s.moss = 0.5f; s.beard = 0.3f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -657,7 +663,7 @@ public final class Species {
         s.bark = new float[]{0.30f, 0.30f, 0.27f}; s.barkMarks = 0.3f; s.barkMark = new float[]{0.55f, 0.56f, 0.52f};
         s.leaf = Leaf.OVAL; s.leafSize = 0.1f; s.leafAspect = 0.65f;
         s.leafOut = 125; s.colorStart = 280; s.colorFull = 300; s.bare = 315;
-        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.7f;   // W6 Runde 5 [G]
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.7f; s.moss = 0.55f; s.beard = 0.1f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
         return s;
     }
 
@@ -677,8 +683,8 @@ public final class Species {
         s.barkMarks = 0;
         switch (d) {
             case BROKEN -> { s.snag = 0.3f; s.branchKeep = 0.5f; }
-            case STRIPPED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.15f; s.barkStyle = BarkStyle.NONE; s.lichen = 0; }
-            case FELLED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.1f; s.lying = true; s.barkStyle = BarkStyle.NONE; s.lichen = 0; }
+            case STRIPPED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.15f; s.barkStyle = BarkStyle.NONE; s.lichen = 0; s.moss = 0; s.beard = 0; }
+            case FELLED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.1f; s.lying = true; s.barkStyle = BarkStyle.NONE; s.lichen = 0; s.moss = 0; s.beard = 0; }
         }
         return s;
     }
