@@ -40,11 +40,23 @@ f.update();
 
 Ein `FallGl` zeichnet beliebig viele Fälle: die Programme gibt es einmal, Puffer, Weg und Zeitmessung je Fall (`forget(gl, f)` gibt einen ersetzten frei). Fälle außerhalb des Blickfelds fallen weg; in der Ferne zeichnet es weniger, dafür größere Bündel (`lodNear`, `lodMin`, `lodShare`).
 
+## Fälle suchen (seit LituyaBay1958 W6 Runde 3)
+
+`FallFinder` sucht Fälle entlang von Bächen über einem Gelände. Ein Bach ist eine Linie (x, z in m, von oben nach unten) mit Abfluss und Namen. Die Linie wird alle `step` m (5) abgetastet. Wo sie über `window` Schritte (3, also 15 m) steiler als `slopeDeg` (40°) abfällt, beginnt eine steile Strecke. Sie hält mit Lücken bis `gap` Schritte (2) zusammen. Fällt sie mindestens `minDrop` m (22), wird sie ein Kandidat mit der Kante am oberen Ende. Bäche unter `minDischarge` oder über `maxDischarge` (0,04 und 20 m³/s) fallen weg, darüber ist es ein Fluss im Tal [G]. Die App kann Kanten mit `accept` verwerfen, etwa im Eis oder außerhalb eines Gebiets. Geordnet wird nach Höhe × √Abfluss, Fälle mit dem Fuß unter 60 m über dem Pegel dreifach [G]. Höchstens `max` (48) bleiben, keine zwei dichter als `minSpacing` (60 m). `toFalls(kandidaten, startwert, setup)` macht daraus fertig gerechnete Fälle: Kante quer zum Bach, so breit wie der Bach (2,5 · √q, mindestens `minLipWidth` = 3 m), 0,3 m über dem Gelände, über Fels.
+
+```java
+FallFinder ff = new FallFinder();
+ff.ground = dgm::height;
+ff.accept = (x, y, z) -> y < 1000 && !imEis(x, z);
+List<Fall> faelle = ff.toFalls(ff.find(baeche), 1000, f -> f.temperature = 9);
+```
+
 ## Aufbau
 
 | Klasse | Aufgabe |
 |---|---|
 | `Fall` | Eingänge, Strähnen, Bündel, Bahn in geschlossener Form, Aufprall, Ausgänge |
+| `FallFinder` | Fälle entlang von Bächen über einem Gelände suchen (seit LituyaBay1958 W6 Runde 3) |
 | `gl/fall.glsl` | Bahn (`fallParcel`) Zeile für Zeile wie `Fall.parcel`, Licht mit Vorwärtsstreuung |
 | `gl/FallGl` | Strähnen (`strand.*`), Schleier (`veil.*`), Nebel (`mist.vert`), Tosbecken (`pool.*`), Boden der Vorführung (`ground.*`), Selbsttest (`check.*`); Weg als Textur, viele Fälle, Blicktest, Stufen nach Abstand |
 | `demo/DemoCliff` | Wand von 250 m über einem See, der Fall der Vorführung; seit Phase 7 die Stufenwand (senkrecht auf 130 m, Absatz, 63° ans Wasser) für den Lauf über Fels |

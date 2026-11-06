@@ -23,7 +23,8 @@ import java.util.Map;
  * Spiegel auf dem Prozessor ({@link ForestGpu#cullCpu}, über {@link com.dan.forest.ForestCulture}) liefert, zugeordnet über
  * den Platz; Lage auf 5 cm, Winkel auf 0,05 rad (die Grafikkarte rundet anders: FMA, atan). Dazu:
  * kein Baum auf einem Platz „fort“, umgelegte Bäume in ihrer Fallrichtung, Atlanten der Impostors gefüllt, Zähler stimmig;
- * seit LituyaBay1958 Phase 14 ein fünfter Blick mit Nachwuchs ({@link TreeStates#setGrowth}): Art und Größe wie vorgegeben.
+ * seit LituyaBay1958 Phase 14 ein fünfter Blick mit Nachwuchs ({@link TreeStates#setGrowth}): Art und Größe wie vorgegeben;
+ * seit W6 Runde 3 der Nahschnitt ({@link ForestGpu#nearCut}, {@link ForestGpu#nearTrees}).
  * Endet mit „Alles in Ordnung.“
  */
 public final class ForestGpuCheck {
@@ -113,6 +114,43 @@ public final class ForestGpuCheck {
                     st[0] == sum && st[1] == 0);
             check(String.format(Locale.GERMAN, "%s: kein Baum auf einem Platz „fort“ (%d), Typ passt zum Zustand und umgelegte zeigen in ihre Fallrichtung (%d Abweichungen)",
                     name(v), gone, fellOff), gone == 0 && fellOff == 0);
+        }
+        // seit LituyaBay1958 W6 Runde 3: Nahschnitt. Das Auge steht 2 m über einem Baum im Blick; was der Schnitt der
+        // Grafikkarte wegnimmt, liefert nearTrees, und kein Baum steht doppelt.
+        {
+            ForestGl.View cam = ForestGpuDemo.camera(0, 1920, 1080);
+            float[][] ohne = f.cullCpu(cam.viewProj, cam.eye);
+            float[] fuss = null;
+            for (float[] bin : ohne) if (bin.length >= 8) { fuss = bin; break; }
+            double[] eye = {fuss[0] + 3, fuss[1] + 2, fuss[2] + 3};
+            cam.eye = eye;
+            ohne = f.cullCpu(cam.viewProj, eye);
+            f.nearCut = new double[f.species()];
+            java.util.Arrays.fill(f.nearCut, 35);
+            f.update(gl, cam);
+            float[][] gpu = f.readInstances(gl), mit = f.cullCpu(cam.viewProj, eye);
+            java.util.List<float[]> nah = new java.util.ArrayList<>();
+            f.nearTrees(eye, nah);
+            java.util.Set<Long> nahSlots = new java.util.HashSet<>(), gpuSlots = new java.util.HashSet<>(), mitSlots = new java.util.HashSet<>();
+            for (float[] t : nah) nahSlots.add(slot(t[2], t[4], f.culture().spacing));
+            long gpuNah = 0, fehlt = 0, weg = 0, naeher = 0;
+            for (float[] bin : gpu) for (int k = 0; k < bin.length; k += 8) {
+                long sl = slot(bin[k], bin[k + 2], f.culture().spacing);
+                gpuSlots.add(sl);
+                if (nahSlots.contains(sl)) gpuNah++;
+                double dx = bin[k] - eye[0], dy = bin[k + 1] + 8 - eye[1], dz = bin[k + 2] - eye[2];
+                if (Math.sqrt(dx * dx + dy * dy + dz * dz) < 35 - f.nearBand / 2 - 0.01) naeher++;
+            }
+            for (float[] bin : mit) for (int k = 0; k < bin.length; k += 8) mitSlots.add(slot(bin[k], bin[k + 2], f.culture().spacing));
+            for (float[] bin : ohne) for (int k = 0; k < bin.length; k += 8) {
+                long sl = slot(bin[k], bin[k + 2], f.culture().spacing);
+                if (mitSlots.contains(sl)) continue;
+                weg++;
+                if (!nahSlots.contains(sl)) fehlt++;
+            }
+            check(String.format(Locale.GERMAN, "Nahschnitt 35 m: %,d Bäume aus dem Blick genommen, alle in nearTrees (%d fehlen, %,d geliefert); keiner davon auf der Grafikkarte (%d), keiner der Grafikkarte näher als der Schnitt (%d); Grafikkarte = Prozessor (%,d / %,d)",
+                    weg, fehlt, nah.size(), gpuNah, naeher, gpuSlots.size(), mitSlots.size()), weg > 0 && fehlt == 0 && gpuNah == 0 && naeher == 0 && gpuSlots.equals(mitSlots));
+            f.nearCut = null;
         }
         // Atlanten: Deckung je Schicht (Anteil der Bildpunkte mit Baum)
         double[] cov = f.atlasCoverage(gl);

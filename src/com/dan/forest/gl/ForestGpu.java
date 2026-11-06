@@ -65,6 +65,19 @@ public final class ForestGpu {
     private final float[] tinfo;
     /** Reichweite (m), Beginn der Ausdünnung, Stufen 0 und 1 (je 20 m Baumhöhe, wie ForestField), Stufe 2 (m). */
     public double radius = 3000, thinFrom = 0.4, lod0 = 12, lod1 = 30, lod2 = 150;
+    /**
+     * Nahschnitt je Art (m, Vorgabe 0 = keiner; seit LituyaBay1958 W6 Runde 3): stehende Bäume dieser Art, die näher am
+     * Auge stehen, zeichnet forest nicht. Die App holt genau diese Bäume mit {@link #nearTrees} und zeichnet sie selbst,
+     * etwa mit einem feinen Modell aus com.dan.tree. Im Band nearBand (m) um den Schnitt wird je Platz gewürfelt, beide
+     * Seiten mit demselben Wurf, so dass jeder Baum genau einmal steht.
+     */
+    public double[] nearCut;
+    public double nearBand = 6;
+    /**
+     * Feine Nadelbürsten in Stufe 0 (Vorgabe false; seit LituyaBay1958 W6 Runde 3): siehe
+     * {@link TreeMesh#build(TreeModel, int, int, boolean)}. Vor {@link #init} setzen (wirkt beim nächsten Backen).
+     */
+    public boolean fineNeedles;
     private int framePx = 96, capacity = 1_200_000;
 
     private int cullProg, scanProg, meshProg, shadowProg, impProg, bakeProg;
@@ -202,7 +215,7 @@ public final class ForestGpu {
             Season se = Season.of(m.species, day, snow);
             long k = culture.seed + t * 31L;
             TreeMesh mid = TreeMesh.build(m, 1, 2);
-            out[t] = ForestGl.pack(TreeMesh.build(m, 0), se, k, 1, 1);
+            out[t] = ForestGl.pack(TreeMesh.build(m, 0, 0, fineNeedles), se, k, 1, 1);
             out[T + t] = ForestGl.pack(mid, se, k + 1, 1, 1);
             out[2 * T + t] = ForestGl.pack(mid, se, k + 2, 0.15f, 2.0f);
             boolean standing = t < S * V;
@@ -512,6 +525,10 @@ public final class ForestGpu {
         gl.glUniform4fv(loc(gl, p, "uPlanes"), 4, planes, 0);
         gl.glUniform4f(loc(gl, p, "uRange"), (float) radius, (float) thinFrom, (float) lod0, (float) lod1);
         gl.glUniform1f(loc(gl, p, "uLod2"), (float) lod2);
+        float[] nc = new float[16];
+        if (nearCut != null) for (int s = 0; s < Math.min(S, nearCut.length); s++) nc[s] = (float) Math.max(0, nearCut[s]);
+        gl.glUniform1fv(loc(gl, p, "uNear"), 16, nc, 0);
+        gl.glUniform1f(loc(gl, p, "uNearBand"), (float) nearBand);
         float[] yw = new float[16], ys = new float[16], yo = new float[16], sz = new float[16];
         for (int s = 0; s < S; s++) {
             yo[s] = Double.isNaN(culture.yaw[s]) ? 0 : 1;
@@ -661,6 +678,7 @@ public final class ForestGpu {
                 float dx = t.x - ex, dy = t.y + 8 - ey, dz = t.z - ez;
                 float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
                 if (dist > R) continue;
+                if (cutNear(t, h, dist)) continue;
                 float widen = 1, thin0 = R * (float) thinFrom;
                 if (dist > thin0) {
                     float u = Math.max(0, Math.min(1, (dist - thin0) / (R - thin0)));
@@ -684,6 +702,41 @@ public final class ForestGpu {
             }
         for (int b = 0; b < bins; b++) out[b] = java.util.Arrays.copyOf(out[b], 8 * n[b]);
         return out;
+    }
+
+    /** Fällt der Baum unter den Nahschnitt? Gleiche Rechnung wie {@code forestgpu_cull.comp}. */
+    private boolean cutNear(ForestCulture.Tree t, int h, float dist) {
+        if (nearCut == null || t.state != 0 || t.species >= nearCut.length || nearCut[t.species] <= 0) return false;
+        return dist < nearCut[t.species] + nearBand * (ForestCulture.u01(h, 10) - 0.5);
+    }
+
+    /**
+     * Die Bäume, die der Nahschnitt um das Auge eye wegnimmt (alle Arten mit nearCut &gt; 0), auf dem Prozessor aus
+     * {@link ForestCulture}: je Baum Art, Variante, Fuß x, y, z, Drehung (rad), Maßstab und Höhe (m) des forest-Modells
+     * in out (8 Werte). Ohne Sichtkegel: die App prüft selbst. Rückgabe: Anzahl. Kostet bei 40 m Schnitt und 4 m
+     * Abstand rund 400 Plätze.
+     */
+    public int nearTrees(double[] eye, java.util.List<float[]> out) {
+        out.clear();
+        if (nearCut == null) return 0;
+        double maxCut = 0;
+        for (int s = 0; s < Math.min(S, nearCut.length); s++) maxCut = Math.max(maxCut, nearCut[s]);
+        if (maxCut <= 0) return 0;
+        double sp = culture.spacing, r = maxCut + nearBand;
+        int i0 = (int) Math.floor((eye[0] - r) / sp), i1 = (int) Math.floor((eye[0] + r) / sp);
+        int j0 = (int) Math.floor((eye[2] - r) / sp), j1 = (int) Math.floor((eye[2] + r) / sp);
+        ForestCulture.Tree t = new ForestCulture.Tree();
+        for (int j = j0; j <= j1; j++)
+            for (int i = i0; i <= i1; i++) {
+                if (!culture.at(i, j, t)) continue;
+                int h = ForestCulture.slotHash(i, j, culture.seed32());
+                double dx = t.x - eye[0], dy = t.y + 8 - eye[1], dz = t.z - eye[2];
+                float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+                if (!cutNear(t, h, dist)) continue;
+                float hgt = tinfo[4 * t.type] * t.scale;
+                out.add(new float[]{t.species, t.variant, t.x, t.y, t.z, t.yaw, t.scale, hgt});
+            }
+        return out.size();
     }
 
     /** Bäume je Stufe (0..3) aus dem letzten {@link #readStats}. */

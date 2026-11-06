@@ -260,3 +260,21 @@ wald.draw(gl4, view, licht, t);
 - Bis 16 Arten. Die Dichte kommt mit 8 Bit, die Höhe ist bilinear im Gitter, nicht im Gelände der App (am Hang kann ein Baum etwas schweben).
 - Die Arten aus LituyaBay1958 sind nach Beschreibungen gebaut, nicht vermessen [G].
 
+
+## Seit LituyaBay1958 W6 Runde 3: Nahschnitt und feine Nadeln
+
+Zwei Schalter für Bäume aus der Nähe. Beide sind voreingestellt aus, andere Szenen bleiben gleich.
+
+- **Nahschnitt** (`ForestGpu.nearCut`, je Art in m, `null` oder 0 = keiner; `nearBand`, Vorgabe 6 m): Stehende Bäume einer Art, die näher am Auge stehen als ihr Schnitt, zeichnet forest nicht. `nearTrees(auge, liste)` liefert genau diese Bäume auf dem Prozessor (aus `ForestCulture`, ohne Sichtkegel), je Baum Art, Variante, Fuß x, y, z, Drehung, Maßstab und Höhe des forest-Modells. Die App zeichnet sie selbst, etwa mit einem feinen Modell aus `com.dan.tree`. Im Band um den Schnitt würfeln beide Seiten mit demselben Wurf je Platz (`u01(h, 10)`), deshalb steht jeder Baum genau einmal. Der Abstand ist der im Raum (Fuß + 8 m), wie bei Reichweite und Stufen. Bäume mit Schaden und der Nachwuchs „fort“ sind nicht betroffen.
+- **Feine Nadeln** (`ForestGpu.fineNeedles`, vor `init` setzen; auf dem Prozessor `TreeMesh.build(modell, 0, 0, true)`): In Stufe 0 bekommen Nadelbäume statt der zwei gekreuzten Streifen je Bürste drei Kämme im Winkel von 60°. Je Kamm und Seite stehen fünf Zähne, jeder ein Büschel Nadeln. Die Zähne stehen nach vorn zur Triebspitze, hängen außen leicht und werden zur Spitze kürzer. Innen sind sie dunkel, außen hell. Zwischen den Zähnen bleibt Luft, die dunklen Ballen dahinter füllen die Krone. Das Laub der Stufe 0 hat damit rund siebenmal so viele Dreiecke, das ganze Netz zwei- bis viereinhalbmal so viele (Fichte 65 000 → 208 000). Die Stufen 1 bis 3 bleiben gleich. Wer viele Bäume nah sieht, nimmt `lod0` zurück.
+
+```java
+wald.fineNeedles = true;                 // vor init
+wald.nearCut = new double[]{0, 0, 40};   // Roterle (Art 2) unter 40 m selbst zeichnen
+List<float[]> nah = new ArrayList<>();
+wald.nearTrees(auge, nah);               // je Baum: Art, Variante, x, y, z, Drehung, Maßstab, Höhe
+```
+
+**Prüfung.** `ForestCheck` baut für jede Nadelart die feinen Bürsten (gültig, mehr als anderthalbmal so viele Dreiecke im ganzen Netz, ohne Nadeln gleich, Stufe 1 gleich). `ForestGpuCheck` prüft den Schnitt in einem sechsten Blick. Was die Grafikkarte wegnimmt, liefert `nearTrees` vollständig. Keiner dieser Bäume steht auf der Grafikkarte, keiner der Grafikkarte steht näher als der Schnitt, und Grafikkarte = Prozessor.
+
+**Grenzen.** `nearTrees` geht alle Plätze im Quadrat um das Auge durch, bei 40 m Schnitt und 4 m Abstand rund 400. Für sehr große Schnitte ist das teuer. Die Farbe der feinen Nadeln ist die der Art, ohne Textur [G].
