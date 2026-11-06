@@ -48,6 +48,7 @@ vec4 gather(ivec2 px, float d, vec2 g, out float fit, out float spread) {
 }
 
 void main() {
+    if (uGeomOnly == 1 && tfSkyPixel(ivec2(gl_FragCoord.xy))) discard;   // seit W7: Spiegelbild
     ivec2 px = ivec2(gl_FragCoord.xy);
     float d = distAt(px), fit, spread;
     // meist passt es schon ohne Gefälle; sonst mit dem Gefälle aus den Nachbarn, einseitig zur ruhigeren Seite

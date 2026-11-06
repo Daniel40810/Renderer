@@ -191,10 +191,18 @@ public final class Noise {
     // ------------------------------------------------------------------ Abtasten wie die Grafikkarte (linear, wiederholt)
 
     /** Trilinear in einer RGBA-Byte-Textur der Kantenlänge n, Koordinaten in Texturraum (1 = eine Kachel). */
-    static void sample3(byte[] t, int n, double u, double v, double w, double[] out) {
+    static void sample3(byte[] t, int n, double u, double v, double w, double[] out) { sample3(t, n, u, v, w, out, false); }
+
+    /**
+     * Wie oben; smooth (seit LituyaBay1958 W7): die Anteile zwischen den Texeln durch 3f² − 2f³ geglättet (stetige
+     * Ableitung an den Texelgrenzen, wie die Grafikkarte mit versetzten Koordinaten, Quilez). Stark vergrößert zeigt das
+     * gewöhnliche Mischen nach dem Schwellen der Form die Kanten der Texel als Gitter aus Streifen.
+     */
+    static void sample3(byte[] t, int n, double u, double v, double w, double[] out, boolean smooth) {
         double x = u * n - 0.5, y = v * n - 0.5, z = w * n - 0.5;
         int x0 = (int) Math.floor(x), y0 = (int) Math.floor(y), z0 = (int) Math.floor(z);
         double fx = x - x0, fy = y - y0, fz = z - z0;
+        if (smooth) { fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy); fz = fz * fz * (3 - 2 * fz); }
         out[0] = out[1] = out[2] = out[3] = 0;
         for (int c = 0; c < 8; c++) {
             int dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;

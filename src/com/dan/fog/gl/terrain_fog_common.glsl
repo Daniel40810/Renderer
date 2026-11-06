@@ -11,6 +11,12 @@ uniform vec4 uTfMapRect;    // x0, z0, Kantenlänge, Zellen je Seite
 uniform vec4 uTfCast[16];
 uniform int uTfCastN;
 uniform vec4 uTfSun;
+// seit LituyaBay1958 W7: Vorstoß des Nebelmeers (wie TerrainFog.advanceFactor): Weg der Front (m), Breite (m), Finger,
+// an (1) / aus (0); Richtung des Vorstoßes (x, z). Der Weg je Zelle steht in Kanal A der Karte.
+uniform vec4 uTfAdv;
+uniform vec2 uTfAdvTo;
+// seit LituyaBay1958 W7: Quellen auf dem Nebelmeer (wie TerrainFog.billow): Höhe (± m), Größe (m), —, —
+uniform vec4 uTfSea2;
 
 uint tfHash(int x, int z, int salt) {
     uint h = (uint(x) & 255u) * 0x8da6b343u ^ (uint(z) & 255u) * 0xd8163841u ^ uint(salt) * 0xcb1ab31fu;
@@ -45,17 +51,45 @@ vec4 tfMap(vec2 xz) {
     return vec4(texture(uTfMap, m).rgb, 1.0);
 }
 
+// 1 hinter der Front des Vorstoßes, 0 vor ihr (ohne Vorstoß 1)
+float tfAdvance(vec2 xz) {
+    if (uTfAdv.w < 0.5) return 1.0;
+    float way;
+    vec2 m = (xz - uTfMapRect.xy) / uTfMapRect.z;
+    if (m.x < 0.0 || m.y < 0.0 || m.x > 1.0 || m.y > 1.0) {
+        vec2 c = uTfMapRect.xy + uTfMapRect.z * 0.5;
+        float hx = uTfMapRect.z * 0.5 * (abs(uTfAdvTo.x) + abs(uTfAdvTo.y));
+        way = max(0.0, dot(xz - c, uTfAdvTo) + hx);
+    } else way = texture(uTfMap, m).a;
+    if (way >= 5.0e6) return 0.0;
+    float soft = uTfAdv.y;
+    if (uTfAdv.z > 0.0) {
+        float nn = 0.65 * tfNoise((xz + uTfNoise.zw) / 1200.0 + vec2(5.0, 3.0), uTfSeed + 21)
+                 + 0.35 * tfNoise((xz + uTfNoise.zw) / 430.0 + vec2(1.0, 8.0), uTfSeed + 22);
+        way += uTfAdv.z * (nn - 0.5) * 2.0 * (soft * 1.6 + 250.0);
+    }
+    return tfSmooth(uTfAdv.x + soft, uTfAdv.x - soft, way);
+}
+
+float tfBillow(vec2 xz) {
+    vec2 b = (xz + uTfNoise.zw) / uTfSea2.y;
+    float v = 0.62 * tfNoise(b + vec2(11.0, 5.0), uTfSeed + 13) + 0.38 * tfNoise(b * 2.3 + vec2(2.0, 9.0), uTfSeed + 14);
+    return 2.0 * sqrt(max(0.0, v)) - 1.3;
+}
+
 float tfSeaTop(vec2 xz) {
     vec2 q = (xz + uTfNoise.zw) / uTfNoise.x;
     float n = 0.7 * tfNoise(q + vec2(3.0, 1.0), uTfSeed + 11) + 0.3 * tfNoise(q * 3.1 + vec2(7.0, 2.0), uTfSeed + 12);
-    return uTfSea.y + uTfSea.w * (2.0 * n - 1.0);
+    float top = uTfSea.y + uTfSea.w * (2.0 * n - 1.0);
+    if (uTfSea2.x > 0.0) top += uTfSea2.x * tfBillow(xz);
+    return top;
 }
 
 // Dichte am Ort p, m = tfMap(p.xz), top = tfSeaTop(p.xz) (einmal je Punkt gerechnet)
 float tfDensityMT(vec3 p, vec4 m, float top) {
     float d = 0.0;
     if (uTfSea.z > 1e-7) {
-        d += uTfSea.z * tfSmooth(uTfSea.x - 15.0, uTfSea.x + 15.0, p.y) * tfSmooth(top + 6.0, top - 6.0, p.y);
+        d += uTfSea.z * tfSmooth(uTfSea.x - 15.0, uTfSea.x + 15.0, p.y) * tfSmooth(top + 6.0, top - 6.0, p.y) * tfAdvance(p.xz);
     }
     if (m.w > 0.5) {
         float hag = p.y - m.x;

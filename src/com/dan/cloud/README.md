@@ -85,3 +85,58 @@ Stapel, Ortsfestigkeit und die Streckung quer zum Wind. Rückfluss in Phase 16.
 - **Wolken vor dem Gelände:** `CloudGl.View.depthTexture` (Tiefe der Szene, 0 = ohne). Mit Tiefe zeichnet die App die Wolken nach der Geometrie: der Strahl endet am Gelände, und das Auflegen nimmt je Bildpunkt nur die Texel, deren Entfernung zur Geometrie zu seiner passt (Hochrechnen nach der Tiefe, Kanal G des Entfernungsbilds). Die ferne Decke liegt auch über fernem Gelände und ist von oben zu sehen. Ohne Tiefe bleibt alles wie bisher.
 - Kurze Wege durch die Wolke (Nebel vor dem Hang, das Auge in der Wolke) laufen mit mindestens sechs Schritten; vorher fiel der einzige Schritt je nach Zittern hinein oder heraus.
 - Grenzen: das Auflegen nach der Tiefe arbeitet in der Auflösung der Wolken (1/4 auf „Mittel“); an feinen Graten bleibt ein Saum. Die Dicke der Schicht kommt weiter aus der Art.
+
+## Seit LituyaBay1958 W7: Wolken am Gelände
+
+Bisher kannte die Schicht nur eine Basis (seit Brocken Phase 3). Jetzt kann sie das Gelände kennen: `Clouds.terrain` (`Clouds.Terrain`: Höhen n × n über ein Quadrat, Meer 0). Daraus rechnet das Paket einmal eine **Strömungskarte** (`Oro`, 256², Gelände über `terrainSmooth` = 700 m geglättet, Steigung, Gipfel) und mit ihr vier Dinge, die es über dem Meer nicht gibt:
+
+| Eingang | Was | Wie |
+|---|---|---|
+| `bank`, `bankBase`, `bankTop`, `bankReach` | **Wolkenbank am Hang** | zwischen Unter- und Obergrenze, bis `bankReach` über dem geglätteten Gelände, nur wo es steigt (Steigung ab 3 %, voll ab 14 %), am Luvhang dichter (Steigung in Windrichtung), mit Lücken aus der Wetterkarte, die langsam am Berg entlangziehen; Form wie Stratocumulus |
+| `cap`, `capBase`, `capReach` | **Kappe über den Gipfeln** | glatte Haube um alles, was das Kondensationsniveau `capBase` erreicht: vom Niveau bis `capReach` über die geglättete Hülle der Gipfel (Kanal A der Karte, seit Runde 1b geglättet), zum Rand der Hülle weich und flacher, 400 m nach Lee versetzt |
+| `convection` | **Quellwolken über Land** | das Feld der Wetterkarte über hohem Land angehoben, über dem Meer abgesenkt: Haufen bauen sich über dem Gebirge auf, über kaltem Meer bleibt es klar (die Achtel gelten im Mittel, nicht mehr überall) |
+| `lee` | **Lücken im Lee** | das Feld im Lee der Kämme abgesenkt (Föhnlücke) |
+
+Bank und Kappe stehen am Berg (die Luft strömt durch), ihre Form zieht mit dem Wind. Dichte, Schatten (`shadow`, `upperShadow`, Kanal G nimmt seitdem die Kappe mit), Bedeckung (`coverage`) und Regen (`rain`) rechnen sie mit, Java und GLSL Zeile für Zeile gleich (`oroCover`, `oroShift`, `cloudShape`). Der Strahl läuft von der untersten Höhe der Bank bis über die Kappe (`Snapshot.shellLow`, `lowHigh`, `shellHigh`).
+
+Dazu für Szenen im Gebirge:
+- `CloudGl.shadowSize`, `shadowN`, `shadowCenter`: Schattenkarte über die ganze Szene statt 24 km um das Auge (LituyaBay1958: 72 km, 384², Mitte der Szene), damit Schatten auf Hängen in 30 km Entfernung liegen.
+- `CloudGl.historyBlend`: Anteil des letzten Bilds (0,85 wie bisher); im schnellen Zeitraffer weniger, sonst Schlieren.
+- `CloudGl` zeichnet auch dann, wenn nur Bank oder Kappe da sind (0/8 Schicht).
+
+```java
+clouds.terrain = new Clouds.Terrain(x0, z0, 66_000, 1024, hoehen);   // m über dem Meer, Meer 0
+clouds.bank = 0.9; clouds.bankBase = 120; clouds.bankTop = 760;      // Regen am Berg: Wolken hängen tief in den Hängen
+clouds.cap = 0.85; clouds.capBase = 3900;                            // Kappe über dem Gipfel
+clouds.convection = 0.9;                                             // Quellwolken über der Kette, über dem Meer kaum
+cloudGl.shadowSize = 72_000; cloudGl.shadowN = 384; cloudGl.shadowCenter = new double[]{cx, cz};
+```
+
+`CloudCheck` prüft an einem Testberg (Gauß, 4 600 m): Bank am Luvhang dicht, im Lee dünn, über dem Meer keine; Kappe über dem Gipfel ab dem Kondensationsniveau, nicht darunter und nicht 8 km daneben; ihr Schatten in Kanal G; Quellwolken über Land (Berg 0,82 → 0,97, Meer 0,46 → 0,20), Lücken im Lee; ohne Stärken gleich der Schicht (Abweichung 0 an 400 Orten).
+
+Grenzen: Die Strömung ist eine Regel nach der Steigung des geglätteten Geländes, keine gerechnete Strömung (für die gibt es `com.dan.wind`). Die Kappe kennt keine Bannerwolke im Lee eines einzelnen Gipfels. Ohne `terrain` (oder ohne Stärken) bleibt alles wie bisher.
+
+## Seit LituyaBay1958 W7 Runde 1b/1c: Wolken in der Ferne, im Dunst und im Spiegel
+
+Alles abschaltbar, die Vorgaben lassen andere Szenen, wie sie waren.
+
+| Eingang | Vorgabe | Was |
+|---|---|---|
+| `CloudGl.Light.hazeKeep`, `hazeColor`, `hazeToward`, `hazeAway` | 0 | Ferne Wolken gehen in den Dunst über statt durchsichtig zu werden (1). Die Farbe des Dunsts quer zum Gestirn, zu ihm hin und von ihm weg (Strahldichte knapp über der Kimm, vorbelichtet), dazwischen quadratisch nach dem Azimut. Über Gelände nötig: sonst schien der Hang durch eine Wolke in 25 km (Proben 702, 706) |
+| `CloudGl.teleMax` | 1 | Mit langer Brennweite ist ein Bildpunkt in der Ferne klein; die Schritte wachsen dann um bis zu diesen Faktor langsamer, die Zahl der Schritte bis 2× (aus der Projektion, Bezug 60° und 540 Zeilen) |
+| `Clouds.smoothNoise` | false | Grundform und Feinheit mit stetiger Ableitung zwischen den Texeln mischen (Anteile 3f² − 2f³, auf der Grafikkarte über versetzte Koordinaten, Quilez; Java gleich in `Noise.sample3`). Stark vergrößert zeigte das lineare Mischen nach dem Schwellen der Form die Texelkanten als Gitter aus feinen senkrechten Streifen und waagrechten Bändern (200 mm auf 25 km: ein Texel der Feinheit über fünf Bildpunkte). `CloudCheck`: Knicke an den Texelgrenzen 15,6× → 1,1× so stark wie dazwischen |
+| `CloudGl.geometryHistoryTest` | false | Beim zeitlichen Mischen das letzte Bild nur nehmen, wo es dieselbe Geometrie sah (Entfernung zur Szene auf 10 %, Himmel bleibt Himmel; die Entfernungen werden dafür im Wechsel in zwei Puffern gehalten). Sonst legte das zitternde Bild an Kämmen und Baumspitzen vor fernen Wolken deren Licht als hellen Saum vor die Geometrie |
+| `CloudGl.View.slot`, `geometryOnly` | 0, false | Eine zweite Ansicht mit eigener zeitlicher Mischung (bis `SLOTS` = 4), etwa das Spiegelbild im Wasser; `geometryOnly` legt nur über Geometrie auf (der Himmel und die Deckkraft des Ziels bleiben, im Spiegel trägt das Rundumbild den Himmel samt Wolken). Das Ziel ohne Tiefe binden, die Tiefe als Textur geben |
+
+```java
+licht.hazeKeep = 1; licht.hazeColor = quer; licht.hazeToward = zurSonne; licht.hazeAway = vonDerSonne;
+cloudGl.teleMax = 4; cloudGl.geometryHistoryTest = true; clouds.smoothNoise = true;
+// Spiegelbild: Ziel ohne Tiefe, gespiegelte Projektion, Auge unter dem Spiegel
+CloudGl.View v = new CloudGl.View(); v.viewProj = vpR; v.invViewProj = invR; v.eye = augeUnten;
+v.depthTexture = spiegelTiefe; v.slot = 1; v.geometryOnly = true;
+cloudGl.draw(gl, snapshot, licht, v);
+```
+
+Die Kappe seit Runde 1b: Kanal A der Strömungskarte ist jetzt die geglättete Hülle der Gipfel (das Höchste der Nachbarschaft, danach zweimal geglättet). Ohne Glätten blieben die Zellkanten als senkrechte Wände in der Kappe stehen. `CloudCheck`: auf einer Linie quer durch den Rand der Kappe größter Sprung je 10 m 1,5 % der Bedeckung.
+
+Grenzen: Die Wolken bleiben in der Ferne weich (halbe Auflösung, zeitliche Mischung); Quellwolken haben keine harten Blumenkohlkanten. Ein Feld aus vielen Haufen, das man auf 25 km von der Seite sieht, wirkt grau und dicht, nicht wie einzelne Türme.

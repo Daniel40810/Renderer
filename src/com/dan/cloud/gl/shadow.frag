@@ -10,8 +10,17 @@ uniform vec4 uRect;   // x, z der Ecke, Kantenlänge in m, Höhe der Fläche in 
 void main() {
     float x = uRect.x + vUV.x * uRect.z, z = uRect.y + vUV.y * uRect.z, y = uRect.w;
     vec3 d = normalize(vec3(uLightDir.x, max(0.05, uLightDir.y), uLightDir.z));
-    vec2 seg = shell(vec3(x, y, z), d, uType1.x, uType1.x + uType1.z);
+    // seit LituyaBay1958 W7: mit Gelände Schicht und Bank (bis uShellH.y), darüber die Kappe in 8 Schritten (Kanal G)
+    bool oro = uOroRect.w > 0.5;
+    vec2 seg = oro ? shell(vec3(x, y, z), d, uShellH.x, uShellH.y) : shell(vec3(x, y, z), d, uType1.x, uType1.x + uType1.z);
     float tau = 0.0, up = 0.0, dummy;
+    if (oro && uShellH.z > uShellH.y + 1.0) {
+        vec2 sc = shell(vec3(x, y, z), d, uShellH.y, uShellH.z);
+        if (sc.x >= 0.0) {
+            float c0 = sc.x, c1 = min(sc.y, sc.x + 20000.0), cd = (c1 - c0) / 8.0;
+            for (int k = 0; k < 8; k++) up += density(vec3(x, y, z) + d * (c0 + (float(k) + 0.5) * cd), false, dummy) * cd;
+        }
+    }
     if (seg.x >= 0.0) {
         float t0 = seg.x, t1 = min(seg.y, seg.x + 40000.0), dt = (t1 - t0) / 16.0;
         for (int k = 0; k < 16; k++) {

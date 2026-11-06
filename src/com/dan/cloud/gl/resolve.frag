@@ -4,6 +4,8 @@
 in vec2 vUV;
 out vec4 outColor;
 uniform sampler2D uCurr, uCurrDist, uHist;
+uniform sampler2D uPrevDist;   // seit LituyaBay1958 W7: Entfernungen des letzten Bilds (Kanal G: zur Geometrie)
+uniform int uGeomTest;
 uniform mat4 uInvVP, uPrevVP;
 uniform int uReversed, uHistValid;
 uniform vec3 uCam;
@@ -19,6 +21,12 @@ void main() {
     vec4 prev = uPrevVP * vec4(uCam + d * dist, 1.0);
     vec2 puv = prev.xy / prev.w * 0.5 + 0.5;
     if (prev.w <= 0.0 || any(lessThan(puv, vec2(0.0))) || any(greaterThan(puv, vec2(1.0)))) { outColor = cur; return; }
+    // seit W7 Runde 1b: dieselbe Geometrie? Sonst gilt nur dieses Bild (Kämme vor fernen Wolken)
+    if (uGeomTest == 1) {
+        float sc = texture(uCurrDist, vUV).g, sp = texture(uPrevDist, puv).g;
+        bool skyC = sc > 1e29, skyP = sp > 1e29;
+        if (skyC != skyP || (!skyC && abs(sc - sp) > 0.1 * sc)) { outColor = cur; return; }
+    }
     vec4 hist = texture(uHist, puv);
     vec2 px = 1.0 / vec2(textureSize(uCurr, 0));
     vec4 mn = cur, mx = cur;

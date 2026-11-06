@@ -12,6 +12,15 @@ uniform vec4 uMisc;     // Kachel der Feinheit, Schwelle, Zeit · Formwandel, Sc
 uniform float uCore;    // Dichte im Kern einer Haufenzelle
 uniform vec4 uOff;      // Drift x, Drift z, hohe Schicht, Niederschlag
 uniform vec4 uLens;     // seit Glacier Phase 3: Lentikularis 0..1, Richtung der Strömung (Bogenmaß, woher), –, –
+// seit LituyaBay1958 W7: Wolken am Gelände (wie Clouds.oroCover, oroShift). uOro: geglättete Höhe, Steigung x, z, Gipfel
+uniform sampler2D uOro;
+uniform vec4 uOroRect;  // x0, z0, Kante (m), Zellen; Zellen 0 = kein Gelände (alles wie bisher)
+uniform vec4 uOro1;     // Bank: Stärke, Untergrenze, Obergrenze, Reichweite über dem Hang
+uniform vec4 uOro2;     // Kappe: Stärke, Kondensationsniveau, Reichweite; Quellwolken über Land
+uniform vec4 uOro3;     // Lee, Wind nach x, nach z, —
+uniform vec4 uShellH;   // unterste Höhe, Obergrenze von Schicht und Bank, oberste Höhe (mit Kappe), —
+uniform int uSmoothNoise;   // seit LituyaBay1958 W7: Grundform und Feinheit mit stetiger Ableitung zwischen den Texeln (wie Noise.sample3 smooth)
+const float ORO_SIGMA = 0.05, ORO_TILE = 2200.0, BANK_TILE = 26000.0, CAP_SHIFT = 400.0;
 const float LENS_HEIGHT = 4600.0, LENS_STEP = 320.0, LENS_WAVE = 9000.0, LENS_CELL = 12000.0, LENS_TAU = 3.0;
 const int LENS_SLICES = 3;
 
@@ -20,14 +29,85 @@ float remap(float v, float lo, float hi, float a, float b) { return a + (v - lo)
 
 float heightOf(vec3 p) { return length(vec3(p.x, p.y + EARTH_R, p.z)) - EARTH_R; }
 
-float density(vec3 p, bool detail, out float tt) {
+// seit W7: Koordinate, mit der das lineare Mischen der Grafikkarte die Anteile 3f² − 2f³ nimmt (Quilez)
+vec3 smoothTex(vec3 q, float n) {
+    if (uSmoothNoise == 0) return q;
+    vec3 x = q * n - 0.5, i = floor(x), f = x - i;
+    return (i + f * f * (3.0 - 2.0 * f) + 0.5) / n;
+}
+
+// Form aus Grundform und Fransen über einer Bedeckung c (wie Clouds.shape); ohne die Auslöschung
+float cloudShape(float c, float sheet, float tt, vec2 wp, float h, bool detail, float ns) {
+    vec4 b = textureLod(uBase, smoothTex(vec3(wp.x, h - uMisc.z * 0.6, wp.y) / ns, float(textureSize(uBase, 0).x)), 0.0);
+    float low = b.g * 0.625 + b.b * 0.25 + b.a * 0.125;
+    // Haufen: Perlin-Worley mit Worley-fbm gespreizt (Türmchen und Lücken); Schicht: gestaucht (geschlossen)
+    float v = mix(clamp((b.r * 0.7 + low * 0.3 - 0.2) / 0.6, 0.0, 1.0), remap(b.r, low - 1.0, 1.0, 0.0, 1.0), sheet);
+    v = remap(v, 1.0 - c, 1.0, 0.0, 1.0) * c;
+    if (v <= 0.0) return 0.0;
+    if (detail) {
+        float ds = ns * 0.115;
+        vec4 d = textureLod(uDetail, smoothTex(vec3(wp.x, h - uMisc.z * 1.5, wp.y) / ds, float(textureSize(uDetail, 0).x)), 0.0);
+        float hf = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
+        float m = hf + (1.0 - 2.0 * hf) * clamp(tt * 4.0, 0.0, 1.0);
+        v = remap(v, m * mix(0.55, 0.3, sheet), 1.0, 0.0, 1.0);
+    }
+    return max(0.0, v);
+}
+
+// seit LituyaBay1958 W7: Werte der Strömungskarte an xz (außerhalb 0)
+vec4 oroAt(vec2 xz) {
+    vec2 u = (xz - uOroRect.xy) / uOroRect.z;
+    if (u.x < 0.0 || u.y < 0.0 || u.x > 1.0 || u.y > 1.0) return vec4(0.0);
+    return textureLod(uOro, u, 0.0);
+}
+
+// Verschiebung des Felds der unteren Schicht: Haufen über Land, Lücken im Lee (wie Clouds.oroShift)
+float oroShift(vec4 g) {
+    float up = g.y * uOro3.y + g.z * uOro3.z;
+    return uOro2.w * 0.22 * (smooth01(40.0, 1200.0, g.x) - 0.55) - uOro3.x * 0.22 * smooth01(0.03, 0.22, -up);
+}
+
+// Bedeckung, Glätte und Lage im Profil von Bank und Kappe (wie Clouds.oroCover); x = 0: keine
+vec3 oroCover(vec4 g, vec2 xz, float h) {
+    float cb = 0.0, ttb = 0.0;
+    if (uOro1.x > 0.0) {
+        float hag = h - g.x;
+        float band = smooth01(uOro1.y - 60.0, uOro1.y + 60.0, h) * (1.0 - smooth01(uOro1.z - 120.0, uOro1.z + 60.0, h));
+        float hug = smooth01(-250.0, -60.0, hag) * (1.0 - smooth01(uOro1.w * 0.4, uOro1.w, hag));
+        if (band * hug > 0.0) {
+            float up = g.y * uOro3.y + g.z * uOro3.z;
+            float ww = 0.35 + 0.65 * smooth01(-0.02, 0.18, up);
+            vec4 q = textureLod(uWeather, (xz + uOff.xy * 0.25) / BANK_TILE, 0.0);
+            float holes = smooth01(0.92 - 0.9 * uOro1.x, 1.08 - 0.9 * uOro1.x, q.b);
+            float steil = smooth01(0.03, 0.14, length(g.yz));   // nur am Hang
+            cb = band * hug * ww * holes * steil;
+            ttb = clamp((hag + 60.0) / uOro1.w, 0.0, 1.0);
+        }
+    }
+    float cc = 0.0, ttc = 0.0;
+    if (uOro2.x > 0.0 && h > uOro2.y - 50.0) {
+        // seit Runde 1b: um die Gipfel über dem Kondensationsniveau bis eine Reichweite über ihre Hülle (Kanal A)
+        vec4 gc = oroAt(xz - uOro3.yz * CAP_SHIFT);
+        float over = smooth01(uOro2.y - 200.0, uOro2.y + 250.0, gc.w);
+        if (over > 0.0) {
+            float inBand = smooth01(uOro2.y - 50.0, uOro2.y + 90.0, h);
+            float hood = 1.0 - smooth01(uOro2.z * 0.45, uOro2.z, h - gc.w);
+            cc = uOro2.x * over * inBand * hood;
+            ttc = clamp((h - uOro2.y) / max(100.0, gc.w + uOro2.z - uOro2.y), 0.0, 1.0);
+        }
+    }
+    if (cb <= 0.0 && cc <= 0.0) return vec3(0.0);
+    return cc > cb ? vec3(cc, 0.95, ttc) : vec3(cb, 0.55, ttb);
+}
+
+// Die untere Schicht wie bisher; df verschiebt das Feld (seit LituyaBay1958 W7, sonst 0)
+float densityMain(vec3 p, float h, bool detail, float df, out float tt) {
     tt = 0.0;
     float base = uType1.x, thick = uType1.y, maxThick = uType1.z, strat = uType1.w;
-    float h = heightOf(p);
     if (h < base || h > base + maxThick) return 0.0;
     vec2 wp = p.xz + uOff.xy;
     vec4 w = textureLod(uWeather, wp / uType2.z, 0.0);
-    float f = mix(w.r, w.g, strat), thr = uMisc.y;
+    float f = mix(w.r, w.g, strat) + df, thr = uMisc.y;
     float tall = smooth01(thr, thr + 0.15 + 0.2 * strat - 0.07 * uType2.y, f);   // wie hoch der Turm an dieser Stelle wächst
     float top = base + thick + (maxThick - thick) * tall * tall;
     tt = (h - base) / (top - base);
@@ -59,21 +139,22 @@ float density(vec3 p, bool detail, out float tt) {
     float cc = cov * prof * mix(uCore, 1.0, max(strat, uType2.y)), c = max(cc, anv);
     float sheet = max(strat, smooth01(0.0, 0.1, anv - cc));   // Schicht oder Amboss: glatt, ohne Türmchen
     if (c <= 0.0) return 0.0;
-    float ns = uType2.w;
-    vec4 b = textureLod(uBase, vec3(wp.x, h - uMisc.z * 0.6, wp.y) / ns, 0.0);
-    float low = b.g * 0.625 + b.b * 0.25 + b.a * 0.125;
-    // Haufen: Perlin-Worley mit Worley-fbm gespreizt (Türmchen und Lücken); Schicht: gestaucht (geschlossen)
-    float v = mix(clamp((b.r * 0.7 + low * 0.3 - 0.2) / 0.6, 0.0, 1.0), remap(b.r, low - 1.0, 1.0, 0.0, 1.0), sheet);
-    v = remap(v, 1.0 - c, 1.0, 0.0, 1.0) * c;
-    if (v <= 0.0) return 0.0;
-    if (detail) {
-        float ds = uMisc.x;
-        vec4 d = textureLod(uDetail, vec3(wp.x, h - uMisc.z * 1.5, wp.y) / ds, 0.0);
-        float hf = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
-        float m = hf + (1.0 - 2.0 * hf) * clamp(tt * 4.0, 0.0, 1.0);
-        v = remap(v, m * mix(0.55, 0.3, sheet), 1.0, 0.0, 1.0);
-    }
-    return max(0.0, v) * uType2.x;
+    return cloudShape(c, sheet, tt, wp, h, detail, uType2.w) * uType2.x;
+}
+
+// Auslöschung je m am Punkt p (wie Clouds.density); tt: Lage im Profil (für das Himmelslicht)
+float density(vec3 p, bool detail, out float tt) {
+    float h = heightOf(p);
+    if (uOroRect.w < 0.5) return densityMain(p, h, detail, 0.0, tt);
+    // seit LituyaBay1958 W7: mit Gelände die untere Schicht (Feld verschoben), dazu Bank und Kappe; das Dichtere gilt
+    if (h < uShellH.x || h > uShellH.z) { tt = 0.0; return 0.0; }
+    vec4 g = oroAt(p.xz);
+    float dm = densityMain(p, h, detail, oroShift(g), tt);
+    vec3 cs = oroCover(g, p.xz, h);
+    if (cs.x * ORO_SIGMA <= dm) return dm;
+    float d = cloudShape(cs.x, cs.y, cs.z, p.xz + uOff.xy, h, detail, ORO_TILE) * ORO_SIGMA;
+    if (d > dm) { tt = cs.z; return d; }
+    return dm;
 }
 
 float highTau(vec2 xz) {

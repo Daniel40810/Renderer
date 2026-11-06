@@ -42,6 +42,13 @@ public final class CloudGl {
          * Die Tiefe gehört zu derselben Projektion wie {@link #viewProj} ({@link #reversedZ}: 0..1 umgekehrt, sonst klassisch).
          */
         public int depthTexture;
+        /**
+         * Seit LituyaBay1958 W7: Ansicht mit eigener zeitlicher Mischung (0 das Bild; 1 … {@link #SLOTS} − 1 weitere, etwa
+         * das Spiegelbild im Wasser) und ob nur über Geometrie aufgelegt wird (mit Tiefe; der Himmel und die Deckkraft
+         * des Ziels bleiben – im Spiegelbild trägt das Rundumbild den Himmel samt Wolken).
+         */
+        public int slot;
+        public boolean geometryOnly;
     }
 
     /**
@@ -51,6 +58,25 @@ public final class CloudGl {
      */
     /** Helligkeit der fernen Decke gegen das Licht, das auf sie fällt (am Bild gegen die nahen Wolken abgeglichen). */
     static final double DECK_GAIN = 0.35;
+    /** Entfernung (m), in der sich die Schrittweite verdoppelt (bei rund 60° Blickfeld), und die Obergrenze der Schritte im Shader. */
+    static final double STEP_GROW = 5000;
+    static final int MAX_STEPS = 256;
+    /**
+     * Seit LituyaBay1958 W7: wie viel kleiner ein Bildpunkt ist als bei 60° Blickfeld und 1080 Zeilen in halber Auflösung
+     * (1 = so groß oder größer, höchstens {@link #teleMax}); aus der Projektion (Länge der zweiten Zeile = 1/tan(fovy/2)).
+     * Vorgabe 1: aus, wie bisher (LituyaBay1958 nimmt 4).
+     */
+    public volatile double teleMax = 1;
+
+    public double teleFactor(View v, Clouds.Quality q) {
+        if (v.viewProj == null || teleMax <= 1) return 1;
+        float[] m = v.viewProj;
+        double p11 = Math.sqrt(m[1] * m[1] + m[5] * m[5] + m[9] * m[9]);
+        if (!(p11 > 0)) return 1;
+        int div = Math.max(1, q.divisor);
+        double pix = 2 / p11 / Math.max(1, v.height / (double) div), ref = 2 * Math.tan(Math.toRadians(30)) / 540;
+        return Math.max(1, Math.min(teleMax, ref / pix));
+    }
 
     public static final class Light {
         public double[] dir = {0, 1, 0};
@@ -68,6 +94,15 @@ public final class CloudGl {
         public int flashCount;
         /** Diffusionslänge des Lichts in der Wolke (m). */
         public double flashDiffusion = 1300;
+        /**
+         * Seit LituyaBay1958 W7: Farbe des Dunsts (vorbelichtet, Strahldichte knapp über der Kimm) quer zum Gestirn, zum
+         * Gestirn hin und von ihm weg, und wie sehr ferne Wolken in ihn übergehen statt durchsichtig zu werden (0 = wie
+         * bisher: sie verblassen gegen den Himmel dahinter; 1 = sie werden Dunst, wie das Gelände hinter ihnen). Über
+         * Gelände nötig, sonst scheinen die Hänge durch ferne Wolken. Zwischen den drei Farben quadratisch nach dem
+         * Kosinus des Azimuts zum Gestirn.
+         */
+        public double[] hazeColor = {0, 0, 0}, hazeToward = {0, 0, 0}, hazeAway = {0, 0, 0};
+        public double hazeKeep;
     }
 
     /** Ein Uniform: Art (f, v3a = vec3-Feld, m4, i) und Werte. */
@@ -80,13 +115,52 @@ public final class CloudGl {
         static U i(int x) { return new U("i", new float[]{x}); }
     }
 
+    /**
+     * Seit LituyaBay1958 W7: Größe der Schattenkarte (m), Zellen je Seite und ihre Mitte (x, z; null = das Auge). Eine
+     * Szene im Gebirge braucht die Schatten auf den Hängen weit vom Auge (der Kamm 30 km entfernt): etwa 72 km, 512²,
+     * Mitte der Szene. Vorgabe wie bisher: 24 km, 256², um das Auge.
+     */
+    public volatile double shadowSize = SHADOW_SIZE;
+    public volatile int shadowN = SHADOW_N;
+    public volatile double[] shadowCenter;
+    /**
+     * Seit LituyaBay1958 W7: Anteil des letzten Bilds beim Mischen (0,85 wie bisher). Im schnellen Zeitraffer ziehen die
+     * Wolken weiter, als die Wiederverwendung nachholt; dann weniger (etwa 0,5), sonst bleiben Schlieren.
+     */
+    public volatile double historyBlend = 0.85;
+    /**
+     * Seit LituyaBay1958 W7 Runde 1b: beim Mischen das letzte Bild nur nehmen, wo es dieselbe Geometrie sah (Entfernung zur
+     * Szene auf 10 % gleich, Himmel bleibt Himmel). Sonst trug das zitternde Bild an Kämmen vor fernen Wolken deren Licht
+     * vor den Hang (heller Saum auf dem Grat, Probe 711). Vorgabe false: wie bisher.
+     */
+    public volatile boolean geometryHistoryTest = false;
+
     private int progMarch, progPano, progResolve, progComposite, progShadow;
+    private int texOro;
+    private float[] oroUploaded;
+    private int shadowBuiltN;
     private int texBase, texDetail, texWeather, texShadow, fboShadow;
-    private int texCur, texDist, fboCur, texPanoCl, texPanoDist, fboPano;
-    private final int[] texHist = new int[2], fboHist = new int[2];
-    private int vao, cw, ch, pw, ph, hist, frame;
-    private float[] prevVP;
-    private boolean histValid, ready;
+    private int texPanoCl, texPanoDist, fboPano;
+    private int vao, pw, ph, frame;
+    private boolean ready;
+
+    /**
+     * Ziele einer Ansicht: das Wolkenbild dieses Bilds, die zeitliche Mischung (zwei Puffer) und die Projektion des
+     * letzten Bilds. Seit LituyaBay1958 W7 je Ansicht ({@link View#slot}: 0 das Bild, 1 etwa das Spiegelbild im Wasser),
+     * damit eine zweite Ansicht die Mischung der ersten nicht stört.
+     */
+    private static final class Slot {
+        int texCur, cw, ch, hist, dc;
+        /** Entfernungen dieses und des letzten Bilds (seit W7 Runde 1b: Vergleich der Geometrie beim Mischen). */
+        final int[] texDist = new int[2], fboCur = new int[2];
+        final int[] texHist = new int[2], fboHist = new int[2];
+        float[] prevVP;
+        boolean histValid;
+    }
+
+    /** Höchstzahl der Ansichten mit eigener zeitlicher Mischung. */
+    public static final int SLOTS = 4;
+    private final Slot[] slots = new Slot[SLOTS];
     private double[] shadowRect = {0, 0, SHADOW_SIZE};
     private String info = "";
 
@@ -116,6 +190,9 @@ public final class CloudGl {
         // R: Licht auf der Fläche der Schattenkarte; G (seit Brocken Phase 3): nur hohe Schicht und Linsen, für Punkte über der unteren Schicht
         texShadow = tex2d(gl, SHADOW_N, SHADOW_N, GL4.GL_RG16F, GL.GL_CLAMP_TO_EDGE);
         fboShadow = fbo(gl, texShadow, 0);
+        shadowBuiltN = SHADOW_N;
+        // seit LituyaBay1958 W7: Strömungskarte (eine Zelle, bis Gelände kommt)
+        texOro = tex2d(gl, 1, 1, GL4.GL_RGBA32F, GL.GL_CLAMP_TO_EDGE);
         int[] v = new int[1];
         gl.glGenVertexArrays(1, v, 0);
         vao = v[0];
@@ -168,21 +245,27 @@ public final class CloudGl {
         return f[0];
     }
 
-    private void targets(GL4 gl, int w, int h) {
-        if (fboCur != 0) {
-            gl.glDeleteFramebuffers(3, new int[]{fboCur, fboHist[0], fboHist[1]}, 0);
-            gl.glDeleteTextures(4, new int[]{texCur, texDist, texHist[0], texHist[1]}, 0);
-        }
-        texCur = tex2d(gl, w, h, GL.GL_RGBA16F, GL.GL_CLAMP_TO_EDGE);
-        texDist = tex2d(gl, w, h, GL4.GL_RG32F, GL.GL_CLAMP_TO_EDGE);
-        fboCur = fbo(gl, texCur, texDist);
+    private void targets(GL4 gl, Slot t, int w, int h) {
+        free(gl, t);
+        t.texCur = tex2d(gl, w, h, GL.GL_RGBA16F, GL.GL_CLAMP_TO_EDGE);
         for (int i = 0; i < 2; i++) {
-            texHist[i] = tex2d(gl, w, h, GL.GL_RGBA16F, GL.GL_CLAMP_TO_EDGE);
-            fboHist[i] = fbo(gl, texHist[i], 0);
+            t.texDist[i] = tex2d(gl, w, h, GL4.GL_RG32F, GL.GL_CLAMP_TO_EDGE);
+            t.fboCur[i] = fbo(gl, t.texCur, t.texDist[i]);
         }
-        cw = w;
-        ch = h;
-        histValid = false;
+        for (int i = 0; i < 2; i++) {
+            t.texHist[i] = tex2d(gl, w, h, GL.GL_RGBA16F, GL.GL_CLAMP_TO_EDGE);
+            t.fboHist[i] = fbo(gl, t.texHist[i], 0);
+        }
+        t.cw = w;
+        t.ch = h;
+        t.histValid = false;
+    }
+
+    private static void free(GL4 gl, Slot t) {
+        if (t.fboCur[0] == 0) return;
+        gl.glDeleteFramebuffers(4, new int[]{t.fboCur[0], t.fboCur[1], t.fboHist[0], t.fboHist[1]}, 0);
+        gl.glDeleteTextures(5, new int[]{t.texCur, t.texDist[0], t.texDist[1], t.texHist[0], t.texHist[1]}, 0);
+        t.fboCur[0] = t.fboCur[1] = 0;
     }
 
     private void panoTargets(GL4 gl, int w, int h) {
@@ -223,6 +306,22 @@ public final class CloudGl {
         m.put("uBase", U.i(0));
         m.put("uDetail", U.i(1));
         m.put("uWeather", U.i(2));
+        // seit LituyaBay1958 W7: Wolken am Gelände
+        Clouds.Oro o = s.oro();
+        m.put("uOro", U.i(7));
+        if (o == null) {
+            m.put("uOroRect", U.f(0, 0, 1, 0));
+            m.put("uOro1", U.f(0, 0, 1, 1));
+            m.put("uOro2", U.f(0, 0, 1, 0));
+            m.put("uOro3", U.f(0, 0, 0, 0));
+        } else {
+            m.put("uOroRect", U.f(o.x0(), o.z0(), o.size(), o.n()));
+            m.put("uOro1", U.f(o.bank(), o.bankBase(), o.bankTop(), o.bankReach()));
+            m.put("uOro2", U.f(o.cap(), o.capBase(), o.capReach(), o.convection()));
+            m.put("uOro3", U.f(o.lee(), o.windToX(), o.windToZ(), 0));
+        }
+        m.put("uShellH", U.f(s.shellLow(), s.lowHigh(), s.shellHigh(), 0));
+        m.put("uSmoothNoise", U.i(s.smoothNoise() ? 1 : 0));
         return m;
     }
 
@@ -234,7 +333,6 @@ public final class CloudGl {
         march.put("uInvVP", new U("m4", v.invViewProj != null ? v.invViewProj : id4()));
         march.put("uReversed", U.i(v.reversedZ ? 1 : 0));
         boolean flat = q == Clouds.Quality.FLAT;
-        march.put("uSteps", U.f(flat ? 1 : q.maxSteps, flat ? 1 : q.stepNear));
         march.put("uLightSteps", U.i(flat ? 2 : q.lightSteps));
         march.put("uMaxDist", U.f(s.maxDistance()));
         maxDist = s.maxDistance();
@@ -251,9 +349,17 @@ public final class CloudGl {
         for (int c = 0; c < 3; c++)
             dc[c] = ((sc[c] + lum) * 0.5 * sy + l.ambTop[c] * Math.PI) * s.type().overcastBrightness * DECK_GAIN / Math.PI;
         march.put("uDeck", U.f(dc[0], dc[1], dc[2], deck));
+        march.put("uHazeCol", U.f(l.hazeColor[0], l.hazeColor[1], l.hazeColor[2], Math.max(0, Math.min(1, l.hazeKeep))));
+        march.put("uHazeSun", U.f(l.hazeToward[0], l.hazeToward[1], l.hazeToward[2]));
+        march.put("uHazeAnti", U.f(l.hazeAway[0], l.hazeAway[1], l.hazeAway[2]));
+        // seit LituyaBay1958 W7: mit langer Brennweite ist ein Bildpunkt in der Ferne klein; die Schritte wachsen dann langsamer
+        double tele = flat ? 1 : teleFactor(v, q);
+        march.put("uStepGrow", U.f(STEP_GROW * tele));
+        march.put("uSteps", U.f(flat ? 1 : Math.min(MAX_STEPS, Math.round(q.maxSteps * Math.min(2.0, Math.sqrt(tele)))), flat ? 1 : q.stepNear));
         all.put("march", march);
         Map<String, U> pano = new LinkedHashMap<>(march);
         pano.put("uSteps", U.f(64, 150));
+        pano.put("uStepGrow", U.f(STEP_GROW));
         pano.put("uFlat", U.i(0));
         pano.put("uLightSteps", U.i(3));
         pano.put("uUseDepth", U.i(0));
@@ -273,18 +379,52 @@ public final class CloudGl {
 
     // ------------------------------------------------------------------ je Bild
 
+    /** Seit LituyaBay1958 W7: Rechteck der Schattenkarte nach {@link #shadowSize}, {@link #shadowN}, {@link #shadowCenter}, auf Texel gerastet. */
+    public double[] shadowRectFor(double[] eye) {
+        double size = Math.max(1000, shadowSize), cell = size / Math.max(16, shadowN);
+        double[] c = shadowCenter != null ? shadowCenter : new double[]{eye[0], eye[2]};
+        double x = Math.floor(c[0] / cell) * cell - size / 2, z = Math.floor(c[1] / cell) * cell - size / 2;
+        return new double[]{x, z, size};
+    }
+
+    /** Seit LituyaBay1958 W7: Zellen der Schattenkarte je Seite (wie gebaut). */
+    public int shadowCells() { return shadowBuiltN; }
+
+    /** Die Strömungskarte hochladen, wenn sie neu ist (RGBA32F, Einheit 7). */
+    private void oroUpload(GL4 gl, Clouds.Snapshot s) {
+        Clouds.Oro o = s.oro();
+        if (o == null || o.map() == oroUploaded) return;
+        int n = o.n();
+        gl.glDeleteTextures(1, new int[]{texOro}, 0);
+        texOro = tex2d(gl, n, n, GL4.GL_RGBA32F, GL.GL_CLAMP_TO_EDGE);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, texOro);
+        gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 4);
+        gl.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, 0, 0, n, n, GL4.GL_RGBA, GL.GL_FLOAT, Buffers.newDirectFloatBuffer(o.map(), 0, n * n * 4));
+        gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+        oroUploaded = o.map();
+    }
+
     /** Schattenkarte rechnen (vor dem Meer). */
     public void update(GL4 gl, Clouds.Snapshot s, Light l, double[] eye) {
         int[] prevFbo = new int[1], vp = new int[4];
         gl.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
         gl.glGetIntegerv(GL.GL_VIEWPORT, vp, 0);
-        shadowRect = rectAround(eye);
+        int sn = Math.max(16, Math.min(2048, shadowN));
+        if (sn != shadowBuiltN) {
+            gl.glDeleteFramebuffers(1, new int[]{fboShadow}, 0);
+            gl.glDeleteTextures(1, new int[]{texShadow}, 0);
+            texShadow = tex2d(gl, sn, sn, GL4.GL_RG16F, GL.GL_CLAMP_TO_EDGE);
+            fboShadow = fbo(gl, texShadow, 0);
+            shadowBuiltN = sn;
+        }
+        oroUpload(gl, s);
+        shadowRect = shadowRectFor(eye);
         gl.glDisable(GL.GL_DEPTH_TEST);
         gl.glDisable(GL.GL_BLEND);
         gl.glBindVertexArray(vao);
         bindNoise(gl);
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fboShadow);
-        gl.glViewport(0, 0, SHADOW_N, SHADOW_N);
+        gl.glViewport(0, 0, shadowBuiltN, shadowBuiltN);
         gl.glUseProgram(progShadow);
         View v = new View();
         v.eye = eye;
@@ -303,6 +443,8 @@ public final class CloudGl {
         gl.glBindTexture(GL4.GL_TEXTURE_3D, texDetail);
         gl.glActiveTexture(GL.GL_TEXTURE2);
         gl.glBindTexture(GL.GL_TEXTURE_2D, texWeather);
+        gl.glActiveTexture(GL.GL_TEXTURE7);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, texOro);
         gl.glActiveTexture(GL.GL_TEXTURE0);
     }
 
@@ -311,13 +453,15 @@ public final class CloudGl {
      * aufrufen, also nach dem Himmel und vor Meer und Turm.
      */
     public void draw(GL4 gl, Clouds.Snapshot s, Light l, View v) {
-        if (s.oktas() <= 0 && s.highCover() <= 0) { histValid = false; return; }
+        Slot t = slot(v.slot);
+        if (!sichtbar(s)) { t.histValid = false; return; }
         int[] prevFbo = new int[1], vp = new int[4];
         gl.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
         gl.glGetIntegerv(GL.GL_VIEWPORT, vp, 0);
         int div = Math.max(1, s.quality().divisor);
         int w = Math.max(16, v.width / div), h = Math.max(16, v.height / div);
-        if (w != cw || h != ch) targets(gl, w, h);
+        if (w != t.cw || h != t.ch) targets(gl, t, w, h);
+        oroUpload(gl, s);
         gl.glDisable(GL.GL_DEPTH_TEST);
         gl.glDepthMask(false);
         gl.glDisable(GL.GL_BLEND);
@@ -327,7 +471,8 @@ public final class CloudGl {
         gl.glBindTexture(GL.GL_TEXTURE_2D, v.depthTexture);
         gl.glActiveTexture(GL.GL_TEXTURE0);
         // 1 rechnen
-        gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fboCur);
+        int dc = t.dc ^= 1;
+        gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, t.fboCur[dc]);
         gl.glViewport(0, 0, w, h);
         gl.glUseProgram(progMarch);
         Map<String, U> m = uniforms(s, l, v).get("march");
@@ -335,46 +480,64 @@ public final class CloudGl {
         apply(gl, progMarch, m);
         gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
         // 2 mit dem letzten Bild mischen
-        int next = hist ^ 1;
-        gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fboHist[next]);
+        int next = t.hist ^ 1;
+        gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, t.fboHist[next]);
         gl.glUseProgram(progResolve);
         gl.glActiveTexture(GL.GL_TEXTURE3);
-        gl.glBindTexture(GL.GL_TEXTURE_2D, texCur);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, t.texCur);
         gl.glActiveTexture(GL.GL_TEXTURE4);
-        gl.glBindTexture(GL.GL_TEXTURE_2D, texDist);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, t.texDist[dc]);
         gl.glActiveTexture(GL.GL_TEXTURE5);
-        gl.glBindTexture(GL.GL_TEXTURE_2D, texHist[hist]);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, t.texHist[t.hist]);
+        gl.glActiveTexture(GL.GL_TEXTURE6);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, t.texDist[dc ^ 1]);
         gl.glActiveTexture(GL.GL_TEXTURE0);
         Map<String, U> r = new LinkedHashMap<>();
         r.put("uCurr", U.i(3));
         r.put("uCurrDist", U.i(4));
         r.put("uHist", U.i(5));
+        r.put("uPrevDist", U.i(6));
+        r.put("uGeomTest", U.i(geometryHistoryTest ? 1 : 0));
         r.put("uInvVP", new U("m4", v.invViewProj));
-        r.put("uPrevVP", new U("m4", prevVP != null ? prevVP : v.viewProj));
+        r.put("uPrevVP", new U("m4", t.prevVP != null ? t.prevVP : v.viewProj));
         r.put("uReversed", U.i(v.reversedZ ? 1 : 0));
-        r.put("uHistValid", U.i(histValid ? 1 : 0));
+        r.put("uHistValid", U.i(t.histValid ? 1 : 0));
         r.put("uCam", U.f(v.eye));
-        r.put("uBlend", U.f(0.85));
+        r.put("uBlend", U.f(historyBlend));
         apply(gl, progResolve, r);
         gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
-        hist = next;
-        histValid = true;
-        prevVP = v.viewProj.clone();
-        frame++;
+        t.hist = next;
+        t.histValid = true;
+        t.prevVP = v.viewProj.clone();
+        if (v.slot == 0) frame++;
         // 3 auflegen
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, prevFbo[0]);
         gl.glViewport(vp[0], vp[1], vp[2], vp[3]);
-        composite(gl, texHist[hist], texDist, l, v.invViewProj, v.reversedZ, v.eye, false, v.depthTexture);
+        composite(gl, t.texHist[t.hist], t.texDist[dc], l, v.invViewProj, v.reversedZ, v.eye, false, v.depthTexture, v.geometryOnly);
         gl.glUseProgram(0);
         gl.glBindVertexArray(0);
+    }
+
+    /** Gibt es etwas zu zeichnen? Schicht, hohe Schicht oder (seit LituyaBay1958 W7) Bank und Kappe am Gelände (Linsen allein wie bisher nicht). */
+    static boolean sichtbar(Clouds.Snapshot s) {
+        Clouds.Oro o = s.oro();
+        return s.oktas() > 0 || s.highCover() > 0 || (o != null && (o.bank() > 0 || o.cap() > 0));
     }
 
     /** Legt ein Wolkenbild über das gebundene Ziel: Ziel · Durchlässigkeit + Licht, dazu das Licht der Blitze. */
     private double maxDist = 60_000;
 
-    private void composite(GL4 gl, int tex, int dist, Light l, float[] inv, boolean reversed, double[] eye, boolean pano, int depth) {
+    private Slot slot(int i) {
+        int k = Math.max(0, Math.min(SLOTS - 1, i));
+        if (slots[k] == null) slots[k] = new Slot();
+        return slots[k];
+    }
+
+    private void composite(GL4 gl, int tex, int dist, Light l, float[] inv, boolean reversed, double[] eye, boolean pano, int depth, boolean geometryOnly) {
         gl.glEnable(GL.GL_BLEND);
-        gl.glBlendFunc(GL.GL_ONE, GL.GL_SRC_ALPHA);
+        // nur über Geometrie (Spiegelbild): die Deckkraft des Ziels bleibt, sie trennt dort Gelände und Himmel
+        if (geometryOnly) gl.glBlendFuncSeparate(GL.GL_ONE, GL.GL_SRC_ALPHA, GL.GL_ZERO, GL.GL_ONE);
+        else gl.glBlendFunc(GL.GL_ONE, GL.GL_SRC_ALPHA);
         gl.glUseProgram(progComposite);
         gl.glActiveTexture(GL.GL_TEXTURE3);
         gl.glBindTexture(GL.GL_TEXTURE_2D, tex);
@@ -389,6 +552,7 @@ public final class CloudGl {
         // seit Brocken Phase 3: mit Tiefe nur die Texel auflegen, deren Wolke vor der Geometrie dieses Bildpunkts liegt
         boolean useDepth = depth != 0 && !pano && inv != null;
         gl.glUniform1i(gl.glGetUniformLocation(p, "uUseDepth"), useDepth ? 1 : 0);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uGeomOnly"), useDepth && geometryOnly ? 1 : 0);
         if (useDepth) {
             gl.glActiveTexture(GL.GL_TEXTURE6);
             gl.glBindTexture(GL.GL_TEXTURE_2D, depth);
@@ -413,11 +577,12 @@ public final class CloudGl {
 
     /** Wolken ins gebundene Rundumbild (Viewport = ganzes Bild). */
     public void drawPanorama(GL4 gl, Clouds.Snapshot s, Light l, double[] eye) {
-        if (s.oktas() <= 0 && s.highCover() <= 0) return;
+        if (!sichtbar(s)) return;
         int[] prevFbo = new int[1], vp = new int[4];
         gl.glGetIntegerv(GL.GL_FRAMEBUFFER_BINDING, prevFbo, 0);
         gl.glGetIntegerv(GL.GL_VIEWPORT, vp, 0);
         if (vp[2] != pw || vp[3] != ph) panoTargets(gl, vp[2], vp[3]);
+        oroUpload(gl, s);
         gl.glDisable(GL.GL_DEPTH_TEST);
         gl.glDisable(GL.GL_BLEND);
         gl.glBindVertexArray(vao);
@@ -431,7 +596,7 @@ public final class CloudGl {
         gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, prevFbo[0]);
         gl.glViewport(vp[0], vp[1], vp[2], vp[3]);
-        composite(gl, texPanoCl, texPanoDist, l, null, true, eye, true, 0);
+        composite(gl, texPanoCl, texPanoDist, l, null, true, eye, true, 0, false);
         gl.glUseProgram(0);
         gl.glBindVertexArray(0);
     }
@@ -462,13 +627,14 @@ public final class CloudGl {
 
     /** Liest die Schattenkarte zurück und vergleicht 64 Texel mit {@link Clouds#shadow} (siehe {@link #compare}). */
     public String selfCheck(GL4 gl, Clouds.Snapshot s, Light l) {
-        FloatBuffer fb = Buffers.newDirectFloatBuffer(SHADOW_N * SHADOW_N);
+        int n = shadowBuiltN;
+        FloatBuffer fb = Buffers.newDirectFloatBuffer(n * n);
         gl.glBindTexture(GL.GL_TEXTURE_2D, texShadow);
         gl.glGetTexImage(GL.GL_TEXTURE_2D, 0, GL4.GL_RED, GL.GL_FLOAT, fb);
         gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
-        float[] gpu = new float[SHADOW_N * SHADOW_N];
+        float[] gpu = new float[n * n];
         fb.get(gpu);
-        return compare(s, l, shadowRect, gpu);
+        return compare(s, l, shadowRect, gpu, n);
     }
 
     /**
@@ -476,14 +642,17 @@ public final class CloudGl {
      * kippt ein Schritt zwischen „trifft“ und „trifft nicht“, wenn die Grafikkarte linear mit wenigen Bits filtert;
      * darum zählen der Median und die Zahl der Ausreißer, nicht der größte Fehler.
      */
-    public static String compare(Clouds.Snapshot s, Light l, double[] rect, float[] gpu) {
+    public static String compare(Clouds.Snapshot s, Light l, double[] rect, float[] gpu) { return compare(s, l, rect, gpu, SHADOW_N); }
+
+    /** Seit LituyaBay1958 W7: wie {@link #compare(Clouds.Snapshot, Light, double[], float[])} für eine Karte mit n² Zellen. */
+    public static String compare(Clouds.Snapshot s, Light l, double[] rect, float[] gpu, int n) {
         double[] err = new double[64];
         double mean = 0;
         for (int k = 0; k < 64; k++) {
-            int i = (k * 37 + 11) % SHADOW_N, j = (k * 53 + 5) % SHADOW_N;
-            double x = rect[0] + (i + 0.5) / SHADOW_N * rect[2], z = rect[1] + (j + 0.5) / SHADOW_N * rect[2];
+            int i = (k * 37 + 11) % n, j = (k * 53 + 5) % n;
+            double x = rect[0] + (i + 0.5) / n * rect[2], z = rect[1] + (j + 0.5) / n * rect[2];
             double cpu = Clouds.shadow(s, x, z, norm(l.dir));
-            err[k] = Math.abs(cpu - gpu[j * SHADOW_N + i]);
+            err[k] = Math.abs(cpu - gpu[j * n + i]);
             mean += cpu;
         }
         java.util.Arrays.sort(err);
@@ -503,12 +672,9 @@ public final class CloudGl {
     public void dispose(GL4 gl) {
         if (!ready) return;
         for (int p : new int[]{progMarch, progPano, progResolve, progComposite, progShadow}) gl.glDeleteProgram(p);
-        gl.glDeleteTextures(4, new int[]{texBase, texDetail, texWeather, texShadow}, 0);
+        gl.glDeleteTextures(5, new int[]{texBase, texDetail, texWeather, texShadow, texOro}, 0);
         gl.glDeleteFramebuffers(1, new int[]{fboShadow}, 0);
-        if (fboCur != 0) {
-            gl.glDeleteFramebuffers(3, new int[]{fboCur, fboHist[0], fboHist[1]}, 0);
-            gl.glDeleteTextures(4, new int[]{texCur, texDist, texHist[0], texHist[1]}, 0);
-        }
+        for (Slot t : slots) if (t != null) free(gl, t);
         if (fboPano != 0) {
             gl.glDeleteFramebuffers(1, new int[]{fboPano}, 0);
             gl.glDeleteTextures(2, new int[]{texPanoCl, texPanoDist}, 0);

@@ -23,6 +23,7 @@ void main() {
     ivec2 lo = ivec2(gl_FragCoord.xy);
     ivec2 px = uScale > 1 ? min(lo * uScale + ivec2((uScale - 1) / 2), ivec2(uViewport) - 1) : lo;
     float d;
+    if (uGeomOnly == 1 && tfSkyPixel(px)) discard;
     frag = fogMarch(px, d);
     fragDist = d;
 }

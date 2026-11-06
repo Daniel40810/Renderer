@@ -343,6 +343,55 @@ public final class WeatherCheck {
             }
             check(gleich, "Szenario nach einem Sprung der Uhr zurück (seit Brocken Phase 16): alle Abschnitte bleiben, die Lagen folgen dem Szenario");
         }
+        // seit LituyaBay1958 W7: Wechsel ohne Sprung, Trägheit als Faktor, Nässe, Nullgradgrenze
+        {
+            double tw0 = at(10);
+            Scenario klar = new Scenario("klar", 10, 1, List.of(Scenario.Step.of(500, Weather.Phase.KLAR, "klar", "", Weather.Var.RAIN, 0.0, Weather.Var.COVER, 1.0)));
+            Scenario nass = new Scenario("Regen", 10, 1, List.of(Scenario.Step.of(500, Weather.Phase.FRONT, "Regen", "", Weather.Var.RAIN, 4.0, Weather.Var.COVER, 8.0)));
+            Weather a = new Weather();
+            a.start(klar, tw0);
+            Weather.Snapshot s0 = a.update(tw0, 0);
+            a.change(nass, tw0 + 60);
+            Weather.Snapshot s1 = a.update(tw0 + 120, 0.02);
+            boolean weich = s1.oktas() < 2.0 && s1.rain() < 0.5;
+            double c30 = a.update(tw0 + 1800, 0.02).oktas();
+            Weather b = new Weather();
+            b.inertia = 0.1;
+            b.start(klar, tw0);
+            b.update(tw0, 0);
+            b.change(nass, tw0 + 60);
+            double c30b = b.update(tw0 + 1800, 0.02).oktas();
+            check(weich && c30 < 6.5 && c30b > 7.5 && s0.wetness() < 0.01,
+                    f("Wechsel ohne Sprung: nach 1 min %.1f/8, nach 30 min %.1f/8; mit Trägheit 0,1 schon %.1f/8 (seit LituyaBay1958 W7)", s1.oktas(), c30, c30b));
+            double w1 = 0;
+            for (int mi = 1; mi <= 240; mi++) w1 = b.update(tw0 + 60 + mi * 60, 0.02).wetness();
+            b.change(klar, tw0 + 60 + 240 * 60);
+            double twr = tw0 + 60 + 240 * 60, w2 = 0, w3 = 0;
+            for (int mi = 1; mi <= 360; mi++) {
+                double ww = b.update(twr + mi * 60, 0.02).wetness();
+                if (mi == 30) w2 = ww;
+                if (mi == 360) w3 = ww;
+            }
+            check(w1 > 0.85 && w2 < w1 && w2 > 0.2 && w3 < 0.15, f("Nässe: nach 4 h Regen %.2f, eine halbe Stunde nach dem Regen %.2f, nach 6 h %.2f", w1, w2, w3));
+            Weather hw = new Weather();
+            hw.refHeight = 0;
+            hw.start(klar, tw0);
+            Weather.Snapshot sh = hw.update(tw0, 0);
+            double fl = sh.freezingLevel();
+            check(Math.abs(sh.temperatureAt(fl)) < 0.05 && fl > 1000 && fl < 4000 && Math.abs(sh.snowLevel() - (fl - 300)) < 1e-6,
+                    f("Nullgradgrenze %.0f m (%.2f °C dort), Schneefallgrenze %.0f m", fl, sh.temperatureAt(fl), sh.snowLevel()));
+            Weather u = new Weather();
+            u.start(klar, tw0);
+            u.update(tw0, 0);
+            u.change(klar, tw0 + 10);
+            Weather.Snapshot su = u.update(tw0 + 20, 0.02);
+            Weather v = new Weather();
+            v.start(klar, tw0);
+            v.update(tw0, 0);
+            Weather.Snapshot sv = v.update(tw0 + 20, 0.02);
+            check(Math.abs(su.wind() - sv.wind()) < 1e-6 && Math.abs(su.pressure() - sv.pressure()) < 1e-6,
+                    "Wechsel in dieselbe Lage ändert nichts; ohne inertia, change und Nässe bleibt alles wie bisher");
+        }
         lines.add(bad == 0 ? "Alles in Ordnung." : bad + " Fehler.");
         return lines;
     }
