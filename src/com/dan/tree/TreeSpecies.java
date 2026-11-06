@@ -119,7 +119,7 @@ public final class TreeSpecies {
 
     /** Netz einer Variante in Stufe 0..3; mit {@link #lods} die Datei der Stufe, sonst {@link TreeLod#of}. */
     public TreeMesh bake(int variant, int level) {
-        if (lods == null) return bake(variant, TreeLod.of(level));
+        if (lods == null) { TreeLod l = TreeLod.of(level); l.rootCut = rootCut; return bake(variant, l); }
         int have = lods[variant].length;
         TreeLod l = TreeLod.of(0);
         l.level = level;
@@ -128,8 +128,12 @@ public final class TreeSpecies {
             l.clusterCells = TreeLod.of(level).clusterCells;
             l.trunkOriginal = false;
         }
+        l.rootCut = rootCut;
         return TreeBaker.bake(load(variant, level), l);
     }
+
+    /** Seit LituyaBay1958 W6 Runde 4: {@link TreeLod#rootCut} für alle Stufen dieser Art (0 = wie bisher). Vor dem Backen setzen. */
+    public float rootCut = 0;
 
     @Override
     public String toString() {

@@ -16,6 +16,12 @@ public final class TreeLod {
     public float chainAngle = 12, chainLength = 2;
     /** Röhren nur bis zu dieser Ordnung (0 Stamm, 1 Hauptäste, …) */
     public int trunkMaxOrder = 99;
+    /**
+     * Seit LituyaBay1958 W6 Runde 4: Röhren am Fuß weglassen (m über dem Fuß, 0 = alle). Ein Stück, das ganz unter dieser
+     * Höhe liegt, fällt weg, ebenso eines, das am untersten Gelenk beginnt und flacher als 30° läuft. Die Gelenke am Fuß der
+     * PVE-Bäume (Wurzelanlauf, Radius bis 0,9 m) liegen waagerecht; als Röhren standen sie am Hang als Ringe in der Luft.
+     */
+    public float rootCut = 0;
     /** Bäume ohne Skelett (FBX): Stamm in Rasterzellen der Größe Höhe/clusterCells vereinfachen */
     public int clusterCells = 0;
 

@@ -55,6 +55,20 @@ public final class TreeGl {
         public double[] groundColor = {0.12, 0.11, 0.08};
         public double[] fogColor = {0.62, 0.70, 0.80};
         public double fogDistance = 1500;
+        /**
+         * Seit LituyaBay1958 W6 Runde 4, wie {@code com.dan.forest.gl.ForestGl.Light}, damit Bäume aus beiden Packages in
+         * einer Szene gleich hell stehen: Schattenkarte von oben (r = Durchlässigkeit, etwa Gelände oder Wolken; 0 = keine)
+         * mit Rechteck x, z, Kante (m); Sonnenschatten als Tiefentextur mit Vergleich (0 = keiner), Matrix Welt → Licht
+         * (Spalten) und Versatz; Himmel als Rundumbild für den Dunst (0 = keins, dann fogColor; Abbildung wie forest).
+         */
+        public int shadowTexture;
+        public double[] shadowRect = {0, 0, 1};
+        public int sunShadowTexture;
+        public float[] sunShadowMatrix;
+        public double sunShadowBias = 0.0015;
+        public int skyTexture;
+        /** Seit W6 Runde 4: Himmelslicht wie forest (unten in der Krone weniger); 0 = wie bisher (Halbkugel Himmel/Boden). */
+        public double skyWeight = 0;
     }
 
     /** Ein Baum: Variante, Fuß, Drehung (rad), Maßstab. */
@@ -365,6 +379,22 @@ public final class TreeGl {
         gl.glUniform4f(loc(gl, "uFog"), (float) light.fogColor[0], (float) light.fogColor[1], (float) light.fogColor[2], (float) light.fogDistance);
         gl.glUniform1f(loc(gl, "uExposure"), (float) view.exposure);
         gl.glUniform1i(loc(gl, "uTonemap"), view.tonemap ? 1 : 0);
+        // seit W6 Runde 4: Schatten von oben, Sonnenschatten, Himmel für den Dunst (Einheiten 2, 3, 4)
+        gl.glUniform1i(loc(gl, "uShadow"), 2);
+        gl.glUniform1i(loc(gl, "uSunShadow"), 3);
+        gl.glUniform1i(loc(gl, "uSky"), 4);
+        gl.glUniform4f(loc(gl, "uShadowRect"), (float) light.shadowRect[0], (float) light.shadowRect[1], (float) light.shadowRect[2], light.shadowTexture != 0 ? 1f : 0f);
+        gl.glUniform2f(loc(gl, "uSunShadowP"), light.sunShadowTexture != 0 && light.sunShadowMatrix != null ? 1f : 0f, (float) light.sunShadowBias);
+        if (light.sunShadowMatrix != null) gl.glUniformMatrix4fv(loc(gl, "uSunShadowM"), 1, false, light.sunShadowMatrix, 0);
+        gl.glUniform1i(loc(gl, "uSkyOn"), light.skyTexture != 0 ? 1 : 0);
+        gl.glUniform1f(loc(gl, "uSkyWeight"), (float) light.skyWeight);
+        gl.glActiveTexture(GL.GL_TEXTURE2);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, light.shadowTexture);
+        gl.glActiveTexture(GL.GL_TEXTURE3);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, light.sunShadowTexture);
+        gl.glActiveTexture(GL.GL_TEXTURE4);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, light.skyTexture);
+        gl.glActiveTexture(GL.GL_TEXTURE0);
         gl.glDisable(GL.GL_CULL_FACE);          // Blätter beidseitig, Röhren ohne Deckel
         long tris = 0;
         for (Slot[] row : slots)

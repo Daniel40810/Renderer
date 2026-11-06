@@ -37,6 +37,26 @@ public final class TreeCheck {
             bestanden += r[0];
             fehler += r[1];
         }
+        // seit LituyaBay1958 W6 Runde 4: rootCut nimmt die waagerechten Röhren am Fuß der Schwarzerle (Stufe 1)
+        if (arten.contains(Tree.art("schwarzerle"))) {
+            TreeCheck c = new TreeCheck();
+            float[] reach = new float[2];
+            int[] tris = new int[2];
+            for (int k = 0; k < 2; k++) {
+                TreeSpecies sp = com.dan.tree.blackalder.BlackAlder.species();
+                sp.rootCut = k == 0 ? 0 : 0.4f;
+                com.dan.tree.TreeMesh m = sp.bake(0, 1);
+                tris[k] = m.triangles;
+                for (int i = 0; i < m.vertices; i++) {
+                    int o = i * com.dan.tree.TreeMesh.STRIDE;
+                    if (m.v[o + 1] < 1 && m.v[o + com.dan.tree.TreeMesh.KIND] < 0.5f) reach[k] = Math.max(reach[k], (float) Math.hypot(m.v[o], m.v[o + 2]));
+                }
+            }
+            c.check(reach[1] < 0.5f && reach[0] > 0.8f && tris[0] - tris[1] < 200,
+                    String.format(java.util.Locale.GERMAN, "Schwarzerle, rootCut 0,4 m: Rinde unter 1 m reicht %.2f statt %.2f m vom Stamm (%d Dreiecke weniger)", reach[1], reach[0], tris[0] - tris[1]));
+            bestanden += c.passed;
+            fehler += c.failed;
+        }
         ende(bestanden, fehler);
     }
 
