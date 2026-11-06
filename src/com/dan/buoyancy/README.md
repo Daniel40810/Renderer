@@ -23,6 +23,22 @@ Alles, was auf dem Wasser schwimmt: Leuchttonnen an einem Fahrwasser und gelegen
 - **`BrashField`:** Treibeis als Feld (bedeckter Anteil je Zelle), treibt mit 3 % des Winds und der Strömung, schmilzt in Stunden, über Land keins. `gl/BrashGl` lädt es als Textur hoch.
 - **Prüfung** `demo/BergCheck`: Schwimmlage 90,0 %, eine stehende Platte 40 × 40 × 8 m kentert nach rund 20 s (Handrechnung BM 0,15 m < BG 2,0 m), Treiben mit 1,4 % des Winds, zwei Tage Schmelze, Stöße, Stranden, Treibeis, 200 Berge in 0,4 ms je Schritt. `BergCheck --bild datei.png` zeigt das Kentern von der Seite.
 
+## Schollen um das Auge (seit LituyaBay1958 W6 Runde 3)
+
+- **`Floes`:** Eisstücke als einzelne Körper um das Auge, aus einem Feld der Bedeckung (`Cover`, 0..1, etwa aus `BrashField` oder einer Formel der App) und dem Wasserspiegel (`Water`). Ein festes Gitter (`cell` 12 m) trägt je Zelle bis zu `slots` (6) Stücke. Ein Stück steht, wenn sein Wurf unter der Bedeckung an seinem Ort liegt. Durchmesser 1,2 bis 9 m mit vielen kleinen und wenigen großen (d = min + (max − min) · u^2,5), Höhe über Wasser 6 bis 16 % des Durchmessers, Neigung bis 9°, Drehung, Tönung, Phase, alles aus einem Hash über Zelle und Startwert [G]. Ein Stück bleibt an seinem Platz, wenn das Auge wandert. Ab `fadeFrom` · `radius` (70 % von 260 m) wird gewürfelt ausgedünnt; dahinter zeichnet die App das Eis flach (etwa im Shader des Wassers) und nimmt es innen mit `nearWeight(abstand)` zurück, so dass beides zusammen gleich viel deckt. `fill(x, z, cover, water)` würfelt neu, die Stücke liegen nach Form sortiert in `data` (12 Werte je Stück).
+- **`gl/FloeGl`:** vier Formen mit gebrochenem Umriss aus 11 Ecken: gewölbter Deckel mit unebenem Rand, schräge Kante, Seiten bis unter Wasser. Je Stück eine Instanz. Oben Schnee und altes Eis, an den Seiten blaues Gletschereis, an der Wasserlinie nass, gegen die Sonne blau durchscheinend, Dunst nach Entfernung. Die Stücke schaukeln leicht. Der **Schatten** fällt als Abbild von Deckel und Kante entlang der Sonne auf den Wasserspiegel (multiplizierend, ohne Tiefe zu schreiben, `Light.shadow` = Stärke, ab 4° Sonnenhöhe). Die Seiten unter Wasser verdeckt das Wasser.
+
+```java
+Floes eis = new Floes();
+eis.fill(auge[0], auge[2], (x, z) -> bedeckung(x, z), (x, z) -> pegel);   // wenn das Auge ein paar Meter gewandert ist
+floeGl.update(gl, eis);
+floeGl.draw(gl, view, light, sekunden);                                    // nach dem Wasser, mit dessen Tiefe
+```
+
+`BergCheck` prüft die Schollen: kein Stück ohne Eis oder hinter der Reichweite, alle auf dem Wasser und nach Form sortiert, innen ein plausibler Anteil bedeckt, gleicher Startwert ergibt gleiches Eis, Stücke bleiben beim Wandern, `nearWeight` von 0 bis 1.
+
+**Grenzen.** Die Stücke durchdringen sich, wo sie sich überlappen, und stoßen sich nicht (dafür `Bergs`). Der Schatten fällt nur auf den Wasserspiegel, nicht auf andere Stücke, und überlappende Schatten dunkeln doppelt. Die Seiten unter Wasser sieht man nur, wenn das Wasser keine Tiefe schreibt.
+
 ## Katamaran und mehr (seit Glacier Phase 10)
 
 - **`Catamaran`:** ein Ausflugskatamaran 26 × 9,2 m mit zwei Rümpfen (je 2,3 m breit, 6,9 m zwischen den Mitten), Tiefgang 1,4 m, 132 t, GM 5,8 m (die große Formstabilität eines Katamarans), Tauchen 3,1 s, Rollen 3,7 s. Fährt eine Route aus Wegpunkten mit eigener Fahrt je Punkt (`via(x, z, m/s)`), lenkt mit begrenzter Drehrate ein, wird in engen Kurven langsamer und treibt mit der Strömung aus `Sea.velocity` (die lange Welle eines Abbruchs schiebt ihn). `step(sea, dt)` rechnet alles, das Wasser wird alle 0,05 s abgefragt (`sampleInterval`). `moor` legt ihn fest, `start` legt ab. `eye(port)` und `pose(port)` geben das Auge eines Gasts auf dem Sonnendeck mit Kurs, Stampfen und Rollen; `motion()` Hub und Winkel seit dem Start.

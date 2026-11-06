@@ -18,7 +18,7 @@ public final class BergCheck {
     public static void main(String[] args) throws Exception {
         if (args.length > 1 && args[0].equals("--bild")) { bild(new java.io.File(args[1])); return; }
         long t0 = System.nanoTime();
-        floating(); capsize(); drift(); melt(); collide(); ground(); brash(); speed();
+        floating(); capsize(); drift(); melt(); collide(); ground(); brash(); floes(); speed();
         System.out.printf(Locale.GERMAN, "%d Prüfungen, %.1f s%n", all, (System.nanoTime() - t0) / 1e9);
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
         System.exit(bad == 0 ? 0 : 1);
@@ -229,6 +229,46 @@ public final class BergCheck {
         g.dispose();
         javax.imageio.ImageIO.write(img, "png", out);
         System.out.println("Bild: " + out.getPath() + " · " + b.describe(0));
+    }
+
+    /** Seit LituyaBay1958 W6 Runde 3: Schollen um das Auge aus einer Bedeckung (links 0,6, rechts von x = 0 kein Eis). */
+    static void floes() {
+        com.dan.buoyancy.Floes f = new com.dan.buoyancy.Floes();
+        com.dan.buoyancy.Floes.Cover cov = (x, z) -> x < 0 ? 0.6 : 0;
+        com.dan.buoyancy.Floes.Water wat = (x, z) -> 2.5;
+        int n = f.fill(-30, 10, cov, wat);
+        int rechts = 0, fern = 0, falschY = 0, sort = 0;
+        double area = 0, hmax = 0;
+        for (int v = 0; v < com.dan.buoyancy.Floes.VARIANTS; v++)
+            for (int k = f.start[v]; k < f.start[v] + f.count[v]; k++) {
+                int q = k * com.dan.buoyancy.Floes.STRIDE;
+                float[] d = f.data;
+                if (d[q] >= 0) rechts++;
+                if (Math.hypot(d[q] + 30, d[q + 2] - 10) > f.radius) fern++;
+                if (d[q + 1] != 2.5f) falschY++;
+                if ((int) d[q + 9] != v) sort++;
+                if (Math.hypot(d[q] + 30, d[q + 2] - 10) < f.radius * f.fadeFrom) area += 0.55 * d[q + 4] * d[q + 4];
+                hmax = Math.max(hmax, d[q + 5] / d[q + 4]);
+            }
+        double inner = Math.PI * Math.pow(f.radius * f.fadeFrom, 2) / 2;   // die linke Hälfte des inneren Kreises
+        com.dan.buoyancy.Floes g = new com.dan.buoyancy.Floes();
+        int n2 = g.fill(-30, 10, cov, wat);
+        boolean gleich = n2 == n && java.util.Arrays.equals(java.util.Arrays.copyOf(f.data, n * 12), java.util.Arrays.copyOf(g.data, n2 * 12));
+        // ein Stück bleibt an seinem Platz, wenn das Auge 20 m wandert (innen)
+        g.fill(-50, 10, cov, wat);
+        java.util.Set<Long> a = new java.util.HashSet<>(), b = new java.util.HashSet<>();
+        for (int k = 0; k < n; k++) if (Math.hypot(f.data[12 * k] + 30, f.data[12 * k + 2] - 10) < 100) a.add(Float.floatToIntBits(f.data[12 * k]) * 31L + Float.floatToIntBits(f.data[12 * k + 2]));
+        for (int k = 0; k < g.total; k++) b.add(Float.floatToIntBits(g.data[12 * k]) * 31L + Float.floatToIntBits(g.data[12 * k + 2]));
+        boolean bleibt = b.containsAll(a) && !a.isEmpty();
+        float[] o = com.dan.buoyancy.Floes.outline(2, 9);
+        double rmin = 9, rmax = 0;
+        for (int i = 0; i < 9; i++) { double r = Math.hypot(o[2 * i], o[2 * i + 1]); rmin = Math.min(rmin, r); rmax = Math.max(rmax, r); }
+        check(n > 500 && rechts == 0 && fern == 0 && falschY == 0 && sort == 0, String.format(Locale.GERMAN,
+                "Schollen: %,d Stücke, keins ohne Eis (%d), keins hinter der Reichweite (%d), auf dem Wasser (%d), nach Form sortiert (%d)", n, rechts, fern, falschY, sort));
+        check(area / inner > 0.15 && area / inner < 0.8 && hmax <= f.freeboardMax + 1e-6, String.format(Locale.GERMAN,
+                "Schollen: innen %.0f %% der Fläche bedeckt (Bedeckung 60 %%, Stücke überlappen), höchstens %.2f des Durchmessers über Wasser", 100 * area / inner, hmax));
+        check(gleich && bleibt && rmin >= 0.26 - 1e-6 && rmax <= 0.5 + 1e-6, "Schollen: gleicher Startwert, gleiches Eis; Stücke bleiben, wenn das Auge wandert; Umriss 0,26 bis 0,5");
+        check(f.nearWeight(0) == 0 && f.nearWeight(f.radius) == 1 && f.nearWeight(f.radius * 0.85) > 0.3 && f.nearWeight(f.radius * 0.85) < 0.7, "Schollen: flaches Eis der App innen 0, ab der Reichweite 1");
     }
 
     static void check(boolean c, String what) {

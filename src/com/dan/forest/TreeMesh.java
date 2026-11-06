@@ -40,8 +40,16 @@ public final class TreeMesh {
      * feiner als lod): etwa Blätter der Stufe 1 an Ästen der Stufe 2 für viele Laubbäume in mittlerer
      * Entfernung. Blätter an weggelassenen Zweigen bleiben an ihrem Ort.
      */
-    public static TreeMesh build(TreeModel m, int lod, int barkLod) {
+    public static TreeMesh build(TreeModel m, int lod, int barkLod) { return build(m, lod, barkLod, false); }
+
+    /**
+     * Wie {@link #build(TreeModel, int, int)}; mit fine zeigen Nadelbäume in Stufe 0 statt der zwei gekreuzten
+     * Streifen je Bürste drei Kämme mit einzelnen Nadelbüscheln, die nach vorn und leicht nach unten stehen (seit
+     * LituyaBay1958 W6 Runde 3, für Bäume aus der Nähe). Rund siebenmal so viele Dreiecke im Laub der Stufe 0, im ganzen Netz zwei- bis viereinhalbmal.
+     */
+    public static TreeMesh build(TreeModel m, int lod, int barkLod, boolean fine) {
         TreeMesh t = new TreeMesh(m, lod);
+        t.fine = fine && lod == 0;
         if (lod >= 3) return silhouette(m, 6, 7);
         barkLod = Math.max(lod, Math.min(2, barkLod));
         Species sp = m.species;
@@ -181,6 +189,7 @@ public final class TreeMesh {
         float wl = (float) Math.sqrt(wx * wx + wy * wy + wz * wz) + 1e-9f;
         wx /= wl; wy /= wl; wz /= wl;
         float[] c = sp.summer;
+        if (sp.leaf == Species.Leaf.NEEDLES && fine) { needleComb(l, li, bone, s, L, wx, wy, wz); return; }
         if (sp.leaf == Species.Leaf.NEEDLES) {
             // Flaschenbürste: zwei gekreuzte Streifen entlang des Zweigs, Nadeln stehen seitlich ab
             float half = L * 0.5f, reach = L * 0.55f;
@@ -220,6 +229,42 @@ public final class TreeMesh {
             vertex(px, py, pz, nx + (ca * dx + sa * wx) * 0.35f, ny + 0.2f, nz + (ca * dz + sa * wz) * 0.35f, c[0] * lit, c[1] * lit, c[2] * lit, bone, s, li, LEAF);
         }
         for (int k = 0; k < m; k++) triangle(center, first + k, first + (k + 1) % m, true);
+    }
+
+    private boolean fine;
+
+    /**
+     * Feine Bürste: drei Kämme im Winkel von 60° um den Trieb. Je Kamm und Seite K Zähne; ein Zahn ist ein Büschel
+     * Nadeln (Dreieck vom Trieb nach außen), nach vorn zur Triebspitze geneigt und außen leicht hängend. Innen dunkel,
+     * außen hell. Zwischen den Zähnen bleibt Luft, die dunklen Ballen dahinter füllen die Krone.
+     */
+    private void needleComb(TreeModel.LeafSpot l, int li, int bone, float s, float L, float wx, float wy, float wz) {
+        float dx = l.dx, dy = l.dy, dz = l.dz, nx = l.nx, ny = l.ny, nz = l.nz;
+        float[] c = model.species.summer;
+        final int K = 5;
+        float half = L * 0.5f, reach = L * 0.62f;
+        for (int k = 0; k < 3; k++) {
+            double a = k * Math.PI / 3 + l.phase * 0.3;
+            float ca = (float) Math.cos(a), sa = (float) Math.sin(a);
+            float sx = wx * ca + nx * sa, sy = wy * ca + ny * sa, sz = wz * ca + nz * sa;
+            for (int side = -1; side <= 1; side += 2) {
+                for (int q = 0; q < K; q++) {
+                    float u0 = -half + L * q / K, u1 = -half + L * (q + 1) / K;
+                    // zur Spitze hin kürzer (der Trieb läuft spitz aus)
+                    float taper = 1 - 0.45f * (q + 0.5f) / K;
+                    float r = reach * taper * (0.85f + 0.3f * Noise2.value(q * 1.7f + k, l.phase * 5 + side));
+                    float fwd = L * 0.5f / K + r * 0.35f, droop = r * 0.18f;
+                    float bx = l.x + dx * u0, by = l.y + dy * u0, bz = l.z + dz * u0;
+                    float ex = l.x + dx * u1, ey = l.y + dy * u1, ez = l.z + dz * u1;
+                    float tx = l.x + dx * (u0 + fwd) + sx * side * r, ty = l.y + dy * (u0 + fwd) + sy * side * r - droop,
+                            tz = l.z + dz * (u0 + fwd) + sz * side * r;
+                    int va = vertex(bx, by, bz, nx, ny, nz, c[0] * 0.75f, c[1] * 0.75f, c[2] * 0.75f, bone, s, li, NEEDLES);
+                    int vb = vertex(ex, ey, ez, nx, ny, nz, c[0] * 0.8f, c[1] * 0.8f, c[2] * 0.8f, bone, s, li, NEEDLES);
+                    int vt = vertex(tx, ty, tz, nx + sx * side * 0.4f, ny + sy * side * 0.4f + 0.15f, nz + sz * side * 0.4f, c[0] * 1.12f, c[1] * 1.12f, c[2] * 1.12f, bone, s, li, NEEDLES);
+                    triangle(va, vb, vt, true);
+                }
+            }
+        }
     }
 
     /** Zapfen: schlanke Doppelpyramide mit sechs Seiten entlang seiner Richtung. */

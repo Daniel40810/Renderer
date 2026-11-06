@@ -27,6 +27,8 @@ uniform usampler2D uStates;
 uniform ivec4 uStRect;       // i0, j0, w, h
 uniform int uStOn;
 uniform float uYaw[16], uYawSpread[16], uYawOn[16], uSize[16];
+uniform float uNear[16];     // Nahschnitt je Art (m, 0 = keiner): näher stehende Bäume zeichnet die App selbst
+uniform float uNearBand;     // Breite des gewürfelten Übergangs (m)
 
 uint pcg(uint v) {
     uint s = v * 747796405u + 2891336453u;
@@ -127,6 +129,9 @@ void main() {
     float dx = x - uEye.x, dy = y + 8.0 - uEye.y, dz = z - uEye.z;
     float dist = sqrt(dx * dx + dy * dy + dz * dz);
     if (dist > uRange.x) return;
+    // Nahschnitt (seit LituyaBay1958 W6 Runde 3): stehende Bäume näher als der Schnitt fallen weg, im Band gewürfelt
+    // mit u01(h, 10) wie ForestGpu.nearTrees, das genau diese Bäume liefert
+    if (st == 0 && uNear[s] > 0.0 && dist < uNear[s] + uNearBand * (u01(h, 10u) - 0.5)) return;
     float widen = 1.0;
     float thin0 = uRange.x * uRange.y;
     if (dist > thin0) {

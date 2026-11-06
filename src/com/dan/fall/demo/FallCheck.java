@@ -200,6 +200,26 @@ public final class FallCheck {
         check(lo.bundles.size() < f.bundles.size() && lo.strands.size() <= f.strands.size(), "Niedrig: weniger Bündel und Strähnen");
         String sv = FallGl.source("veil.vert"), ss = FallGl.source("strand.frag");
         check(sv.contains("vec4 fallParcel(") && ss.contains("fallFinish(") && !sv.contains("#include"), "Shader mit eingesetztem Baustein fall.glsl");
+        // seit LituyaBay1958 W6 Runde 3: FallFinder auf einem Hang mit einer Stufe (Wand 40 m, 70°) und einer flachen Rampe
+        com.dan.fall.FallFinder ff = new com.dan.fall.FallFinder();
+        ff.ground = (x, z) -> {
+            double h = 200 - 0.15 * z;                         // Hang nach Süden (+z), 8,5°
+            if (z > 100) h -= Math.min(40, (z - 100) * Math.tan(Math.toRadians(70)));   // Stufe bei z = 100
+            return h;
+        };
+        java.util.List<com.dan.fall.FallFinder.Stream> st = java.util.List.of(
+                new com.dan.fall.FallFinder.Stream("Bach", new double[]{0, 0, 0, 300}, 0.8),
+                new com.dan.fall.FallFinder.Stream("Rinnsal", new double[]{200, 0, 200, 300}, 0.01),
+                new com.dan.fall.FallFinder.Stream("Nah", new double[]{30, 0, 30, 300}, 0.8));
+        java.util.List<com.dan.fall.FallFinder.Candidate> kk = ff.find(st);
+        check(kk.size() == 1 && Math.abs(kk.get(0).z() - 95) < 8 && kk.get(0).drop() > 38 && kk.get(0).dz() > 0.99 && "Bach".equals(kk.get(0).name()),
+                "FallFinder: ein Fall an der Stufe (" + kk.size() + ", Kante bei z = " + (kk.isEmpty() ? "–" : String.format(java.util.Locale.GERMAN, "%.0f m, %.0f m hoch", kk.get(0).z(), kk.get(0).drop())) + "), Rinnsal zu klein, der Nachbar in 30 m fällt weg");
+        ff.accept = (x, y, z) -> x > 10;
+        java.util.List<com.dan.fall.FallFinder.Candidate> k2 = ff.find(st);
+        check(k2.size() == 1 && "Nah".equals(k2.get(0).name()) && ff.rejected == 1, "FallFinder: Filter verwirft die Kante, der Nachbar rückt nach");
+        java.util.List<Fall> fs = ff.toFalls(kk, 7, x -> x.quality = Fall.Quality.LOW);
+        check(fs.size() == 1 && fs.get(0).strands.size() > 0 && Math.abs(fs.get(0).headingDeg - 180) < 1 && fs.get(0).quality == Fall.Quality.LOW,
+                "FallFinder: fertiger Fall mit Strähnen, Abfluss nach Süden");
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Fehler.");
         System.exit(bad == 0 ? 0 : 1);
     }

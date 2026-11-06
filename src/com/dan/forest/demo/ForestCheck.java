@@ -43,6 +43,15 @@ public final class ForestCheck {
                 check(s.name + " Stufe " + l + ": weniger Dreiecke als die Stufe davor", t.nt < prevTris);
                 prevTris = t.nt;
             }
+            if (s.leaf == Species.Leaf.NEEDLES) {
+                // seit LituyaBay1958 W6 Runde 3: feine Bürsten in Stufe 0
+                TreeMesh g = TreeMesh.build(m1, 0), fn = TreeMesh.build(m1, 0, 0, true);
+                boolean ok = m1.leaves.isEmpty() ? fn.nt == g.nt : fn.nt > g.nt * 1.5;   // ohne Nadeln (Schaden) gleich
+                for (int i = 0; ok && i < 3 * fn.nv; i++) ok = Float.isFinite(fn.pos[i]) && Float.isFinite(fn.nrm[i]);
+                for (int i = 0; ok && i < 3 * fn.nt; i++) ok = fn.tri[i] >= 0 && fn.tri[i] < fn.nv;
+                check(s.name + ": feine Nadeln in Stufe 0 gültig (" + fn.nt + " statt " + g.nt + " Dreiecke), Stufe 1 unverändert",
+                        ok && TreeMesh.build(m1, 1, 1, true).nt == TreeMesh.build(m1, 1).nt);
+            }
             // Wind: ohne Wind still, mit Wind bewegt sich die Spitze deutlich, der Fuß kaum
             TreeMesh t = TreeMesh.build(m1, 1);
             TreeAnimator an = new TreeAnimator(t);
