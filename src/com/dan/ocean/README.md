@@ -167,3 +167,7 @@ light.kielRect1 = wakeGl.rect(1);
 - `Light.detailMask`, `detailMaskRect`: Karte 0 … 1, wo es regnet; Störung und Facetten nur dort (ferne Ringe nicht unter trockenem Himmel).
 - **Facetten an den Einschlägen:** Die Wahrscheinlichkeit einer Facette folgt der Stärke des aufgelösten Felds am Ort (0,25 + 0,75 · |∇h|² / Mittel, bis 4-fach), die Stärke je Facette bleibt: Die verborgene Varianz sammelt sich an den jungen Einschlägen und ihren inneren Ringen, im Mittel unverändert; wo das Feld ausgeblendet ist, gleich verteilt.
 - Planare Spiegelung: knapp außerhalb des Bilds am Rand greifen statt ausblenden (kein heller Streifen am Bildrand).
+
+## Gletschermilch (seit LituyaBay1958 W2, herausgezogen am 07.11.2026)
+
+`GlacialMilk`: Gesteinsmehl aus Gletscherbächen und kalbenden Fronten (Schluff, rund 1–10 µm) bleibt lange im Wasser schweben und streut grünlich-türkis zurück. Anteil 0..1 je Ort aus einem Grundton (`base`) und Quellen (`add(x, z, Reichweite, Stärke)`, Beitrag s · e<sup>−r²/L²</sup>, höchstens vier), zusammen begrenzt auf 1 [G]; Streulicht = Farbe (0,10 / 0,20 / 0,18) · Bestrahlung von oben · k (0,11) · Anteil · (1 − F). In Shadern `#include "/com/dan/ocean/gl/milk.glsl"`: `oceanMilk(xz)`, `oceanMilkLight(xz, eDown, F)`; Uniforms `MilkGl.bind(gl, programm, milch)`. In LituyaBay1958: Grundton 0,35, Gilbert Inlet (5,5 km, 1) und Crillon Inlet (4,5 km, 0,8). `OceanCheck` prüft Quelle, Grundton, Farbe und klares Wasser.

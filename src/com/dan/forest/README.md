@@ -401,3 +401,17 @@ wald.terrainChanged(x0, z0, x1, z1);                   // … und nur dieses St�
 **Prüfung.** `ForestCheck`: minGround 1 m nimmt an einem Hang von −20 bis +20 m genau die Bäume auf tieferem Grund (21 000 von 40 000), die übrigen bleiben gleich. `forestgpu_cull.comp` mit Mesa übersetzt.
 
 **Grenze.** Das Bodengitter muss das Gelände sein, das die App zeichnet. forest kann das nicht prüfen; in Lituya stand der Wald auf IfSAR (5 m), das nahe Gelände kam aus dem Lidar (0,5 m), unter Wald im Median 4,9 m tiefer.
+
+## Fallende Bäume (seit LituyaBay1958 W5 „524 m“, herausgezogen am 07.11.2026)
+
+`TreeFall` und `gl/TreeFallGl` [G]: in den Sekunden um die Ankunft einer Wasserzunge (Lawine, Druckwelle) nimmt die App einen Baum aus `ForestGpu` (dort für die Zeit `GONE`) und reicht ihn mit `TreeFallGl.set` weiter; gezeichnet wird derselbe Baum (Typ, Ort, Drehung, Größe aus `ForestCulture`) mit seinem Netz, aber gekippt:
+
+| Folge | Bewegung |
+|---|---|
+| alle | Luftstoß 0,6 s vor der Ankunft: einige Grad, oben mehr, zittert |
+| `FELLED` umgelegt | kippt um den Fuß in Laufrichtung, u²(1,7 − 0,7u) über die Falldauer T = (0,8 s + 0,022 s/m · H) · (0,85…1,15), bis er auf dem Hang liegt (90° minus Neigung, 0,5…1,9 rad); Krone peitscht, Stamm federt; Krone reißt ab, Wurzelteller hebt sich; bleibt liegen |
+| `GONE` fort | wie umgelegt, dann treibt der Stamm mit 8–16 m/s (abklingend über 2,2 s) und sinkt bis 12 m |
+| `BROKEN` gebrochen | bricht in 15–45 % der Höhe, die Spitze kippt, der Stumpf bleibt (danach forest) |
+| `STRIPPED` entrindet | schwingt aus (2,6 rad/s, Dämpfung 0,7/s), die Krone zerfällt und geht mit dem Wasser fort |
+
+Stufen: nah (bis 150 m, höchstens 120 Bäume) die mittlere Stufe mit gelichtetem Laub, dann die Silhouette (10 Seiten, 12 Ringe), ab 1,5 km ein Kegel (18 Dreiecke), liegende Stämme als geschälter Stab; bis 3 km. Licht über den Vertrag in `treefall_light.glsl` (`lightSun`, `lightSky`, `lightAerial`); Vorgabe `ForestGl.Light`, ein Wirt ersetzt ihn mit `hostLight` und `hostUniforms` (LituyaBay1958: Sonne am Punkt mit Bergschatten). `TreeFall.fallTime`, `restAngle`, `breakHeight`, `drift`, `duration`, `tilt`, `put` (16 Werte je Baum). `ForestCheck` prüft Falldauer, Winkel am Hang, Kippen, Dauer je Folge und die Werte; die Shader wurden mit Mesa gegen die Fassung in Lituya geprüft.

@@ -90,3 +90,7 @@ Phase 4 von LituyaBay1958 (Werkbuch 5.11). Geplant: virtuelle Textur für Materi
 - Bei Höhen über 4 000 m und Blick zur Kimm zeichnet die gröbste Stufe mit 2 048 m Zellweite. Die Berge in 200 km Entfernung sind dann nur grob.
 - Die Höhe liegt in float im Shader. Zellweiten ab 0,5 m und Abstände bis 260 km bleiben genau (Ganzzahlen bis 2²⁴).
 - In GLSL ist `%` mit negativen Zahlen undefiniert. Der Baustein rechnet den Rest deshalb selbst (`clipMod`; Befund Phase 4: auf Mesa waren die Zeilen verschoben).
+
+## Mitte beim Tele (seit LituyaBay1958 W5, K15; herausgezogen am 07.11.2026)
+
+`Clipmap.focusCenter(augeX, augeZ, ziel, bildwinkel°)`: die Ringe liegen um ihre Mitte, und die Mitte war das Auge; mit 135 mm stand ein Hang in 2 km als Vieleck mit großen Facetten im Bild. Ab einem Bildwinkel von 27° (rund 50 mm auf 24 mm Bildhöhe) wandert die Mitte zum Zielpunkt der Bildmitte, voll ab 16° (rund 85 mm), höchstens 6 km weit; ohne Zielpunkt bleibt sie am Auge. Die App gibt das Ergebnis an `auge(x, z)`.

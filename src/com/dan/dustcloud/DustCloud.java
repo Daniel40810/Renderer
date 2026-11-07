@@ -385,6 +385,9 @@ public final class DustCloud {
         return i < 0 || j < 0 || i >= nx || j >= nz ? -1 : id(i, j);
     }
 
+    /** Grund unter der Zelle (m über dem Bezug; über Wasser der Spiegel), NaN außerhalb (für die Darstellung in gl/). */
+    public double ground(double x, double z) { int c = cell(x, z); return c < 0 ? Double.NaN : b[c]; }
+
     /** Mächtigkeit der Wolke (m), 0 außerhalb. */
     public double thickness(double x, double z) { int c = cell(x, z); return c < 0 ? 0 : h[c]; }
 

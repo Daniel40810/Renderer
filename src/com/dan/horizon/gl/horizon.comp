@@ -1,0 +1,43 @@
+// horizon.comp — com.dan.horizon (LituyaBay1958, Werkbuch Welle W1, L2): Horizontkarte. Je Bodenpunkt des Zielgitters der
+// höchste Winkel des Geländes in Richtung des Sonnen-Azimuts (Radiant über der Waagerechten), mit Erdkrümmung und
+// Strahlenbrechung (wirksamer Erdradius uR), und mindestens die Kimm des Meers aus der Höhe des Punkts. Höhen aus zwei
+// Gittern: fein über den Kern, grob über die Szene, dahinter Meer (uSea). Ausgabe: r = Horizontwinkel, g = Höhe des Bodens.
+// Ob ein Punkt Sonne hat, entscheidet horizon.glsl aus der Sonnenhöhe; die Karte gilt für jede Sonnenhöhe bei diesem Azimut.
+// Gleiche Rechnung wie Horizon.angle (Kern, ohne Grafikkarte).
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(rg32f, binding = 0) writeonly uniform image2D uOut;
+uniform sampler2D uHeightF, uHeightG;
+uniform vec4 uFine, uCoarse;   // x0, z0, Kante
+uniform vec4 uTarget;          // x0, z0, Kante, Zellen je Kante
+uniform vec2 uDir;             // waagerechte Richtung zur Sonne (x, z)
+uniform float uR;
+uniform float uSea;            // Höhe des Meers außerhalb der Gitter
+uniform vec4 uSearch;          // erster Schritt (Zellen), Wachstum, größte Entfernung (m), größte Zahl der Schritte
+
+float hzHeight(vec2 p) {
+    vec2 uf = (p - uFine.xy) / uFine.z;
+    if (all(greaterThanEqual(uf, vec2(0.0))) && all(lessThanEqual(uf, vec2(1.0)))) return textureLod(uHeightF, uf, 0.0).r;
+    vec2 ug = (p - uCoarse.xy) / uCoarse.z;
+    if (all(greaterThanEqual(ug, vec2(0.0))) && all(lessThanEqual(ug, vec2(1.0)))) return textureLod(uHeightG, ug, 0.0).r;
+    return uSea;
+}
+
+void main() {
+    ivec2 ij = ivec2(gl_GlobalInvocationID.xy);
+    int n = int(uTarget.w);
+    if (ij.x >= n || ij.y >= n) return;
+    float c = uTarget.z / uTarget.w;
+    vec2 p = uTarget.xy + (vec2(ij) + 0.5) * c;
+    float h0 = hzHeight(p);
+    // Kimm des Meers aus der Höhe h0 (Winkel unter der Waagerechten)
+    float best = -sqrt(2.0 * max(h0 - uSea, 0.0) / uR);
+    float d = c * uSearch.x, maxD = uSearch.z;
+    int maxK = int(uSearch.w);
+    for (int k = 0; k < maxK && d < maxD; k++) {
+        float h = hzHeight(p + uDir * d);
+        float a = (h - h0 - d * d / (2.0 * uR)) / d;
+        best = max(best, a);
+        d += max(c * uSearch.x, d * uSearch.y);
+    }
+    imageStore(uOut, ij, vec4(atan(best), h0, 0.0, 0.0));
+}

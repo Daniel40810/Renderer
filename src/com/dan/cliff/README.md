@@ -133,3 +133,16 @@ gl.drawSods(gl4, kliff, view, light);
 
 **Seit W6 Runde 6 auch Granit und Lockergestein.** Granit: Flecken 3 und 0,9 m; die Wollsäcke rechnen in der Ferne nicht mehr (Band 0: gleich das Mittel 0,79, ohne Abrufe, gleiches Ergebnis wie vorher). Lockergestein: wellige Grenzen der Schichten (9 m), Flecken des Lehms (4 und 1,1 m), Runsen (Abstand), Rieselzungen (1,1 m), Sickerstreifen (2,2 m), Gras (0,4 m); Mittel `GULLY_MEAN` 0,187, `TONGUE_MEAN` 0,097, `SEEP_LOCKER_MEAN` 0,192. Die Schichten selbst bleiben in jeder Entfernung (sie sind die große Form). `CliffCheck.fern2`: nah gleich, bei 60 m je Bildpunkt Granit Streuung 0,0002 statt 0,027, Lockergestein 0,038 statt 0,039 (die Schichten), Mittel nachgemessen. Grafikkarte = Prozessor mit Mesa für Gneis, Granit und Lockergestein (Farbe ± 0,16 % bei 5 cm, ± 0,01 % bei 2 und 60 m).
 
+
+## Abgeschürfter Hang (seit LituyaBay1958 W3b, W3c, W5; herausgezogen am 07.11.2026)
+
+`gl/scour.glsl`, ein Baustein für Geländeshader eines Wirts, ohne Uniforms [G]: der Hang, den eine Welle, eine Lawine oder ein Felssturz abgeschürft hat. Großform, die auch aus Kilometern trägt: Flecken von Fels und Schutt (150 m, 45 m), Rinnen in der Falllinie (quer 6 und 22 m, längs 55 und 170 m) mit leicht geneigter Normale, Bänke im Fels quer zum Hang (rund 9 m), Blöcke von 4 m und 1,2 m mit dunklen Fugen (Voronoi), in der Ferne gemittelt; frisch hell, verwittert dunkler; Kies am Ufer. Dazu die Nässe (dunkler, in den Rinnen zuerst, Schlamm bräunlich) und geschälte Stämme kreuz und quer um die Falllinie, fern als Teppich aus Holz in Haufen (Fotos von 1958).
+
+```glsl
+#include "/com/dan/cliff/gl/scour.glsl"
+CliffScour s = cliffScour(p, n, px, pyx, fels, kies, frisch);      // Farbe, Normale, Rinne, Anteil Fels
+vec3 c = s.color;  n = s.normal;
+// hier kann der Wirt in der Nähe das Muster seiner Texturen auf c ziehen (Lituya: com.dan.surface)
+c = cliffScourWet(c, s.gully, nass);
+c = cliffScourLogs(c, p, n, px, frisch, dichte);
+```

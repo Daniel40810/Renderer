@@ -107,6 +107,24 @@ public final class DustcloudCheck {
         System.out.println(fmt("  HINWEIS %s: %d Schritte für %.0f s in %.1f s Rechnung (%.0f ns je Zelle und Schritt)", hang.describe(), hang.steps(), hang.time(), hang.busyMs() / 1000,
                 hang.busyMs() * 1e6 / (hang.steps() * (double) hang.nx * hang.nz)));
         System.out.println(fmt("%d Prüfungen, %.1f s", all, (System.nanoTime() - t0) / 1e9));
+        // seit LituyaBay1958 W3c (herausgezogen 07.11.2026): Staubfahne und Rauschen für den Strahlengang
+        System.out.println("Fahne und Rauschen");
+        {
+            com.dan.dustcloud.Plume f = new com.dan.dustcloud.Plume(0, 0, 300);
+            double t10 = f.top(10), t60 = f.top(60), t900 = f.top(900);
+            check(Math.abs(t10 - 1200 * (1 - Math.exp(-10 * 38 / 1200.0))) < 1e-9 && t10 > 300 && t60 > 0.8 * 1200 && t900 > 0.999 * 1200,
+                    fmt("Fahne: Kopf nach 10 s %.0f m (anfangs 38 m/s), nach 60 s %.0f m, am Ende %.0f m", t10, t60, t900));
+            check(f.active(30) && !f.active(-1) && !f.active(901), "Fahne lebt 0 bis 900 s");
+            double mitte = f.envelope(0, 400, 0, 120), rand = f.envelope(600, 400, 0, 120), hoch = f.envelope(0, 1500, 0, 120);
+            check(mitte > 0.99 && rand < 1e-9 && hoch < 1e-9, fmt("Hülle: Achse %.2f, 600 m daneben %.2f, über dem Kopf %.2f", mitte, rand, hoch));
+            f.windTo = new double[]{1, 0};
+            double lee = f.envelope(80, 800, 0, 120), luv = f.envelope(-80, 800, 0, 120);
+            check(lee > luv, fmt("die Achse neigt sich in den Wind: 800 m hoch im Lee %.2f, im Luv %.2f", lee, luv));
+            byte[] n1 = com.dan.dustcloud.Noise.tile(64, 1958), n2 = com.dan.dustcloud.Noise.tile(64, 1958);
+            int lo = 255, hi = 0;
+            for (byte x : n1) { lo = Math.min(lo, x & 255); hi = Math.max(hi, x & 255); }
+            check(java.util.Arrays.equals(n1, n2) && lo == 0 && hi == 255, "Rauschen 64³: gleich bei gleichem Samen, gestreckt auf 0..255");
+        }
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
         System.exit(bad == 0 ? 0 : 1);
     }

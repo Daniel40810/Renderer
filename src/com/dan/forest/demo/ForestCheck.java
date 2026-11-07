@@ -266,6 +266,23 @@ public final class ForestCheck {
         lituya();
         rinde();
         schwebe();
+        // seit LituyaBay1958 W5 (herausgezogen 07.11.2026): fallende Bäume
+        {
+            double t20 = com.dan.forest.TreeFall.fallTime(20, 0.5), t50 = com.dan.forest.TreeFall.fallTime(50, 0.5);
+            check(String.format(java.util.Locale.GERMAN, "Bäume fallen: 20 m in %.2f s, 50 m in %.2f s (länger mit der Höhe)", t20, t50), t50 > t20 && Math.abs(t50 - 1.9) < 0.05);
+            double flach = com.dan.forest.TreeFall.restAngle(0, 12), hangab = com.dan.forest.TreeFall.restAngle(-12, 12), hangauf = com.dan.forest.TreeFall.restAngle(12, 12);
+            check(String.format(java.util.Locale.GERMAN, "liegt auf dem Hang: eben %.0f°, hangab %.0f°, hangauf %.0f°", Math.toDegrees(flach), Math.toDegrees(hangab), Math.toDegrees(hangauf)),
+                    Math.abs(flach - Math.PI / 2) < 1e-12 && Math.abs(Math.toDegrees(hangauf) - 45) < 1e-9 && hangab > flach);
+            double vorher = com.dan.forest.TreeFall.tilt(-0.3, 2, 1.5), halb = com.dan.forest.TreeFall.tilt(1, 2, 1.5), ende = com.dan.forest.TreeFall.tilt(2, 2, 1.5);
+            check(String.format(java.util.Locale.GERMAN, "Kippen: Luftstoß vorher %.3f rad, zur halben Zeit %.2f, am Ende %.2f rad (erst langsam, dann schnell)", vorher, halb, ende),
+                    vorher > 0 && vorher < 0.05 && halb < 0.5 * 1.5 && Math.abs(ende - 1.5) < 1e-12);
+            check("Dauer je Folge: gebrochen T + 0,6 s, entrindet 3,5 s, umgelegt bleibt liegen, fort T + 6 s",
+                    com.dan.forest.TreeFall.duration(TreeStates.BROKEN, 2) == 2.6 && com.dan.forest.TreeFall.duration(TreeStates.STRIPPED, 2) == 3.5
+                    && com.dan.forest.TreeFall.duration(TreeStates.FELLED, 2) > 1e8 && com.dan.forest.TreeFall.duration(TreeStates.GONE, 2) == 8 && com.dan.forest.TreeFall.duration(TreeStates.STANDING, 2) == 0);
+            float[] o = new float[com.dan.forest.TreeFall.FL];
+            com.dan.forest.TreeFall.put(o, 0, 1, 2, 3, 0.5f, 1.1f, 0.3f, 130, 7, 1, 0, 1.4, 2, TreeStates.BROKEN, 9, 40, 5);
+            check("Werte je Baum an ihrem Platz", o[6] == 130f && o[7] == 7f && o[12] == TreeStates.BROKEN && o[15] == 5f);
+        }
         System.out.println(fails == 0 ? "Alles in Ordnung." : fails + " Prüfungen fehlgeschlagen.");
         if (fails > 0) System.exit(1);
     }

@@ -1,6 +1,6 @@
 # com.dan.dustcloud – Staubwolke
 
-**Stand: Kern (LituyaBay1958 Phase 12).** Die Staubwolke eines Felssturzes, eines Abbruchs oder eines Steinbruchs: eine Schicht staubiger Luft, schwerer als die Luft darüber, die hangab fließt, sich in der Ebene und über dem Wasser ausbreitet, Luft einmischt und dabei dünner wird, vom Wind genommen wird und ihren Staub nach Korngröße absetzt. Für Licht und Sicht gibt sie die optische Dicke und die Sichtweite. Das Package kennt keine App und kein anderes Package; Gelände und Wind kommen über kleine Schnittstellen. Der Kern braucht nur Java 21, `demo/` zusätzlich `FStyle.jar`. Später für Sylt (Abbruch), Steinbruch, Vulkan. Die Darstellung auf der Grafikkarte (Volumen, Mie-Streuung, Sonne als Scheibe) kommt mit dem Ereignis (Phase 13).
+**Stand: Kern (LituyaBay1958 Phase 12).** Die Staubwolke eines Felssturzes, eines Abbruchs oder eines Steinbruchs: eine Schicht staubiger Luft, schwerer als die Luft darüber, die hangab fließt, sich in der Ebene und über dem Wasser ausbreitet, Luft einmischt und dabei dünner wird, vom Wind genommen wird und ihren Staub nach Korngröße absetzt. Für Licht und Sicht gibt sie die optische Dicke und die Sichtweite. Das Package kennt keine App und kein anderes Package; Gelände und Wind kommen über kleine Schnittstellen. Der Kern braucht nur Java 21, `demo/` zusätzlich `FStyle.jar`. Später für Sylt (Abbruch), Steinbruch, Vulkan. Die Darstellung auf der Grafikkarte liegt seit dem 07.11.2026 in `gl/` (aus LituyaBay1958, Werkbuch Welle W3, W3c, W4), dazu die Staubfahne über einem Abbruch (`Plume`).
 
 Zum Herauskopieren reicht `src/com/dan/dustcloud/`.
 
@@ -50,3 +50,28 @@ double[] bilanz = c.budget();   // Luft, Land, Wasser, Rand, abgeschnitten, eing
 ## Demo
 
 `demo/DustcloudDemo.java` → Run File: Felssturz an einer Fjordflanke, 30 s Staub; von oben die optische Dicke und die Ablagerung, der Schnitt durch die Rinne, die Bilanz und die Sicht. Ohne Fenster: `DustcloudDemo --bild datei.png [t]`.
+
+## Darstellung und Staubfahne (aus LituyaBay1958 Werkbuch Welle W3, W3c, W4; herausgezogen am 07.11.2026)
+
+| Teil | Wie |
+|---|---|
+| Schicht (`dustLayerDensity`) | die Wolke als Schicht zwischen Grund und Oberkante, Dichte = optische Dicke durch Mächtigkeit; weicher Fuß, Oberkante quillt in Ballen (3D-Rauschen 85 m und 30 m, ±0,8 der Mächtigkeit), Turbulenz mit Lücken (28 m, hoch 2,2), die mittlere optische Dicke der Säule bleibt [G]. Erste Fassung in Lituya: glatte Oberkante wie ein Tafelberg |
+| Fahne (`Plume`, `dustPlumeDensity`) | Kopf z(t) = 1 200 m (1 − e<sup>−38 t/1200</sup>), Säule über der Platte, nach oben breiter, Kopf pilzförmig (ab 0,72 der Höhe bis 1,7-fach), Achse neigt sich mit 0,10 je Meter in den Wind, Ballen in zwei Lagen, Dichte 0,0045/m, lebt 6 s bis 15 min [G]; dazu die Tiefe zur Sonne für das Glühen oben und das Blaugrau unten |
+| Licht (`dust.frag`) | Sonne mit Henyey-Greenstein g = 0,6 („Staub im Gegenlicht“), Himmel dringt nur ein Stück ein (innen und unten dunkler), Albedo 0,8 grau-braun, die Fahne heller (0,86 / 0,82 / 0,76) und oben im Licht der Kimm glühend [G] |
+| Kosten | Strahl in 32 Schritten mit Versatz je Bildpunkt und Bild (die Kantenglättung des Wirts mittelt), nur in den Hüllen; halbe Auflösung, mit der Tiefe hochgerechnet (`upsample.frag`: 4 × 4 Punkte, kubischer B-Spline, Gewicht nach gleicher Tiefe; ohne passende Tiefe bilinear). In Lituya: 17–28 ms → 2–16 ms je Bild |
+| Rauschen | `Noise.tile(64, 1958)`: kachelbar, einmal geglättet, 0..255; `DustGl.noiseTexture(gl)` (R8, trilinear, Mip-Stufen) |
+
+```java
+DustGl dg = new DustGl();  dg.init(gl);
+dg.upload(gl, wolke);                                   // je Bild der Rechnung
+Plume fahne = new Plume(x, z, 300);  fahne.windTo = new double[]{0.8, 0.6};
+DustGl.View v = …;  DustGl.Light l = …;                 // vorbelichtet
+dg.draw(gl, v, l, tiefenTextur, true, fahne, t - tAbbruch, zeit);   // über das gebundene HDR-Ziel
+```
+
+Ein Wirt mit eigenem Strahlengang (mehr Medien im selben Strahl, eigenes Licht) bindet `/com/dan/dustcloud/gl/dust.glsl` ein, setzt `uDcNoise` und mit `DustGl.bindPlume` die Fahne und nimmt `upsample.frag` zum Hochrechnen, wie LituyaBay1958 (`medien.frag`: Staub der Vorrechnung, Fahne, Gischt aus `com.dan.surge`, Trübe unter Wasser). `DustcloudCheck` prüft Kopf, Leben, Hülle, Neigung in den Wind und das Rauschen; die Bausteine wurden mit Mesa gegen die Fassung in Lituya geprüft (gleiche Werte).
+
+### Grenzen der Darstellung
+
+- Ein Strahlengang ohne Schatten in sich selbst außer der groben Tiefe zur Sonne; keine Mehrfachstreuung.
+- Die Fahne ist gestaltet [G], kein Auftrieb gerechnet.

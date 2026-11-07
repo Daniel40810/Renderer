@@ -44,10 +44,23 @@ public final class OceanCheck {
         ripples();
         obstacles();
         mesh();
+        milk();
         return lines;
     }
 
     public int failures() { return bad; }
+
+    /** Seit LituyaBay1958 W2 (herausgezogen 07.11.2026): Gletschermilch aus Grundton und Quellen. */
+    void milk() {
+        com.dan.ocean.GlacialMilk m = new com.dan.ocean.GlacialMilk().add(0, 0, 5500, 1).add(8000, 0, 4500, 0.8);
+        double an = m.at(0, 0), fern = m.at(40000, 40000), mitte = m.at(0, 9000);
+        check(an == 1 && Math.abs(fern - 0.35) < 1e-12 && mitte > 0.35 && mitte < 1,
+                String.format(java.util.Locale.GERMAN, "Gletschermilch: an der Quelle %.2f (begrenzt), fern %.2f (Grundton), dazwischen %.2f", an, fern, mitte));
+        double[] l = m.light(40000, 40000, new double[]{1, 1, 1}, 0.25);
+        check(Math.abs(l[1] - 0.20 * 0.11 * 0.35 * 0.75) < 1e-12 && l[1] > l[2] && l[2] > l[0],
+                String.format(java.util.Locale.GERMAN, "Streulicht grünlich-türkis: %.4f %.4f %.4f", l[0], l[1], l[2]));
+        check(com.dan.ocean.GlacialMilk.clear().at(0, 0) == 0, "klares Wasser ohne Gesteinsmehl");
+    }
 
     /** Seit Haithabu Phase 8: viele Pfähle als Abstandsraster, Brandungsring auch auf dem flachen Noor. */
     void obstacleField() {
