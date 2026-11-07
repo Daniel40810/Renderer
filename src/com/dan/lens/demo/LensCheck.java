@@ -167,6 +167,29 @@ public final class LensCheck {
         }
         check("Schärfezieher: von 20 m auf 2 m ohne Überschwingen, 98 % nach der eingestellten Zeit", over <= 1e-9 && at > 0.5 * fp.timeS && at < 1.6 * fp.timeS, "98 %% nach %.2f s (Zeit %.2f s)", at, fp.timeS);
 
+        // ---- die beiden anderen Schnitte (W9a Runde 2, WF41 A)
+        LensSystem wa = LensSystem.wideAngle(Coating.NONE), te = LensSystem.telephoto250(Coating.NONE);
+        double fw = wa.efl(ld), zw = wa.back() + wa.bfl(550);
+        double dw = wa.chiefHeight(Math.toRadians(38), 550, zw) / (wa.efl(550) * Math.tan(Math.toRadians(38))) - 1;
+        check("Weitwinkel (Nakamura): f um 15,5 mm, f/1,9, bei 38° noch ein echter Hauptstrahl mit Tonne", Math.abs(fw - 15.5) < 0.3
+                && Math.abs(wa.fNumberMin(ld) - 1.9) < 0.15 && dw < -0.01 && dw > -0.12, "f = %.2f mm, f/%.2f, Verzeichnung bei 38° %.1f %%", fw, wa.fNumberMin(ld), 100 * dw);
+        double ft = te.efl(ld), zt = te.back() + te.bfl(550), lengthT = zt - te.z[0];
+        check("Tele: f = 250 mm, Baulänge kürzer als die Brennweite (Televerhältnis unter 1)", Math.abs(ft - 250) < 2.5 && lengthT / ft < 1,
+                "f = %.1f mm, f/%.2f, Televerhältnis %.2f", ft, te.fNumberMin(ld), lengthT / ft);
+        Lens auto = new Lens();
+        auto.background = false;
+        auto.focalMm = 24;
+        Lens.Design d24 = auto.designJetzt();
+        Lens.Optics o24 = auto.optics(5);
+        boolean fin = true;
+        for (double v : o24.relIllum()) fin &= Double.isFinite(v) && v > 0;
+        auto.focalMm = 200;
+        Lens.Design d200 = auto.designJetzt();
+        Lens.Optics o200 = auto.optics(50);
+        auto.focalMm = 85;
+        check("Schnitt nach der Brennweite: 24 mm Weitwinkel, 85 mm Doppel-Gauß, 200 mm Tele; Randabfall ohne Lücken", d24 == Lens.Design.WIDE
+                && auto.designJetzt() == Lens.Design.DOUBLE_GAUSS && d200 == Lens.Design.TELE && fin && Math.abs(o200.efl() - 200) < 2,
+                "%s, %s, %s; Ecke bei 24 mm %.2f", d24.label, auto.designJetzt().label, d200.label, o24.relIllum()[o24.relIllum().length - 1]);
         // ---- Geisterbilder: Energie
         Lens.Optics g = lens.optics(1e5);
         float[] gd = g.ghostData();

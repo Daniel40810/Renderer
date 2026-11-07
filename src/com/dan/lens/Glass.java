@@ -24,6 +24,13 @@ public record Glass(String name, double nd, double vd) {
     public static final Glass SSK5 = new Glass("N-SSK5", 1.65844, 50.88);
     /** Lanthanflint N-LAF3 (1,71736, 48,02). */
     public static final Glass LAF3 = new Glass("N-LAF3", 1.71736, 48.02);
+    /** Lanthankron N-LAK8 (1,71300, 53,83), N-LAF34 (1,77250, 49,62), Schwerflint SF6 (1,80518, 25,43), Flint F2 (1,62004, 36,37), F3 (1,61293, 37,00), Schwerkron N-SK14 (1,60311, 60,60). */
+    public static final Glass LAK8 = new Glass("N-LAK8", 1.71300, 53.83), LAF34 = new Glass("N-LAF34", 1.77250, 49.62), SF6 = new Glass("SF6", 1.80518, 25.43),
+            F2 = new Glass("F2", 1.62004, 36.37), F3 = new Glass("F3", 1.61293, 37.00), SK14 = new Glass("N-SK14", 1.60311, 60.60);
+
+    /** Ein Glas nur mit Brechzahl und angenommener Abbe-Zahl [G] (wo ein Schnitt nur n_d nennt). */
+    public static Glass of(String name, double nd, double vd) { return new Glass(name, nd, vd); }
+
     /** Borkron N-BK7 (1,51680, 64,17), zum Vergleich und für die Prüfung. */
     public static final Glass BK7 = new Glass("N-BK7", 1.51680, 64.17);
 

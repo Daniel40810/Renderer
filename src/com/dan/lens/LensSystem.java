@@ -64,6 +64,45 @@ public final class LensSystem {
         return new LensSystem("Doppel-Gauß 50 mm f/2 (Tronnier)", s);
     }
 
+    /**
+     * Weitwinkel für ±38° (Nakamura; W. J. Smith, „Modern Lens Design“; derselbe Schnitt wie „wide.22mm“ in pbrt). Gerechnet
+     * f = 15,5 mm, f/1,9: negativer Meniskus vorn, dahinter ein verkitteter Lanthan-Achromat, die Blende, zwei Glieder
+     * hinten mit einem verkitteten N-LAK8/SF6. Der Schnitt nennt nur n_d; Gläser mit diesen Brechzahlen aus dem Katalog,
+     * wo es eindeutig ist, sonst mit angenommener Abbe-Zahl [G]. Tonnenverzeichnung −6 % bei 38°.
+     */
+    public static LensSystem wideAngle(Coating c) {
+        List<Surface> s = new ArrayList<>();
+        s.add(Surface.glass(35.98738, 1.21638, Glass.of("n 1,540 [G]", 1.540, 59.7), 23.716, c));
+        s.add(Surface.glass(11.69718, 9.9957, Glass.AIR, 17.996, c));
+        s.add(Surface.glass(13.08714, 5.12622, Glass.LAF34, 12.364, c));
+        s.add(Surface.glass(-22.63294, 1.76924, Glass.F2, 9.812, c));
+        s.add(Surface.glass(71.05802, 0.8184, Glass.AIR, 9.152, c));
+        s.add(Surface.stop(2.27766, 8.756));
+        s.add(Surface.glass(-9.58584, 2.43254, Glass.of("n 1,617 [G]", 1.617, 54.0), 8.184, c));
+        s.add(Surface.glass(-11.28864, 0.11506, Glass.AIR, 9.152, c));
+        s.add(Surface.glass(-166.7765, 3.09606, Glass.LAK8, 10.648, c));
+        s.add(Surface.glass(-7.5911, 1.32682, Glass.SF6, 11.44, c));
+        s.add(Surface.glass(-16.7662, 3.98068, Glass.AIR, 12.276, c));
+        return new LensSystem("Weitwinkel ±38° (Nakamura)", s);
+    }
+
+    /**
+     * Teleobjektiv 250 mm f/5,6 (W. J. Smith, „Modern Lens Design“; derselbe Schnitt wie „telephoto.250mm“ in pbrt): ein
+     * positiver verkitteter Achromat vorn, die Blende, ein negativer Achromat hinten; die Baulänge ist kürzer als die
+     * Brennweite. Gerechnet f = 250,1 mm, f/5,4. Gläser: Kron [G], Flint [G], F3, N-SK14. Kissen +0,5 % bei 5°.
+     */
+    public static LensSystem telephoto250(Coating c) {
+        List<Surface> s = new ArrayList<>();
+        s.add(Surface.glass(54.6275, 12.52, Glass.of("n 1,529 [G]", 1.529, 60.0), 47.5, c));
+        s.add(Surface.glass(-86.365, 3.755, Glass.of("n 1,599 [G]", 1.599, 39.0), 44.5, c));
+        s.add(Surface.glass(271.7625, 2.8175, Glass.AIR, 41.5, c));
+        s.add(Surface.stop(67.4125, 40.5));
+        s.add(Surface.glass(-32.1, 3.755, Glass.F3, 31.5, c));
+        s.add(Surface.glass(49.5325, 12.52, Glass.SK14, 33.5, c));
+        s.add(Surface.glass(-50.9725, 0, Glass.AIR, 37.0, c));
+        return new LensSystem("Tele 250 mm f/5,6", s);
+    }
+
     /** Derselbe Schnitt um k vergrößert (Brennweite mal k, Bildwinkel und Fehler im Verhältnis gleich). */
     public LensSystem scaled(double k) {
         List<Surface> s = new ArrayList<>();

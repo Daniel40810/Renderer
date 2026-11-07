@@ -54,7 +54,7 @@ public final class LensGl {
         public double focusU = 0.5, focusV = 0.5;
     }
 
-    public static final int TILE = 8, GLARE_LEVELS = 7, SPOT_CAP = 16384;
+    public static final int TILE = 8, GLARE_LEVELS = 7, SPOT_CAP = 4096;
 
     private final Lens lens;
     private boolean ready;
@@ -274,14 +274,14 @@ public final class LensGl {
                 sh = dh[i];
             }
             double tot = 0;
-            for (int i = 0; i < GLARE_LEVELS; i++) tot += Math.pow(2, -0.5 * (i + 1));
+            for (int i = 0; i < GLARE_LEVELS; i++) tot += Math.pow(2, -0.75 * (i + 1));
             p = use(gl, "gup");
             for (int i = GLARE_LEVELS - 1; i >= 0; i--) {
                 tex(gl, p, "uHere", 1, texDown[i]);
                 boolean first = i == GLARE_LEVELS - 1;
                 tex(gl, p, "uLow", 0, first ? texDown[i] : texUp[i + 1]);
                 if (!first) set2(gl, p, "uTexel", 1f / dw[i + 1], 1f / dh[i + 1]);
-                setf(gl, p, "uWeight", (float) (Math.pow(2, -0.5 * (i + 1)) / tot));
+                setf(gl, p, "uWeight", (float) (Math.pow(2, -0.75 * (i + 1)) / tot));
                 seti(gl, p, "uFirst", first ? 1 : 0);
                 draw(gl, texUp[i], dw[i], dh[i]);
             }

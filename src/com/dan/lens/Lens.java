@@ -59,14 +59,45 @@ public final class Lens {
     /** Stärken (1 = nach Rechnung). */
     public volatile double ghostGain = 1, starGain = 1, vignettingGain = 1;
     /** Schleierlicht: Anteil, den Fassungen, Kanten und Staub über das ganze Bild streuen (Veiling Glare Index) [G]. */
-    public volatile double glareFraction = 0.015;
+    public volatile double glareFraction = 0.008;
     public volatile Coating coating = Coating.mgf2(550);
     /**
      * Bildkreis: 0 = die Fassungen so groß, dass der Schnitt das Bild bis in die Ecken deckt (der Doppel-Gauß ist für ±22°
      * gerechnet, das Bild der App reicht mit 24 mm Höhe und 16 : 9 bei 50 mm bis ±26°) [G]; 1 = wie gerechnet.
      */
     public volatile double coverage = 0;
-    /** Halber Bildwinkel, für den der Schnitt gerechnet ist (Smith: ±22°). */
+    /**
+     * Die Schnitte (WF41 A): Weitwinkel (Nakamura, ±38°) unter 35 mm, Doppel-Gauß (±22°) bis 130 mm, Tele (250 mm, ±6°)
+     * darüber; je mit dem halben Feld, für das er gerechnet ist, und dem, bis zu dem er ehrlich rechnet.
+     */
+    public enum Design {
+        WIDE("Weitwinkel (Nakamura)", 38, 40), DOUBLE_GAUSS("Doppel-Gauß (Tronnier)", 22, 26), TELE("Tele (250 mm)", 6, 10.5);
+        public final String label;
+        public final double designHalfField, maxHalfField;
+        Design(String l, double d, double m) { label = l; designHalfField = Math.toRadians(d); maxHalfField = Math.toRadians(m); }
+        LensSystem build() {
+            return switch (this) {
+                case WIDE -> LensSystem.wideAngle(Coating.NONE);
+                case DOUBLE_GAUSS -> LensSystem.doubleGauss50(Coating.NONE);
+                case TELE -> LensSystem.telephoto250(Coating.NONE);
+            };
+        }
+    }
+
+    /** Schnitt: null = nach der Brennweite (unter 35 mm Weitwinkel, ab 130 mm Tele). */
+    public volatile Design design;
+
+    public Design designJetzt() {
+        Design d = design;
+        if (d != null) return d;
+        return focalMm < 35 ? Design.WIDE : focalMm >= 130 ? Design.TELE : Design.DOUBLE_GAUSS;
+    }
+
+    private final java.util.EnumMap<Design, LensSystem> bases = new java.util.EnumMap<>(Design.class);
+
+    private LensSystem base() { return bases.computeIfAbsent(designJetzt(), Design::build); }
+
+    /** Halber Bildwinkel, für den der Doppel-Gauß gerechnet ist (Smith: ±22°). */
     public static final double DESIGN_HALF_FIELD = Math.toRadians(22);
     /**
      * Weiter als bis ±26° (Halbdiagonale) rechnet der Doppel-Gauß nicht mehr ehrlich (über 30° reißen die Strahlen ab).
@@ -78,10 +109,9 @@ public final class Lens {
     /** tan des gerechneten Felds / tan des echten Felds an der Halbdiagonale (1 bis zur Grenze, darunter kleiner). */
     public double fieldScale() {
         double t = 0.5 * sensorHeightMm * Math.hypot(1, aspect) / focalMm;
-        return Math.min(1, Math.tan(MAX_HALF_FIELD) / t);
+        return Math.min(1, Math.tan(designJetzt().maxHalfField) / t);
     }
 
-    private final LensSystem base = LensSystem.doubleGauss50(Coating.NONE);
 
     /** Alles, was die Grafik für ein Bild braucht. Längen in mm auf dem Sensor, Winkel in rad. */
     public record Optics(
@@ -125,22 +155,26 @@ public final class Lens {
         }
     }
 
-    private String cacheKey, ghostKey;
-    private double[][] cache;
+    private volatile String cacheKey, pendingKey;
+    private String ghostKey;
+    /** Tabellen im Hintergrund nachrechnen (false: sofort, für Prüfungen und Standbilder). */
+    public volatile boolean background = true;
+    private volatile double[][] cache;
     private float[] ghostCache;
     private int ghostCnt;
 
     /** Der Schnitt auf die Brennweite gebracht und vergütet. */
     public LensSystem system() {
-        double k = focalMm / base.efl(Glass.LAMBDA_D);
-        LensSystem s = base.scaled(k).coated(coating);
+        LensSystem b = base();
+        double k = focalMm / b.efl(Glass.LAMBDA_D);
+        LensSystem s = b.scaled(k).coated(coating);
         double halfDiag = 0.5 * sensorHeightMm * Math.hypot(1, aspect);
-        double cover = coverage > 0 ? coverage : Math.max(1, halfDiag * fieldScale() / (focalMm * Math.tan(DESIGN_HALF_FIELD)));
+        double cover = coverage > 0 ? coverage : Math.max(1, halfDiag * fieldScale() / (focalMm * Math.tan(designJetzt().designHalfField)));
         return cover > 1.0001 ? s.covering(cover) : s;
     }
 
     /** Volle Öffnung (kleinste Blendenzahl) des Schnitts. */
-    public double fNumberMin() { return base.fNumberMin(Glass.LAMBDA_D); }
+    public double fNumberMin() { return base().fNumberMin(Glass.LAMBDA_D); }
 
     /** Rechnet alles für den Fokus focusNowM (m; der Schärfezieher oder die App bestimmt ihn). */
     public Optics optics(double focusNowM) {
@@ -161,75 +195,26 @@ public final class Lens {
         double trans = s.primaryTransmission(lg);
 
         // ---- Tabellen über den Bildradius (vom Fokus kaum abhängig: bei Unendlich gerechnet, je Brennweite und Blende gemerkt)
-        String key = String.format(Locale.ROOT, "%.4f|%.4f|%.4f|%s|%.3f|%s", focalMm, n, halfDiag, coating.name(), coverage, quality);
-        if (!key.equals(cacheKey)) {
-            double[] ri = new double[TABLE], di = new double[TABLE], lr = new double[TABLE], lb = new double[TABLE];
-            double fs = fieldScale();
-            int grid = quality == Quality.LOW || quality == Quality.MEDIUM ? 20 : 28;
-            for (int i = 0; i < TABLE; i++) {
-                double r = i / (TABLE - 1.0);
-                double th = Math.atan(r * halfDiag / f * fs);
-                if (i == 0) { ri[i] = 1; di[i] = 1; lr[i] = 1; lb[i] = 1; continue; }
-                double v = s.vignetting(th, rStop, lg, zInf, grid);
-                double c = Math.cos(th);
-                ri[i] = v * c * c * c * c;
-                double hg = s.chiefHeight(th, lg, zInf), hr = s.chiefHeight(th, Spectrum.RGB_NM[0], s.back() + s.bfl(Spectrum.RGB_NM[0])),
-                        hb = s.chiefHeight(th, Spectrum.RGB_NM[2], s.back() + s.bfl(Spectrum.RGB_NM[2]));
-                double ideal = f * Math.tan(th);
-                di[i] = Double.isNaN(hg) ? di[i - 1] : hg / ideal;
-                lr[i] = Double.isNaN(hr) || Double.isNaN(hg) ? lr[i - 1] : hr / hg;
-                lb[i] = Double.isNaN(hb) || Double.isNaN(hg) ? lb[i - 1] : hb / hg;
+        String key = String.format(Locale.ROOT, "%.4f|%.4f|%.4f|%s|%.3f|%s|%s", focalMm, n, halfDiag, coating.name(), coverage, quality, designJetzt());
+        // Die Tabellen (echte Strahlen, rund 25 ms) rechnet ein eigener Faden, wenn es schon welche gibt; bis dahin gelten die alten
+        if (!key.equals(cacheKey) && cache != null && background) {
+            if (!key.equals(pendingKey)) {
+                pendingKey = key;
+                final double fF = f, nF = n, rS = rStop, rE = rep, hD = halfDiag, zI = zInf;
+                final LensSystem sF = s;
+                Thread t = new Thread(() -> {
+                    double[][] c2 = tables(sF, fF, nF, rS, rE, hD, zI, lg);
+                    synchronized (this) { if (key.equals(pendingKey)) { cache = c2; cacheKey = key; pendingKey = null; } }
+                }, "com.dan.lens Tabellen");
+                t.setDaemon(true);
+                t.start();
             }
-            // Katzenauge: die Fassungen, die am Rand (Halbdiagonale) am meisten wegschneiden, je eine nach innen und außen
-            double thMax = Math.atan(halfDiag / f * fs);
-            double[][] mc = s.mountCircles(rStop, lg);
-            double[] cat = {99, 0, 99, 0};
-            double best1 = 1e9, best2 = 1e9;
-            for (double[] c : mc) {
-                if (c == null) continue;
-                double clip = c[0] - Math.abs(c[1]) * thMax;
-                if (c[1] >= 0 && clip < best1) { best1 = clip; cat[0] = c[0]; cat[1] = c[1]; }
-                if (c[1] < 0 && clip < best2) { best2 = clip; cat[2] = c[0]; cat[3] = c[1]; }
-            }
-            // sphärische Aberration: Querabweichung TA(ρ) echter Randstrahlen über die Pupille; daraus die Helligkeit im
-            // Unschärfekreis für 8 Unschärfen je Seite des Fokus (Landung L(ρ) = αρ + TA(ρ), α = −c/2, Pupille gleichmäßig)
-            double[] sap = new double[SA_ROWS * SA_BINS];
-            double saMax = 0;
-            double[] taR = new double[33];
-            for (int i = 1; i <= 32; i++) {
-                double tv = s.transverse(Math.min(0.999, i / 32.0) * rep, lg, zInf);
-                taR[i] = Double.isNaN(tv) ? taR[i - 1] : tv;
-                saMax = Math.max(saMax, Math.abs(taR[i]));
-            }
-            for (int row = 0; row < SA_ROWS; row++) {
-                int side = row / (SA_ROWS / 2), mag = row % (SA_ROWS / 2);
-                double alpha = (side == 0 ? 1 : -1) * Math.max(saMax, 1e-6) * Math.pow(2, mag - 2);   // Zeile 0–7: vor dem Fokus (c < 0), 8–15: dahinter
-                double[] hist = new double[SA_BINS];
-                int nr = 4000;
-                double[] lv = new double[nr];
-                double lmax = 0;
-                for (int k = 0; k < nr; k++) {
-                    double rho = (k + 0.5) / nr, x = rho * 32, fr = x - Math.floor(x);
-                    int ix = (int) Math.min(31, Math.floor(x));
-                    double ta = taR[ix] + (taR[ix + 1] - taR[ix]) * fr;
-                    lv[k] = Math.abs(alpha * rho + ta);
-                    lmax = Math.max(lmax, lv[k]);
-                }
-                for (int k = 0; k < nr; k++) {
-                    double rho = (k + 0.5) / nr;
-                    int b = (int) Math.min(SA_BINS - 1, Math.floor(lv[k] / lmax * SA_BINS));
-                    hist[b] += 2 * rho / nr;
-                }
-                for (int b = 0; b < SA_BINS; b++) {
-                    double s1 = b / (double) SA_BINS, s2 = (b + 1) / (double) SA_BINS;
-                    sap[row * SA_BINS + b] = hist[b] / (s2 * s2 - s1 * s1);
-                }
-            }
-            double dzr = s.bfl(Spectrum.RGB_NM[0]) - s.bfl(lg), dzb = s.bfl(Spectrum.RGB_NM[2]) - s.bfl(lg);
-            cache = new double[][]{ri, di, lr, lb, cat, {saMax, 0, dzr, dzb}, sap};
+        } else if (!key.equals(cacheKey)) {
+            cache = tables(s, f, n, rStop, rep, halfDiag, zInf, lg);
             cacheKey = key;
         }
         double[][] c = cache;
+
 
         // ---- Geisterbilder je Farbkanal (gleiche Reihenfolge i, j in allen drei Listen); gemerkt, solange sich Sensor und Blende kaum ändern
         String gkey = key + String.format(Locale.ROOT, "|%.3f", zSensor);
@@ -290,9 +275,78 @@ public final class Lens {
                 c[6], c[5][0], c[5][2], c[5][3], cnt, gd, ang, coef, sunMm, af, fieldScale);
     }
 
+
+    /** Tabellen über den Bildradius aus echten Strahlen: Randabfall, Verzeichnung, Farbquerfehler, Katzenauge, Bokeh, Längsfarbfehler. */
+    private double[][] tables(LensSystem s, double f, double n, double rStop, double rep, double halfDiag, double zInf, double lg) {
+        double[] ri = new double[TABLE], di = new double[TABLE], lr = new double[TABLE], lb = new double[TABLE];
+        double fs = fieldScale();
+        int grid = quality == Quality.LOW || quality == Quality.MEDIUM ? 20 : 28;
+        for (int i = 0; i < TABLE; i++) {
+            double r = i / (TABLE - 1.0);
+            double th = Math.atan(r * halfDiag / f * fs);
+            if (i == 0) { ri[i] = 1; di[i] = 1; lr[i] = 1; lb[i] = 1; continue; }
+            double v = s.vignetting(th, rStop, lg, zInf, grid);
+            double c = Math.cos(th);
+            ri[i] = v * c * c * c * c;
+            double hg = s.chiefHeight(th, lg, zInf), hr = s.chiefHeight(th, Spectrum.RGB_NM[0], s.back() + s.bfl(Spectrum.RGB_NM[0])),
+                    hb = s.chiefHeight(th, Spectrum.RGB_NM[2], s.back() + s.bfl(Spectrum.RGB_NM[2]));
+            double ideal = f * Math.tan(th);
+            di[i] = Double.isNaN(hg) ? di[i - 1] : hg / ideal;
+            lr[i] = Double.isNaN(hr) || Double.isNaN(hg) ? lr[i - 1] : hr / hg;
+            lb[i] = Double.isNaN(hb) || Double.isNaN(hg) ? lb[i - 1] : hb / hg;
+        }
+        // Katzenauge: die Fassungen, die am Rand (Halbdiagonale) am meisten wegschneiden, je eine nach innen und außen
+        double thMax = Math.atan(halfDiag / f * fs);
+        double[][] mc = s.mountCircles(rStop, lg);
+        double[] cat = {99, 0, 99, 0};
+        double best1 = 1e9, best2 = 1e9;
+        for (double[] c : mc) {
+            if (c == null) continue;
+            double clip = c[0] - Math.abs(c[1]) * thMax;
+            if (c[1] >= 0 && clip < best1) { best1 = clip; cat[0] = c[0]; cat[1] = c[1]; }
+            if (c[1] < 0 && clip < best2) { best2 = clip; cat[2] = c[0]; cat[3] = c[1]; }
+        }
+        // sphärische Aberration: Querabweichung TA(ρ) echter Randstrahlen über die Pupille; daraus die Helligkeit im
+        // Unschärfekreis für 8 Unschärfen je Seite des Fokus (Landung L(ρ) = αρ + TA(ρ), α = −c/2, Pupille gleichmäßig)
+        double[] sap = new double[SA_ROWS * SA_BINS];
+        double saMax = 0;
+        double[] taR = new double[33];
+        for (int i = 1; i <= 32; i++) {
+            double tv = s.transverse(Math.min(0.999, i / 32.0) * rep, lg, zInf);
+            taR[i] = Double.isNaN(tv) ? taR[i - 1] : tv;
+            saMax = Math.max(saMax, Math.abs(taR[i]));
+        }
+        for (int row = 0; row < SA_ROWS; row++) {
+            int side = row / (SA_ROWS / 2), mag = row % (SA_ROWS / 2);
+            double alpha = (side == 0 ? 1 : -1) * Math.max(saMax, 1e-6) * Math.pow(2, mag - 2);   // Zeile 0–7: vor dem Fokus (c < 0), 8–15: dahinter
+            double[] hist = new double[SA_BINS];
+            int nr = 4000;
+            double[] lv = new double[nr];
+            double lmax = 0;
+            for (int k = 0; k < nr; k++) {
+                double rho = (k + 0.5) / nr, x = rho * 32, fr = x - Math.floor(x);
+                int ix = (int) Math.min(31, Math.floor(x));
+                double ta = taR[ix] + (taR[ix + 1] - taR[ix]) * fr;
+                lv[k] = Math.abs(alpha * rho + ta);
+                lmax = Math.max(lmax, lv[k]);
+            }
+            for (int k = 0; k < nr; k++) {
+                double rho = (k + 0.5) / nr;
+                int b = (int) Math.min(SA_BINS - 1, Math.floor(lv[k] / lmax * SA_BINS));
+                hist[b] += 2 * rho / nr;
+            }
+            for (int b = 0; b < SA_BINS; b++) {
+                double s1 = b / (double) SA_BINS, s2 = (b + 1) / (double) SA_BINS;
+                sap[row * SA_BINS + b] = hist[b] / (s2 * s2 - s1 * s1);
+            }
+        }
+        double dzr = s.bfl(Spectrum.RGB_NM[0]) - s.bfl(lg), dzb = s.bfl(Spectrum.RGB_NM[2]) - s.bfl(lg);
+        return new double[][]{ri, di, lr, lb, cat, {saMax, 0, dzr, dzb}, sap};
+    }
+
     /** „50 mm · f/2,8 · Fokus 12,0 m · 8 Lamellen“ */
     public String describe(double focusNowM) {
-        return String.format(Locale.GERMAN, "%.0f mm · f/%.1f · Fokus %s · %s · %s", focalMm, Math.max(fNumberMin(), fNumber),
+        return String.format(Locale.GERMAN, "%s %.0f mm · f/%.1f · Fokus %s · %s · %s", designJetzt().label, focalMm, Math.max(fNumberMin(), fNumber),
                 focusNowM > 5000 ? "∞" : String.format(Locale.GERMAN, "%.1f m", focusNowM), aperture, coating);
     }
 }
