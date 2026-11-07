@@ -62,6 +62,24 @@ public final class OceanGl {
         public int detailTexture;
         public double detailTile = 3, detailStrength, detailRange = 60;
         /**
+         * Seit LituyaBay1958 W7b: wie die Störung liegt. 0 (Vorgabe): Kachel wie bisher. 1: ein Wellenfeld fest in der
+         * Welt ({@code com.dan.precip}, ringsum geschlossen, Kante detailTile): im Fenster ±detailTile/2 um detailCenter
+         * die echten Steigungen, außerhalb das Mittel zweier gedrehter Abfragen derselben Fläche (gleiche Statistik,
+         * ohne sichtbare Wiederholung), ausklingend über detailRange.
+         */
+        public int detailMode;
+        public double[] detailCenter = {0, 0};
+        /**
+         * Seit W7b Runde 5: Rauigkeit der Störung, mittlere quadratische Steigung ⟨|∇h|²⟩ (wird mit detailStrength²
+         * genommen): detailRoughness, was unter ihrem Raster liegt (die Textur trägt es nicht), detailVariance, was sie
+         * trägt. Das Wasser hält die Summe: was es hier nicht als Steigung zeigt (Mip-Stufe, Ferne), legt es als zufällige
+         * Neigung einzelner Facetten je Bildpunkt; detailShare: welcher Anteil der Fläche das jeweils trägt (unter dem
+         * Raster, im Raster), mit Varianz/Anteil – Regen ist fleckig, zwischen den Einschlägen bleibt der Spiegel
+         * glatt. Braucht zeitliche Glättung. 0, 0 (Vorgabe): aus, wie bisher.
+         */
+        public double detailRoughness, detailVariance;
+        public double[] detailShare = {1, 1};
+        /**
          * Ein Punktlicht (Leuchtfeuer, Lampe) mit Lichtverteilung: Ort in m und eine Rundum-Textur der Lichtstärke in
          * cd je Richtung vom Licht weg (RGB; u = Azimut von Nord / 360°, v = ½ + ½ · sign(h) · √(|h| / 90°), h =
          * Höhenwinkel), dazu ein Faktor (z. B. die Vorbelichtung) und die Auslöschung der Luft in 1/m. 0 = keins.
@@ -213,6 +231,7 @@ public final class OceanGl {
     private final java.util.Map<Integer, Integer> fftByN = new java.util.HashMap<>();
     private int texH0, texA, texB, texDisp, texDeriv;
     private int n, cascades, uploadedVersion = -1;
+    private int detailFrame;   // W7b Runde 5: Bildzähler für die Rauigkeit der Störung
     private int vao, vbo, ibo, indexCount;
     private final RingMesh mesh;
     private double lastTime = Double.NaN;
@@ -468,6 +487,10 @@ public final class OceanGl {
         gl.glUniform1i(gl.glGetUniformLocation(p, "uDetail"), 5);
         gl.glUniform4f(gl.glGetUniformLocation(p, "uDetailP"), (float) Math.max(0.01, light.detailTile), (float) light.detailStrength,
                 (float) Math.max(1, light.detailRange), light.detailTexture != 0 && light.detailStrength > 0 ? 1f : 0f);
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uDetailQ"), (float) light.detailCenter[0], (float) light.detailCenter[1], light.detailMode, 0f);
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uDetailR"), (float) Math.max(0, light.detailRoughness), (float) Math.max(0, light.detailVariance),
+                (float) light.detailShare[0], (float) light.detailShare[1]);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uDetailN"), detailFrame++);
         gl.glActiveTexture(GL.GL_TEXTURE6);
         gl.glBindTexture(GL.GL_TEXTURE_2D, light.pointTexture);
         gl.glUniform1i(gl.glGetUniformLocation(p, "uPointTex"), 6);

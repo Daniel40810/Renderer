@@ -1,0 +1,124 @@
+// drops.comp — die Tropfen im Kasten um das Auge: Fall mit Luftwiderstand durch den böigen Wind, Schwingung, Aufschlag
+// auf Wasser und Grund (ins Einschlagsbuch), Unterstand und Kronendach. Ein Tropfen hat drei vec4:
+//   (x, y, z, D) · (vx, vy, vz, Phase der Schwingung) · (Ausschlag, Zufall fürs Leben, Art: 0 frei, 1 vom Dach, lebt 0/1)
+// uMode 0: neu säen (Kasten voll, Größen nach der Verteilung, mit Fallgeschwindigkeit und Wind), 1: einen Schritt weiter.
+#include "precip_common.glsl"
+layout(local_size_x = 64) in;
+struct Drop { vec4 p; vec4 v; vec4 m; };
+layout(std430, binding = 0) buffer Drops { Drop drops[]; };
+struct Impact { vec4 p; vec4 v; };
+layout(std430, binding = 1) buffer Impacts { uint count[4]; Impact impacts[]; };
+uniform int uMode;
+uniform int uCount;
+uniform uint uFrame;
+uniform int uImpactCap;
+
+// unter dem Kronendach: Anteil der Tropfen, die als große vom Dach kommen (der Rest fällt frei durch)
+float dripShare() {
+    float dr = pDrip(uPD.x);
+    return clamp(dr / max(1e-9, dr + uPG.x), 0.05, 0.95);
+}
+
+// eine Größe für einen neuen Tropfen; unter dem Kronendach mit dem Anteil der Tropfen vom Dach groß
+float newSize(uint i, uint salt, bool roof, out float kind) {
+    float u = pRnd(uPSeed ^ salt, i, 2u);
+    kind = 0.0;
+    if (roof && pRnd(uPSeed ^ salt, i, 9u) < dripShare()) {
+        kind = 1.0;
+        return mix(uPG.z, uPG.w, u);
+    }
+    return pSample(uPD.y, uPD.w, uPE.x, u);
+}
+
+// lebt der Tropfen bei der Regenmenge am Ort? (frei, unter dem Dach durchgefallen, vom Dach getropft)
+bool alive(Drop q, vec3 p, bool roof) {
+    float loc = uPD.x * pCurtain(p.xz);
+    bool l;
+    if (q.m.z > 0.5) l = roof && q.m.y < pDrip(loc) / dripShare();
+    else if (roof) l = q.m.y < uPG.x * pLive(loc) / (1.0 - dripShare());
+    else l = q.m.y < pLive(loc);
+    return l && p.y < uPE.w && !pSheltered(p);
+}
+
+void respawn(inout Drop q, uint i, uint salt, float y) {
+    vec4 gr = pGround(q.p.xz);
+    float kind;
+    float d = newSize(i, salt, gr.b > y, kind);
+    float vt = pTerminal(d);
+    q.p.y = y;
+    q.p.w = d;
+    vec3 w = pWind(q.p.xyz, uPB.y);
+    q.v = vec4(w.x, -vt, w.z, pRnd(uPSeed ^ salt, i, 3u) * 6.2831853);
+    // Ausschlag der Schwingung [G]: kleine Tropfen fast rund, ab 1 mm bis 6 % (Beard 1984, Szakáll u. a. 2009)
+    q.m.x = pRnd(uPSeed ^ salt, i, 4u) * 0.06 * clamp(d - 0.5, 0.0, 1.0);
+    q.m.z = kind;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(uCount)) return;
+    float hx = uPA.w, hy = uPB.x;
+    Drop q;
+    if (uMode == 0) {
+        q.p.xyz = uPA.xyz + vec3((pRnd(uPSeed, i, 5u) * 2.0 - 1.0) * hx, (pRnd(uPSeed, i, 6u) * 2.0 - 1.0) * hy, (pRnd(uPSeed, i, 8u) * 2.0 - 1.0) * hx);
+        q.m = vec4(0.0, pRnd(uPSeed, i, 7u), 0.0, 0.0);
+        respawn(q, i, 0u, q.p.y);
+        drops[i] = q;
+        return;
+    }
+    q = drops[i];
+    float dt = uPB.z;
+    if (dt <= 0.0) return;
+    float d = q.p.w;
+    float vt = pTerminal(d);
+    // unter dem Kronendach ist der Wind schwach
+    vec4 gr = pGround(q.p.xz);
+    bool roof = gr.b > q.p.y;
+    vec3 w = pWind(q.p.xyz, uPB.y) * (roof ? 0.2 : 1.0);
+    // Luftwiderstand halbimplizit (stabil bei jedem Schritt): v' = (v + dt (g + k w)) / (1 + k dt), k = g |v − w| / vt²
+    int sub = int(clamp(ceil(dt / (0.25 * vt / P_G)), 1.0, 8.0));
+    float h = dt / float(sub);
+    vec3 v = q.v.xyz, p = q.p.xyz;
+    for (int s = 0; s < 8; s++) {
+        if (s >= sub) break;
+        float k = P_G * length(v - w) / max(1e-4, vt * vt);
+        v = (v + h * (vec3(0.0, -P_G, 0.0) + k * w)) / (1.0 + k * h);
+        p += v * h;
+    }
+    q.v.w = mod(q.v.w + 6.2831853 * pOscHz(d) * dt, 6.2831853);
+    // Aufschlag: unter der Fläche (Grund oder Wasser) – ins Buch, dann oben neu
+    float surf = pSurface(p.xz);
+    float top = uPA.y + hy;
+    bool live = alive(q, p, roof);
+    if (p.y < surf) {
+        if (live && surf > uPA.y - hy) {
+            uint k = atomicAdd(count[0], 1u);
+            if (k < uint(uImpactCap)) {
+                // Ort genau auf der Fläche (zurück entlang der Bahn)
+                float back = (surf - p.y) / max(1e-4, -v.y);
+                vec3 hit = p - v * back;
+                gr = pGround(hit.xz);
+                impacts[k].p = vec4(hit.x, surf, hit.z, d);
+                impacts[k].v = vec4(v, gr.g < 0.5 ? 0.0 : 1.0);
+            }
+        }
+        q.p.xyz = p;
+        q.p.x = uPA.x + (pRnd(uPSeed ^ uFrame, i, 10u) * 2.0 - 1.0) * hx;
+        q.p.z = uPA.z + (pRnd(uPSeed ^ uFrame, i, 11u) * 2.0 - 1.0) * hx;
+        respawn(q, i, uFrame * 7919u + 1u, top - pRnd(uPSeed ^ uFrame, i, 12u) * vt * dt);
+        q.m.w = 0.0;
+        drops[i] = q;
+        return;
+    }
+    // im Kasten halten (fest in der Welt): seitlich und unten herum
+    vec3 r = p - uPA.xyz;
+    r.x -= 2.0 * hx * floor((r.x + hx) / (2.0 * hx));
+    r.z -= 2.0 * hx * floor((r.z + hx) / (2.0 * hx));
+    bool wrappedY = r.y < -hy || r.y > hy;
+    r.y -= 2.0 * hy * floor((r.y + hy) / (2.0 * hy));
+    q.p.xyz = uPA.xyz + r;
+    q.v.xyz = v;
+    if (wrappedY) respawn(q, i, uFrame * 7919u + 2u, q.p.y);
+    q.m.w = alive(q, q.p.xyz, pGround(q.p.xz).b > q.p.y) && q.p.y > pSurface(q.p.xz) ? 1.0 : 0.0;
+    drops[i] = q;
+}

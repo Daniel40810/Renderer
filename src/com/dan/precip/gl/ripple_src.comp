@@ -1,0 +1,82 @@
+// ripple_src.comp — Druckstöße der Einschläge in das Wellenfeld (ringsum geschlossen, fest in der Welt, Fenster um
+// uRMid): zuerst die zufälligen Einschläge aller Tropfen ab 0,3 mm nach der Verteilung am Ort (ohne die großen, die im
+// Kasten als echte Tropfen fallen) – gezogen nach N(D) v(D), wie sie auf eine Fläche treffen: aus N gezogen, behalten mit
+// v / v(dmax) (uStatCount sind die Züge) –, dann die echten Einschläge aus drops.comp. Je Einschlag p = GAIN · m v als Gaußglocke der
+// Breite σ = max(D/2, 0,7 Zellen), auf das Raster normiert (Festkomma, atomar). Zufällige ab 1 mm kommen auch ins Buch
+// der Spritzer.
+#include "precip_common.glsl"
+layout(local_size_x = 64) in;
+layout(std430, binding = 2) buffer Src { int cells[]; };
+struct Impact { vec4 p; vec4 v; };
+layout(std430, binding = 1) buffer Impacts { uint count[4]; Impact impacts[]; };
+uniform int uN;            // Zellen je Seite
+uniform float uDx;         // Zellgröße (m)
+uniform vec2 uRMid;        // Mitte des Fensters (m)
+uniform int uStatCount;    // zufällige Einschläge in diesem Bild
+uniform uint uFrame;
+uniform int uBoxCap, uStatCap;
+uniform float uBand;       // 1: dieses Feld nimmt Einschläge (Kaskaden: alle nehmen alle)
+uniform int uAppend;       // 1: zufällige ab 1 mm ins Buch der Spritzer (nur das erste Feld)
+const float SCALE = 4.0e6;
+const float GAIN = 1.0;   // wie Ripples.GAIN: der reine Impuls (Ringe wie gemessen, Craeye u. a. 1999)
+
+void splat(vec2 xz, float d, float v) {
+    float p = GAIN * P_RHO_W * P_PI / 6.0 * pow(d * 1e-3, 3.0) * v;
+    float sg = max(0.5e-3 * d, 0.7 * uDx);
+    int r = int(ceil(3.5 * sg / uDx));
+    vec2 c = xz / uDx;
+    ivec2 ci = ivec2(floor(c));
+    float sum = 0.0;
+    for (int j = -r; j <= r + 1; j++)
+        for (int i = -r; i <= r + 1; i++) {
+            vec2 e = (vec2(ci + ivec2(i, j)) + 0.5 - c) * uDx;
+            sum += exp(-dot(e, e) / (2.0 * sg * sg));
+        }
+    float norm = p / (sum * uDx * uDx) * SCALE;
+    for (int j = -r; j <= r + 1; j++)
+        for (int i = -r; i <= r + 1; i++) {
+            ivec2 q = ci + ivec2(i, j);
+            vec2 e = (vec2(q) + 0.5 - c) * uDx;
+            int val = int(round(norm * exp(-dot(e, e) / (2.0 * sg * sg))));
+            ivec2 m = ivec2(q.x & (uN - 1), q.y & (uN - 1));
+            if (val != 0) atomicAdd(cells[m.y * uN + m.x], val);
+        }
+}
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    float size = float(uN) * uDx;
+    if (i < uStatCount) {
+        uint id = uint(i);
+        vec2 xz = uRMid + (vec2(pRnd(uPSeed ^ uFrame, id, 1u), pRnd(uPSeed ^ uFrame, id, 2u)) - 0.5) * size;
+        vec4 gr = pGround(xz);
+        if (gr.g > 0.5 || gr.b > gr.r) return;   // nur offenes Wasser
+        float loc = uPD.x * pCurtain(xz);
+        float keep = pRnd(uPSeed ^ uFrame, id, 3u);
+        if (keep > loc / max(1e-6, uPD.x)) return;   // weniger Regen am Ort: weniger Einschläge (Anzahl für die volle Menge)
+        float lam = pLambda(loc);
+        float d = pSample(lam, 0.3, uPE.x, pRnd(uPSeed ^ uFrame, id, 4u));
+        float v = pTerminal(d);
+        if (pRnd(uPSeed ^ uFrame, id, 5u) * pTerminal(uPE.x) > v) return;   // nach N v: große kommen öfter an
+        // im Kasten fallen die großen als echte Tropfen (wenn der Kasten bis unter die Fläche reicht)
+        vec2 rb = abs(xz - uPA.xz);
+        if (d >= uPD.w && max(rb.x, rb.y) < uPA.w && gr.r > uPA.y - uPB.x) return;
+        splat(xz, d, v);
+        if (uAppend == 1 && d >= 1.0) {
+            uint k = atomicAdd(count[1], 1u);
+            if (k < uint(uStatCap)) {
+                impacts[uBoxCap + int(k)].p = vec4(xz.x, gr.r, xz.y, d);
+                vec3 w = vec3(uPC.x + uPC.z, 0.0, uPC.y + uPC.w);
+                impacts[uBoxCap + int(k)].v = vec4(w.x * 0.9, -v, w.z * 0.9, 0.0);
+            }
+        }
+        return;
+    }
+    int j = i - uStatCount;
+    if (j >= int(min(count[0], uint(uBoxCap)))) return;
+    Impact im = impacts[j];
+    if (im.v.w > 0.5) return;   // auf Grund: keine Wellen
+    vec2 rel = im.p.xz - uRMid;
+    if (abs(rel.x) > 0.5 * size || abs(rel.y) > 0.5 * size) return;
+    splat(im.p.xz, im.p.w, length(im.v.xyz));
+}
