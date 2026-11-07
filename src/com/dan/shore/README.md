@@ -1,6 +1,6 @@
 # com.dan.shore – Strand und Böschung an der Naht von Land und Grund
 
-**Stand: LituyaBay1958 W6 Runde 8.** Höhenmodelle für Küsten werden aus zwei Quellen gemischt: einem Landmodell (Lidar, IfSAR) und einem Modell des Grunds (Lotungen, BlueTopo, USACE). An der Wasserlinie passen sie selten zusammen. Das Landmodell legt das Wasser auf eine glatte Fläche („hydroflattened“), das Grundmodell ist an der Küste grob und liegt dort zu tief, und die Zone zwischen den Gezeiten fehlt oft in beiden. Im Bild steht dann eine senkrechte Wand von einigen Metern mit gerader Oberkante.
+**Stand: LituyaBay1958 W9c Runde 2b** (seit W6 Runde 8). Höhenmodelle für Küsten werden aus zwei Quellen gemischt: einem Landmodell (Lidar, IfSAR) und einem Modell des Grunds (Lotungen, BlueTopo, USACE). An der Wasserlinie passen sie selten zusammen. Das Landmodell legt das Wasser auf eine glatte Fläche („hydroflattened“), das Grundmodell ist an der Küste grob und liegt dort zu tief, und die Zone zwischen den Gezeiten fehlt oft in beiden. Im Bild steht dann eine senkrechte Wand von einigen Metern mit gerader Oberkante.
 
 Das Package löst das an zwei Stellen:
 
@@ -31,6 +31,11 @@ Das Package kennt keine Szene und keine Dateiformate, nur `float[]`-Raster (Zeil
 boolean[] wasser = HydroFlat.mask(land, w, h);              // 2 mm, 5 von 8
 int klasse = (grund < land - 1 && land < 3 && wasser[i]) ? GRUND : LAND;
 ```
+
+**Speicher (seit W9c Runde 2b).** Die Aufbereitung von LituyaBay1958 rechnet 15 Kacheln zu je 6,5 Mio. Zellen gleichzeitig; dort zählt jedes Feld je Zelle.
+
+- `mask(v, quelle, w, h, tol, minEqual)` nimmt die Quellen als `int[]` oder als `byte[]` (ein Viertel des Speichers, gleiches Ergebnis).
+- `attached` fängt die Anker der Reihe nach an, statt alle auf einmal auf den Stapel zu legen. Der Stapel wächst nur mit der Front der Suche, und das Ergebnis steht im Feld der besuchten Zellen. Vorher waren es ein `int` und zwei `boolean` je Zelle, jetzt ein `boolean`. Gleiches Ergebnis.
 
 ## ShoreRamp
 
@@ -78,7 +83,8 @@ int rand = (int) Math.ceil(r.reach() / zelle) + 2;       // Rand je Kachel (Vorg
 - Grund unter `floor` unverändert;
 - glattes Wasser gegen Strand mit Rauschen;
 - die Grenze zweier glatter Quellen ist glatt;
-- Strand am Land bleibt, eine Insel im Wasser nicht.
+- Strand am Land bleibt, eine Insel im Wasser nicht;
+- Quellen als `byte` geben dieselbe Maske wie als `int`, und der sparsame Zusammenhang dasselbe wie die Rechnung vorher (je sechs zufällige Felder 300 × 300).
 
 ```
 java -cp dist/Renderer.jar com.dan.shore.demo.ShoreCheck
@@ -92,4 +98,5 @@ LituyaBay1958 nutzt das Package in der Aufbereitung, Schritt `gelaende` (`tools.
 - Strand bleibt nur, wo er mit dem Land über 3 m zusammenhängt (`HydroFlat.attached`). „Glatt“ wird dabei nur gegen Nachbarn derselben Landquelle geprüft, also Lidar gegen Lidar und IfSAR gegen IfSAR (`HydroFlat.mask` mit Quellen). Ohne beides lagen an den Grenzen der Lidarkacheln Rücken mitten im Wasser.
 - Danach läuft `ShoreRamp` je Kachel mit Rand.
 - Ergebnis der Aufbereitung: im Kern 0,88 km² Strand aus dem Lidar zurück und 2,65 km² Grund gehoben, in der Szene 3,40 km² und 11,65 km².
+- Seit W9c Runde 2b mit den Quellen als `byte` und dem sparsamen `attached`: eine Kachel des Kerns braucht rund 100 statt 250 MB, die Kacheln sind Bit für Bit dieselben (geprüft an 20 Kacheln des Kerns und zwei der Szene).
 - Schalter `-Dlituya.ohneStrand=true` stellt die Mischung wie vorher her.

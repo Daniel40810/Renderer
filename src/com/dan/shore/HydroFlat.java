@@ -17,9 +17,9 @@ public final class HydroFlat {
     public static final int MIN_EQUAL = 5;
 
     /** Maske glatter Flächen (Zeilen nacheinander, w Zellen je Zeile, h Zeilen). */
-    public static boolean[] mask(float[] v, int w, int h, float tol, int minEqual) { return mask(v, null, w, h, tol, minEqual); }
+    public static boolean[] mask(float[] v, int w, int h, float tol, int minEqual) { return mask(v, null, null, w, h, tol, minEqual); }
 
-    public static boolean[] mask(float[] v, int w, int h) { return mask(v, null, w, h, TOL, MIN_EQUAL); }
+    public static boolean[] mask(float[] v, int w, int h) { return mask(v, null, null, w, h, TOL, MIN_EQUAL); }
 
     /**
      * Wie oben, aber nur Nachbarn derselben Quelle zählen (group je Zelle, etwa 0 = Lidar, 1 = IfSAR; null: alle eine).
@@ -28,8 +28,17 @@ public final class HydroFlat {
      * und bekam eine Böschung: ein Rücken mitten im Wasser. Mit Quellen gilt: glatt, wenn mindestens
      * min(minEqual, gleiche Quelle − 1) Nachbarn derselben Quelle gleich hoch sind und es mindestens drei davon gibt.
      */
-    public static boolean[] mask(float[] v, int[] group, int w, int h, float tol, int minEqual) {
+    public static boolean[] mask(float[] v, int[] group, int w, int h, float tol, int minEqual) { return mask(v, group, null, w, h, tol, minEqual); }
+
+    /**
+     * Wie oben, die Quellen als ein Byte je Zelle (seit LituyaBay1958 W9c Runde 2b: ein Viertel des Speichers; eine Kachel
+     * des Kerns mit Rand hat 6,5 Mio. Zellen, das sind 26 MB als int, 6,5 MB als byte). Gleiches Ergebnis wie mit int.
+     */
+    public static boolean[] mask(float[] v, byte[] group, int w, int h, float tol, int minEqual) { return mask(v, null, group, w, h, tol, minEqual); }
+
+    private static boolean[] mask(float[] v, int[] gi, byte[] gb, int w, int h, float tol, int minEqual) {
         if (v.length < (long) w * h) throw new IllegalArgumentException("Raster kleiner als " + w + " × " + h);
+        boolean grouped = gi != null || gb != null;
         boolean[] m = new boolean[w * h];
         for (int j = 0; j < h; j++) {
             int j0 = Math.max(0, j - 1), j1 = Math.min(h - 1, j + 1);
@@ -37,19 +46,19 @@ public final class HydroFlat {
                 int k = j * w + i;
                 float c = v[k];
                 if (Float.isNaN(c)) continue;
-                int g = group == null ? 0 : group[k];
+                int g = gi != null ? gi[k] : gb != null ? gb[k] : 0;
                 int i0 = Math.max(0, i - 1), i1 = Math.min(w - 1, i + 1), eq = 0, tot = 0;
                 for (int y = j0; y <= j1; y++)
                     for (int x = i0; x <= i1; x++) {
                         if (x == i && y == j) continue;
                         int q = y * w + x;
-                        if (group != null && group[q] != g) continue;
+                        if (grouped && (gi != null ? gi[q] : gb[q]) != g) continue;
                         float n = v[q];
                         if (Float.isNaN(n)) continue;
                         tot++;
                         if (Math.abs(n - c) <= tol) eq++;
                     }
-                m[k] = group == null ? eq >= minEqual : tot >= 3 && eq >= Math.min(minEqual, tot - 1);
+                m[k] = !grouped ? eq >= minEqual : tot >= 3 && eq >= Math.min(minEqual, tot - 1);
             }
         }
         return m;
@@ -59,24 +68,34 @@ public final class HydroFlat {
      * Welche Kandidaten mit einem Anker zusammenhängen (8 Nachbarn, über Kandidaten und Anker hinweg). LituyaBay1958 W6
      * Runde 8: Strand (Land unter 3 m, nicht glatt) bleibt nur, wo er am Land über 3 m hängt; einzelne unruhige Zellen
      * mitten im Wasser (Rauschen, Ränder der Messung) werden so nicht zu Inseln.
+     * <p>
+     * Seit W9c Runde 2b sparsam: Die Anker werden der Reihe nach angefangen statt alle auf einmal auf den Stapel gelegt, der
+     * Stapel wächst nur mit der Front der Suche (vorher ein int je Zelle, 26 MB für eine Kachel des Kerns mit Rand), und das
+     * Ergebnis steht im Feld der besuchten Zellen. Gleiches Ergebnis wie vorher.
      */
     public static boolean[] attached(boolean[] candidate, boolean[] anchor, int w, int h) {
         int n = w * h;
         boolean[] seen = new boolean[n];
-        int[] stack = new int[n];
-        int sp = 0;
-        for (int k = 0; k < n; k++) if (anchor[k]) { seen[k] = true; stack[sp++] = k; }
-        while (sp > 0) {
-            int k = stack[--sp], i = k % w, j = k / w;
-            for (int y = Math.max(0, j - 1); y <= Math.min(h - 1, j + 1); y++)
-                for (int x = Math.max(0, i - 1); x <= Math.min(w - 1, i + 1); x++) {
-                    int q = y * w + x;
-                    if (!seen[q] && candidate[q]) { seen[q] = true; stack[sp++] = q; }
-                }
+        int[] stack = new int[1024];
+        for (int a = 0; a < n; a++) {
+            if (!anchor[a] || seen[a]) continue;
+            seen[a] = true;
+            int sp = 0;
+            stack[sp++] = a;
+            while (sp > 0) {
+                int k = stack[--sp], i = k % w, j = k / w;
+                for (int y = Math.max(0, j - 1); y <= Math.min(h - 1, j + 1); y++)
+                    for (int x = Math.max(0, i - 1); x <= Math.min(w - 1, i + 1); x++) {
+                        int q = y * w + x;
+                        if (seen[q] || !candidate[q]) continue;
+                        seen[q] = true;
+                        if (sp == stack.length) stack = java.util.Arrays.copyOf(stack, Math.min(n, stack.length * 2));
+                        stack[sp++] = q;
+                    }
+            }
         }
-        boolean[] r = new boolean[n];
-        for (int k = 0; k < n; k++) r[k] = candidate[k] && seen[k];
-        return r;
+        for (int k = 0; k < n; k++) seen[k] &= candidate[k];
+        return seen;
     }
 
     /** Anteil glatter Zellen unter den Zellen mit Wert. */
