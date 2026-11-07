@@ -1,0 +1,29 @@
+// highlights.comp — helle Punkte, die unscharf sind, werden gestreut statt gesammelt (com.dan.lens): Wo ein halber Bildpunkt
+// heller ist als uThresh und sein Kreis größer als 3 halbe Bildpunkte, geht der Überschuss als ein Kreis der Blende in die
+// Liste (gezeichnet von sprite.vert/frag, Energie bleibt erhalten); im Bild für das Sammeln bleibt der Wert bis uThresh.
+// So werden Lichter zu Kreisen mit scharfem Rand statt zu Rauschen. Liste: vec4 (x, y, c, 0), vec4 (Überschuss rgb, 0).
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform sampler2D uHalf;
+layout(rgba16f, binding = 1) uniform writeonly image2D uOut;
+layout(std430, binding = 2) buffer Cmd { uint count; uint instances; uint first; uint baseInstance; } cmd;
+layout(std430, binding = 3) buffer Spots { vec4 spot[]; } sp;
+uniform float uThresh;
+uniform int uCap;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 sz = textureSize(uHalf, 0);
+    if (p.x >= sz.x || p.y >= sz.y) return;
+    vec4 h = texelFetch(uHalf, p, 0);
+    float lum = dot(h.rgb, vec3(0.2126, 0.7152, 0.0722));
+    if (abs(h.a) > 3.0 && lum > uThresh) {
+        vec3 keep = h.rgb * (uThresh / lum);
+        uint k = atomicAdd(cmd.instances, 1u);
+        if (k < uint(uCap)) {
+            sp.spot[2u * k] = vec4(vec2(p) + 0.5, h.a, 0.0);
+            sp.spot[2u * k + 1u] = vec4(h.rgb - keep, 0.0);
+            h.rgb = keep;
+        } else atomicAdd(cmd.instances, uint(-1));
+    }
+    imageStore(uOut, p, h);
+}
