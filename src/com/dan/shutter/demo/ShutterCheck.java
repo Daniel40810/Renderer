@@ -118,9 +118,71 @@ public final class ShutterCheck {
                 Math.abs(mb.scale(sh.openS(), 1 / 60.0) - 1.25) < 1e-12 && mb.scale(sh.openS(), 0) == 0 && mb.tileFor(2160) == 40,
                 "%.3f, Kachel bei 2160 Zeilen %d", mb.scale(sh.openS(), 1 / 60.0), mb.tileFor(2160));
         check("Bewegungsunschärfe: 1 000 Bildpunkte je Sekunde bei 1/48 s sind 20,8 Bildpunkte", Math.abs(sh.blurPx(1000) - 1000 / 48.0) < 1e-9, "%.2f", sh.blurPx(1000));
+        aberration();
         System.out.println(sh.describe());
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " von " + (ok + bad) + " Prüfungen fehlgeschlagen.");
         System.exit(bad == 0 ? 0 : 1);
+    }
+
+    /** Seit W9c Runde 2: sphärische Aberration und Längsfarbfehler je Teilbild (com.dan.shutter.Aberration). */
+    static void aberration() {
+        // 1 reine Unschärfe als „Aberration“ (TA = β ρ): scharfgestellt auf den kleinsten Fleck bleibt nichts, paraxial ist es
+        //   genau eine andere Schärfe: der Versatz −β (u, v) wie die Scherung für s', f · e · (1/s' − 1/s) = −β ρ̂
+        double beta = 0.05;
+        double[] ta = new double[33];
+        for (int i = 0; i < 33; i++) ta[i] = beta * i / 32.0;
+        com.dan.shutter.Aberration a = new com.dan.shutter.Aberration(ta, 0, 0, 25, 50);
+        double[] o = new double[2];
+        a.shiftMm(0.6, -0.3, 1, 1, o);
+        double best = Math.hypot(o[0], o[1]);
+        a.bestFocus = false;
+        a.shiftMm(0.6, -0.3, 1, 1, o);
+        double[] l1 = a.landingMm(40, 10, 50, 0.6, -0.3, 1, 1);
+        // dieselbe Landung ohne Aberration bei einer Schärfe s' mit f · (D/2) · (1/s' − 1/s) = −β (mm)
+        double sp = 1 / (1 / 10000.0 - beta / (50 * 12.5)) / 1000;
+        com.dan.shutter.Aberration n0 = new com.dan.shutter.Aberration(new double[33], 0, 0, 25, 50);
+        double[] l2 = n0.landingMm(40, sp, 50, 0.6, -0.3, 1, 1);
+        check("Aberration: reine Unschärfe β ρ ist scharfgestellt nichts, paraxial genau eine andere Schärfe (dünne Linse)",
+                best < 1e-6 && Math.abs(o[0] + beta * 0.6) < 1e-12 && Math.hypot(l1[0] - l2[0], l1[1] - l2[1]) < 1e-9,
+                "beste %.1e mm, Landung %.6f/%.6f gegen %.6f/%.6f mm (s' = %.3f m)", best, l1[0], l1[1], l2[0], l2[1], sp);
+        // 2 sphärische Aberration a ρ³: bester Fleck α = 2a/3, RMS a/√... kleiner als paraxial
+        double am = 0.03;
+        for (int i = 0; i < 33; i++) ta[i] = am * Math.pow(i / 32.0, 3);
+        com.dan.shutter.Aberration s3 = new com.dan.shutter.Aberration(ta, 0, 0, 25, 50);
+        double al = s3.bestAlpha(), rp = s3.rmsSpotMm(false), rb = s3.rmsSpotMm(true);
+        // geschlossen: ∫ (aρ³ − αρ)² 2ρ dρ mit α = 2a/3: a² (1/4 − 2·(2/3)/3 + (4/9)/2) = a² / 36 … RMS a/6; paraxial a/2
+        check("Aberration: TA = a ρ³ – kleinster Fleck bei α = 2a/3, RMS a/6 statt a/2 (paraxial)", Math.abs(al - 2 * am / 3) < 2e-3 * am
+                && Math.abs(rb - am / 6) < 2e-4 && Math.abs(rp - am / 2) < 2e-4, "α %.5f (%.5f), RMS %.5f (%.5f) und %.5f (%.5f) mm", al, 2 * am / 3, rb, am / 6, rp, am / 2);
+        // 3 Helligkeit im Kreis aus den Orten der Pupille gegen das Histogramm der Landung (wie com.dan.lens, saProfile)
+        double S = -1.0, bins = 20;   // mm je Einheit der Pupille (vor der Schärfe)
+        double[] h1 = new double[(int) bins + 6], h2 = new double[(int) bins + 6];
+        SubFrames.Sample[] pl = SubFrames.plan(new Shutter(24, 180), Pupil.round(), 20000, 7, false);
+        double rmax = 0;
+        for (int k = 0; k <= 400; k++) { double r = k / 400.0; rmax = Math.max(rmax, Math.abs(S * r - (s3.ta(r) - al * r))); }
+        for (SubFrames.Sample q : pl) {
+            s3.shiftMm(q.u(), q.v(), 1, 1, o);
+            double x = S * q.u() + o[0], y = S * q.v() + o[1], r = Math.hypot(x, y) / rmax;
+            int b = (int) Math.min(h1.length - 1, Math.floor(r * bins));
+            h1[b] += 1.0 / pl.length;
+        }
+        int nr = 200000;
+        for (int k = 0; k < nr; k++) {
+            double rho = (k + 0.5) / nr, r = Math.abs(S * rho - (s3.ta(rho) - al * rho)) / rmax;
+            int b = (int) Math.min(h2.length - 1, Math.floor(r * bins));
+            h2[b] += 2 * rho / nr;
+        }
+        double dev = 0;
+        for (int b = 0; b < bins; b++) dev = Math.max(dev, Math.abs(h1[b] - h2[b]));
+        check("Aberration: die Orte der Pupille, je Teilbild verschoben, geben die Helligkeit im Kreis wie die Landung der Strahlen", dev < 0.01,
+                "größte Abweichung je Ring %.4f (Ringe zu 1/%d des Halbmessers)", dev, (int) bins);
+        // 4 Längsfarbfehler: Blau 0,14 mm vor Grün, 50 mm, Pupille 25 mm: −dz (D/2)/v je Einheit der Pupille
+        com.dan.shutter.Aberration c = new com.dan.shutter.Aberration(new double[33], 0.063, -0.14, 25, 50);
+        double[] sb = new double[2], sr = new double[2];
+        c.shiftMm(1, 0, 1, 2, sb);
+        c.shiftMm(1, 0, 1, 0, sr);
+        check("Aberration: Längsfarbfehler am Rand der Pupille: Blau +dz·(D/2)/v nach außen, Rot nach innen (wie ein näherer und ein fernerer Fokus)",
+                Math.abs(sb[0] - 0.14 * 12.5 / 50) < 1e-12 && Math.abs(sr[0] + 0.063 * 12.5 / 50) < 1e-12 && Math.abs(c.chromaticPx(2, 0.01) + 3.5) < 1e-9,
+                "Blau %+.4f, Rot %+.4f mm; Blau %.1f Bildpunkte je Einheit bei 10 µm", sb[0], sr[0], c.chromaticPx(2, 0.01));
     }
 
     static float[] persp(double fovy, double aspect) {

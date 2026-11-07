@@ -26,6 +26,8 @@ Der Kern braucht nur Java 21. Der Ordner `gl/` rechnet mit JOGL (GL 4.3, Vollbil
 | Bewegungsunschärfe | Halbe Bewegung je Bildpunkt V = ½ · Weg · T/Δt (höchstens die Kachel k = 20 Bildpunkte bei 1 080 Zeilen); Kacheln mit der längsten, 3 × 3 Nachbarn; sammeln längs der längsten mit Kegel- und Zylindergewichten und weichem Tiefenvergleich, 15 Punkte. Gegen einen Kastenfilter beim gleichmäßigen Schwenk: im Mittel 0,011 | McGuire, Hennessy, Bukowski, Osman, I3D 2012; McGuire u. a. 2013; Jimenez 2014 |
 | Wagenrad | Von Bild zu Bild zählt nur die Drehung modulo eines Speichenabstands: 8 Speichen bei 3 U/s stehen bei 24 B/s, bei 2,9 U/s laufen sie mit 0,1 U/s rückwärts | – |
 | Zeitlupe | Eine Kamera mit n Bildern je Sekunde, mit 24 vorgeführt: die Szene läuft 24/n so schnell, die Belichtung ist Winkel/360 · 1/n (192 B/s: 1/8, 1/384 s) | – |
+| Fehler des Objektivs (seit W9c Runde 2) | Eine andere Schärfenebene für ein Teilbild ändert die Scherung, und das verschiebt das ganze Bild, für jede Tiefe gleich (x_ndc = −P₀₀ x/z − P₀₂). Darum wird jedes Teilbild je Farbe verschoben: **Längsfarbfehler** −dz_c · (D/2)/v · (u, v), **sphärische Aberration** −TA_best(ρ)/ρ · (u, v) mit TA(ρ) aus echten Randstrahlen (etwa `com.dan.lens`), scharfgestellt auf den kleinsten Fleck (α = 4 ∫ TA ρ² dρ). Die Helligkeit im Kreis aus 20 000 so verschobenen Orten gegen das Histogramm der Landung: 0,0007 je Ring | Hopkins; Smith, *Modern Optical Engineering* (TA, bester Kreis) |
+| Lichter (seit W9c Runde 2) | Ein vereinzeltes helles Licht fällt in jedem Teilbild auf einen Bildpunkt; über n Teilbilder ein Kreis aus n Punkten (Körnung 4,8 bei 32). Lichter über der Schwelle, viermal heller als ihr Ring [G], geben ihren Überschuss als ganzen Kreis: der Ort p der Pupille landet bei Mitte + X(ρ)/ρ · p, X = S_c ρ − TA_best(ρ); umgekehrt je Bildpunkt über 16 Zonen und beide Vorzeichen, Helligkeit E ρ / (π q |X| |X′|), Blende (Lamellen, Rundung) und Katzenauge je Ort, Zeitfenster je Bildpunkt. Auf Mesa: Energie 498 von 500, im Kreis 1,000 · E/(πR²), Körnung 0,055 (32 Teilbilder), Sechseck mit Ecken, Ring der Aberration gegen die Rechnung 0,006, Farbsäume auf 0,3 Bildpunkte | – |
 
 ## Klassen
 
@@ -33,12 +35,13 @@ Der Kern braucht nur Java 21. Der Ordner `gl/` rechnet mit JOGL (GL 4.3, Vollbil
 |---|---|
 | `Shutter` | die Umlaufblende: Bildrate, Winkel, Öffnungsgang, Flanke, Fenster; `openS`, `openAt`, `openRange`, `windowS`, `rampS`, `apparentRevPerS`, `blurPx`, `describe` |
 | `Pupil` | die Fläche der Pupille: Lamellen, Rundung, Drehung, Stauchung; `sample`, `inside`, `radius` |
+| `Aberration` | seit W9c Runde 2: sphärische Aberration und Längsfarbfehler je Ort der Pupille: `shiftMm`, `shiftUv`, `bestAlpha`, `rmsSpotMm`, `taBestPx`, `chromaticPx`, `landingMm` |
 | `SubFrames` | die Teilbilder eines Filmbilds (`plan`), die Kamera je Teilbild (`offsetView`, `shearProjection`), `imageShift` |
 | `MotionBlur` | die Einstellungen der Bewegungsunschärfe in Echtzeit; `scale` (T/Δt), `tileFor` |
-| `gl/ShutterGl` | die Kino-Stufe: `begin`, `add(View)` je Teilbild, `resolve` → Textur mit Mip-Stufen |
+| `gl/ShutterGl` | die Kino-Stufe: `begin`, `add(View)` je Teilbild, `resolve` → Textur mit Mip-Stufen; seit W9c Runde 2 `View.shiftUv` (Fehler je Farbe) und die Lichter (`View.lightThreshold`, Tiefe, `cocPxPerDiopter`, `focusM`, Blende, `taBestPx`; `lightIsolation`, `lightMinRadius`, `lightCap`, `lastLights`) |
 | `gl/MotionBlurGl` | die Bewegungsunschärfe: `apply(View)` → Textur |
 | `demo/ShutterDemo` | Wagenrad, Schwenk über Pfähle mit vier Verschlüssen (mit Öffnungsgang: die Pfähle neigen sich), Bokeh aus 1 024 Orten der Pupille mit Katzenauge; `--bild datei.png` |
-| `demo/ShutterCheck` | 16 Prüfungen ohne Grafikkarte |
+| `demo/ShutterCheck` | 20 Prüfungen ohne Grafikkarte |
 
 ## Einbau
 
@@ -61,6 +64,17 @@ for (SubFrames.Sample s : plan) {
 int bild = acc.resolve(gl, hdr);                                      // weiter: Objektiv ohne Tiefenschärfe, Film
 ```
 
+Seit W9c Runde 2, je Teilbild dazu (Fehler des Objektivs und Lichter als ganze Kreise):
+
+```java
+Aberration ab = new Aberration(optik.transverseMm(), optik.dzR(), optik.dzB(), optik.pupilMm(), bildweiteMm);
+v.shiftUv = ab.shiftUv(s.u(), s.v(), stauchung, pitch, w, h);
+v.taBestPx = ab.taBestPx(pitch, pupille.scale()); v.chromaRPx = ab.chromaticPx(0, pitch); v.chromaBPx = ab.chromaticPx(2, pitch);
+v.blades = pupille.blades; v.roundness = pupille.roundness; v.rotationDeg = pupille.rotationDeg; v.pupilScale = pupille.scale();
+v.lightThreshold = 2 / belichtung; v.depthTexture = tiefe; v.reversedZ = true; v.near = 0.3; v.far = 1e5;
+v.cocPxPerDiopter = D / 2 * f / pitch;  v.focusM = fokusM;  v.subframes = plan.length;
+```
+
 In Echtzeit:
 
 ```java
@@ -74,11 +88,12 @@ int bild = mbGl.apply(gl, v);
 
 ## Prüfung
 
-`java -cp build/classes:src com.dan.shutter.demo.ShutterCheck` – Belichtung, Öffnungsgang, Flanke, Wagenrad, Pupille (Fläche, Lamellen, Stauchung), Gleichmaß, Schichtung der Zeit, Scherung gegen die dünne Linse, Länge der Bewegungsunschärfe. Endet mit „Alles in Ordnung.“ Auf der Grafikkarte (Mesa): ein stehendes Bild durch 64 Teilbilder kommt unverändert heraus (4 · 10⁻⁶), der Öffnungsgang belichtet zuerst eine Seite, das Katzenauge schneidet zum Rand, die Bewegungsunschärfe eines Schwenks ist ein Kastenfilter (0,011 im Mittel).
+`java -cp build/classes:src com.dan.shutter.demo.ShutterCheck` – Belichtung, Öffnungsgang, Flanke, Wagenrad, Pupille (Fläche, Lamellen, Stauchung), Gleichmaß, Schichtung der Zeit, Scherung gegen die dünne Linse, Länge der Bewegungsunschärfe; seit W9c Runde 2 die Aberration (reine Unschärfe = andere Schärfe, bester Fleck bei a ρ³: α = 2a/3, RMS a/6 statt a/2, Helligkeit im Kreis aus den Orten der Pupille, Längsfarbfehler). Endet mit „Alles in Ordnung.“ Auf der Grafikkarte (Mesa): ein stehendes Bild durch 64 Teilbilder kommt unverändert heraus (4 · 10⁻⁶), der Öffnungsgang belichtet zuerst eine Seite, das Katzenauge schneidet zum Rand, die Bewegungsunschärfe eines Schwenks ist ein Kastenfilter (0,011 im Mittel).
 
 ## Grenzen
 
 - Die Bewegungsunschärfe in Echtzeit kennt nur die Bewegung der Kamera; was sich in der Szene bewegt (Welle, Boote, Staub), verwischt nur in der Kino-Stufe.
-- Kleine helle Lichter brauchen viele Teilbilder: Mit 64 sind ihre Kreise körnig, ab 256 glatt.
-- Die sphärische Aberration und der Längsfarbfehler des Objektivs fehlen in der Kino-Stufe (alle Orte der Pupille treffen dieselbe Ebene, alle Farben auch); das gesammelte Bokeh von `com.dan.lens` hat sie.
+- Lichter als ganze Kreise (seit W9c Runde 2) sehen das Licht von der ganzen Pupille: Ist ein Licht nur von einem Teil der Pupille aus zu sehen (hinter einer nahen Kante), wird sein Kreis dunkler, aber nicht „angebissen“. Alles andere behält die echte Verdeckung je Ort der Pupille.
+- Die Fehler gelten für einen Punkt auf der Achse in Unendlich (TA der Randstrahlen); Koma, Astigmatismus und der Farbfehler der sphärischen Aberration fehlen. Lichter unter 1,5 Bildpunkten Halbmesser bleiben im Bild (dort ist ein Punkt nicht körnig).
+- Was nicht vereinzelt ist (ein helles Fenster, die Fläche der Sonne, Glitzern dicht an dicht), bleibt Punkt je Teilbild: dort helfen mehr Teilbilder.
 - Die Geometrie der Scheibe (R, d, Lage der Achse) ist gestaltet; echte Kameras der 1950er sind [zu prüfen].

@@ -74,6 +74,15 @@ public final class ForestGpu {
     public double[] nearCut;
     public double nearBand = 6;
     /**
+     * Seit LituyaBay1958 W9c Runde 2: die Erdkrümmung wie im Gelände, 1/(2R') (1/m; R' der wirksame Erdradius mit der
+     * Brechung, etwa 6 371 km / 0,87). Jeder Baum sinkt um r² · curvature, r sein Abstand zum Auge über den Boden, wie die
+     * Scheitel einer Clipmap mit Erdkrümmung: in 4,5 km 1,4 m. Vorgabe 0 (flach). {@link #nearTrees} und {@link #cullCpu}
+     * geben den Fuß ohne Krümmung (nah unter 0,1 mm).
+     */
+    public double curvature;
+    /** Seit W9c Runde 2: kein Baum unter diesem Grund (m), siehe {@link ForestCulture#minGround}; Vorgabe −∞. */
+    public double minGround = Double.NEGATIVE_INFINITY;
+    /**
      * Feine Nadelbürsten in Stufe 0 (Vorgabe false; seit LituyaBay1958 W6 Runde 3): siehe
      * {@link TreeMesh#build(TreeModel, int, int, boolean)}. Vor {@link #init} setzen (wirkt beim nächsten Backen).
      */
@@ -198,6 +207,23 @@ public final class ForestGpu {
 
     public void densityChanged() { denDirty = true; }
     public void terrainChanged() { hgtDirty = true; }
+
+    private int[] hgtRegion;
+
+    /**
+     * Seit LituyaBay1958 W9c Runde 2: nur ein Rechteck des Bodengitters hat sich geändert (Szene x0, z0 bis x1, z1, m);
+     * beim nächsten {@link #update} geht nur dieses Stück auf die Grafikkarte (glTexSubImage2D), nicht das ganze Gitter
+     * (4 096² sind 64 MB). Mehrere Rechtecke vor einem update werden zu ihrer Hülle.
+     */
+    public void terrainChanged(double x0, double z0, double x1, double z1) {
+        ForestCulture.Grid g = culture.height;
+        if (g == null) return;
+        int i0 = Math.max(0, (int) Math.floor((Math.min(x0, x1) - g.x0) / g.size * g.n) - 1), i1 = Math.min(g.n, (int) Math.ceil((Math.max(x0, x1) - g.x0) / g.size * g.n) + 1);
+        int j0 = Math.max(0, (int) Math.floor((Math.min(z0, z1) - g.z0) / g.size * g.n) - 1), j1 = Math.min(g.n, (int) Math.ceil((Math.max(z0, z1) - g.z0) / g.size * g.n) + 1);
+        if (i0 >= i1 || j0 >= j1) return;
+        int[] r = hgtRegion;
+        hgtRegion = r == null ? new int[]{i0, j0, i1, j1} : new int[]{Math.min(r[0], i0), Math.min(r[1], j0), Math.max(r[2], i1), Math.max(r[3], j1)};
+    }
 
     /** Wind wie {@link ForestGl#setWind}. */
     public void setWind(double toX, double toZ, double speed, double gustiness) {
@@ -511,6 +537,19 @@ public final class ForestGpu {
             gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_R32F, g.n, g.n, 0, GL2ES2.GL_RED, GL.GL_FLOAT, Buffers.newDirectFloatBuffer(g.v));
             nearest(gl, GL.GL_TEXTURE_2D);
             hgtDirty = false;
+            hgtRegion = null;
+        } else if (hgtRegion != null && culture.height != null) {
+            // W9c Runde 2: nur das geänderte Rechteck
+            ForestCulture.Grid g = culture.height;
+            int[] r = hgtRegion;
+            int w = r[2] - r[0], h = r[3] - r[1];
+            java.nio.FloatBuffer fb = Buffers.newDirectFloatBuffer(w * h);
+            for (int j = r[1]; j < r[3]; j++) fb.put(g.v, j * g.n + r[0], w);
+            fb.flip();
+            gl.glBindTexture(GL.GL_TEXTURE_2D, hgtTex);
+            gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 4);
+            gl.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, r[0], r[1], w, h, GL2ES2.GL_RED, GL.GL_FLOAT, fb);
+            hgtRegion = null;
         }
         TreeStates s = culture.states;
         if (s != null && s.version() != stVersion) {
@@ -662,6 +701,9 @@ public final class ForestGpu {
         if (nearCut != null) for (int s = 0; s < Math.min(S, nearCut.length); s++) nc[s] = (float) Math.max(0, nearCut[s]);
         gl.glUniform1fv(loc(gl, p, "uNear"), 16, nc, 0);
         gl.glUniform1f(loc(gl, p, "uNearBand"), (float) nearBand);
+        culture.minGround = (float) minGround;
+        gl.glUniform1f(loc(gl, p, "uMinGround"), culture.minGround == Float.NEGATIVE_INFINITY ? -3.0e38f : culture.minGround);
+        gl.glUniform1f(loc(gl, p, "uCurv"), (float) curvature);
         float[] yw = new float[16], ys = new float[16], yo = new float[16], sz = new float[16];
         for (int s = 0; s < S; s++) {
             yo[s] = Double.isNaN(culture.yaw[s]) ? 0 : 1;
@@ -873,6 +915,7 @@ public final class ForestGpu {
      * Instanzen; für Prüfungen. Gilt nach dem ersten {@link #update} (die Hülle je Typ kommt aus den Netzen).
      */
     public float[][] cullCpu(float[] vp, double[] eye) {
+        culture.minGround = (float) minGround;
         int bins = LODS * T;
         float[][] out = new float[bins][];
         int[] n = new int[bins];
@@ -933,6 +976,7 @@ public final class ForestGpu {
      */
     public int nearTrees(double[] eye, java.util.List<float[]> out) {
         out.clear();
+        culture.minGround = (float) minGround;
         if (nearCut == null) return 0;
         double maxCut = 0;
         for (int s = 0; s < Math.min(S, nearCut.length); s++) maxCut = Math.max(maxCut, nearCut[s]);

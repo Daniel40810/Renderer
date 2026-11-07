@@ -32,7 +32,7 @@ Der Kern braucht nur Java 21. Der Ordner `gl/` rechnet mit JOGL (GL 4.3, ein Com
 
 - **Bokeh**: Sammeln in halber Auflösung in Ringen (so viele, wie der größte Kreis ringsum braucht: Abstand der Punkte rund 1,6 halbe Bildpunkte, höchstens 3 bis 6 Ringe nach der Stufe; seit W9c), ob ein Punkt den Empfänger trifft, entscheidet die Pupille selbst (q = −2(p − s)/c: Form der Blende, Katzenauge, je Farbkanal). Hintergrund läuft nicht über schärferen Vordergrund; unscharfer Vordergrund wird eigens gesammelt, mit seiner Deckung darübergelegt, auch über sich selbst (sein Rand wird von beiden Seiten weich). Helle unscharfe Punkte (über dem Doppelten von Weiß, und viermal heller als ihr Umkreis: vereinzelte Lichter, nicht der helle Himmel) werden **gestreut**: Ein Compute-Shader sammelt sie (höchstens 4096), ein indirekter Aufruf zeichnet jedes als Kreis der Blende mit seiner Energie. Helle Flächen sammelt das Bokeh selbst, das ist dort richtig und kostet nicht je Licht einen großen Kreis. Kleine Kreise (unter 10 Bildpunkten) in voller Auflösung.
 - **Sonne**: Geisterbilder und Stern mit der Sichtbarkeit aus der Tiefe (13 Punkte auf der Scheibe) und dem Anteil durch Wolken.
-- **Optik als Zahlen** (`Lens.optics`): Brennweite, T-Blende, Pupille, Schärfentiefe (`dofM`, `hyperfocalM`), Atmung, Tabellen über den Bildradius, Geisterbilder, Strahlen des Sterns.
+- **Optik als Zahlen** (`Lens.optics`): Brennweite, T-Blende, Pupille, Schärfentiefe (`dofM`, `hyperfocalM`), Atmung, Tabellen über den Bildradius, Geisterbilder, Strahlen des Sterns; seit W9c Runde 2 auch `transverseMm()`: TA(ρ) echter Randstrahlen in Grün an ρ = i/32 (mm, positiv auf der Seite des Pupillenorts), für die Kino-Stufe (`com.dan.shutter.Aberration`). Beim Doppel-Gauß 50 mm f/2: negativ bis ρ ≈ 0,8 (unterkorrigiert, −0,011 mm bei 0,6), am Rand +0,038 mm (Zone); Längsfarbfehler Rot +0,063, Blau −0,140 mm.
 - **Drei Schnitte**: Weitwinkel, Doppel-Gauß, Tele, je auf die Brennweite gebracht; was ein Schnitt über sein gerechnetes Feld hinaus decken muss, überträgt er gestaucht (`fieldScale`) [G].
 - **Zeiten der Teile** (`timing = true`): Zeitstempel auf der Grafikkarte, zwei Bilder später gelesen, ohne zu warten; `timingLine()` → „Sammeln 3,1 · Schärfe 0,4 · …“.
 - **Ohne Tiefenschärfe** (`depthOfField = false`): für eine Kino-Stufe, in der die Tiefenschärfe aus der Pupille kommt (`com.dan.shutter`); Reflexe, Stern, Schleier, Verzeichnung, Farbsäume und Randabfall bleiben.
@@ -81,3 +81,29 @@ Die Brennweite gilt für 24 mm Bildhöhe (`sensorHeightMm`). Eine App mit eigene
 - Reflexe nur, wenn die Sonne im Bild steht (die Tiefe sagt, ob sie frei ist); eine Sonne knapp außerhalb wirft bei echten Objektiven auch Reflexe.
 - Die Geisterbilder sind Bilder der ganzen Blende; dass andere Fassungen sie beschneiden, fehlt.
 - Bewegungsunschärfe und Belichtung über den Verschluss kommen mit W9c (Kino-Stufe).
+
+## Seit LituyaBay1958 W9c Runde 2: Tropfen auf der Frontlinse
+
+Die Frontlinse liegt nur wenige Zentimeter vor der Eintrittspupille (`Optics.pupilBehindFrontMm`: Doppel-Gauß 20 mm, Weitwinkel 12 mm, Tele 15 mm; `frontRadiusMm`). Ein Tropfen dort ist nie scharf. Jeder Bildpunkt sammelt sein Licht über ein Bündel, das die Frontlinse in einem Kreis vom Halbmesser der Pupille trifft, um den Ort, an dem sein Hauptstrahl durchgeht (z · tan θ). `FrontDrops` rechnet, welcher Anteil c dieses Kreises unter Tropfen liegt (Schnitt zweier Kreise je Tropfen, dazu der Film), als Gitter über das Bild (`coverage`).
+
+| Was | Wie | Quelle |
+|---|---|---|
+| Ein Tropfen | Kugelkappe mit Randwinkel 60° auf Glas. Senkrechtes Licht trifft innen unter der Neigung σ auf die Oberfläche; über arcsin(1/n) = 48,6° wird es ganz zurückgeworfen (der dunkle Rand), darunter gebrochen und um δ = arcsin(n sin σ) − σ abgelenkt, bis 41,4°. Durch geht (sin σ_g / sin θ_c)² = 0,750 | Snellius; Randwinkel von Wasser auf Glas |
+| Verteilung | `phase(32)`: je Steradiant über die Ablenkung (Fläche ∝ sin σ cos σ dσ); Σ p ΔΩ = 0,750, im Mittel 14° | – |
+| Im Bild | `lens.frag`: das scharfe Bild verliert c; dazu c · 0,75 · Mittel des Bilds ringsum nach p (aus der Pyramide des Schleierlichts) und c · E_Sonne · p(δ_Sonne), auch wenn die Sonne bis 41° neben dem Bild steht (`View.dropSunVisible`: ob sie über dem Gelände steht, sagt die App) | – |
+| Objektiv | Tele (Pupille 45 mm, Feld ±4°): jeder Bildpunkt sieht dieselben Tropfen, ein gleichmäßiger Schleier (gleiche 25 Tropfen: 0,047 … 0,047); Weitwinkel (Pupille 4 mm, Feld ±38°): der Kreis wandert über die Linse, jeder Tropfen wird ein weicher Fleck (0,000 … 0,546) | – |
+
+```java
+FrontDrops fd = new FrontDrops();
+fd.set(xMm, yMm, rMm, n);  fd.mist = feintropfen;                 // etwa aus com.dan.wetglass
+float[] c = fd.coverage(64, 36, breiteMm, hoeheMm, optik.efl(), optik.pupilBehindFrontMm(), optik.pupilMm() / 2);
+v.dropCover = c; v.dropW = 64; v.dropH = 36;
+v.dropPhase = fd.phase(32); v.dropMaxRad = fd.maxDeflection(); v.dropTransmit = fd.transmitted();
+v.dropSunVisible = sonneUeberDemGelaende;
+```
+
+Außerdem seit Runde 2: `Optics.transverseMm()` (TA(ρ) echter Randstrahlen, für `com.dan.shutter.Aberration`).
+
+**Prüfung.** `LensCheck`: Totalreflexion und Anteil (0,7504), größte Ablenkung 41,39°, Verteilung trägt genau das Durchgehende, Schnitt eines Tropfens mit dem Bündel, Tele gleichmäßig gegen Weitwinkel fleckig. Auf Mesa (`lens.frag` mit einem Gitter aus `com.dan.wetglass`): das Bild wird im Mittel um 3 % dunkler (ein Viertel des Lichts durch Wasser geht zurück), die Sonne leuchtet in den Tropfen neben ihr.
+
+**Grenzen.** Das Bündel ist ein Kreis, nicht die Form der Blende; die Tropfen sind Kappen mit einem Randwinkel (laufende Tropfen sind länglich); das abgelenkte Licht aus dem Bild ringsum kommt aus einer groben Stufe der Pyramide und ohne das, was außerhalb des Bilds liegt (nur die Sonne kommt auch von dort); Geisterbilder und Stern werden durch die Tropfen nicht schwächer.

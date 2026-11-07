@@ -81,6 +81,13 @@ public final class ForestCulture {
     public Grid height;
     /** Zustände; null = alle stehen. */
     public TreeStates states;
+    /**
+     * Seit LituyaBay1958 W9c Runde 2: kein Baum, wo der Grund ({@link #height}) tiefer liegt als so viele Meter, etwa im
+     * Wasser. Die Dichte allein reicht nicht: Sie wird zwischen ihren Zellen gemittelt, und so stehen am Rand eines Gebiets
+     * ohne Wald noch Bäume eine Zelle weit hinein, auf einem Grund, der dort schon unter dem Wasser liegen kann. Vorgabe
+     * −∞ (überall). Gleich in {@code forestgpu_cull.comp}.
+     */
+    public float minGround = Float.NEGATIVE_INFINITY;
 
     public ForestCulture(int species, int variants, double spacing, long seed) {
         if (species < 1 || species > 16) throw new IllegalArgumentException("1 bis 16 Arten");
@@ -156,6 +163,7 @@ public final class ForestCulture {
         float yw = Double.isNaN(yaw[s]) ? rot : (float) yaw[s] + (rot / 3.14159265f - 1) * (float) yawSpread[s];
         if (st == TreeStates.FELLED) yw = yawToward((float) states.fallDeg(i, j)) + (rot / 3.14159265f - 1) * 0.15f;
         float gy = height == null ? 0 : height.sample(0, x, z);
+        if (gy < minGround) return false;
         out.i = i; out.j = j; out.species = s; out.variant = v; out.state = st;
         out.type = (st * species + s) * variants + v;
         out.x = x; out.z = z;

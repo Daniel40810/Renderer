@@ -1,0 +1,5 @@
+// lights_clamp.comp — Kino-Stufe (com.dan.shutter), W9c Runde 2: nicht mehr Instanzen zeichnen, als die Liste hat.
+layout(local_size_x = 1) in;
+layout(std430, binding = 1) buffer Cmd { uint cmd[4]; };
+uniform int uCap;
+void main() { cmd[1] = min(cmd[1], 3u * uint(uCap)); }

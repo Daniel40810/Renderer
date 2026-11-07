@@ -118,7 +118,12 @@ public final class Lens {
             double efl, double fNumber, double tStop, double pupilMm, double focusMm, double breathing, double halfDiagMm,
             double[] relIllum, double[] distortion, double[] latR, double[] latB,
             double[] catEye, double[] saProfile, double saScale, double dzR, double dzB,
-            int ghostCount, float[] ghostData, double[] spikeAngles, double[] spikeCoef, double sunRadiusMm, double areaFactor, double fieldScale) {
+            int ghostCount, float[] ghostData, double[] spikeAngles, double[] spikeCoef, double sunRadiusMm, double areaFactor, double fieldScale,
+            double[] transverseMm, double pupilBehindFrontMm, double frontRadiusMm) {
+        // pupilBehindFrontMm, frontRadiusMm (seit W9c Runde 2): wie weit die Eintrittspupille hinter dem Scheitel der Frontlinse
+        // liegt und wie groß diese ist (mm), für Tropfen auf der Frontlinse (FrontDrops)
+        // transverseMm (seit LituyaBay1958 W9c Runde 2): TA(ρ) echter Randstrahlen in Grün an ρ = i/32 (mm in der Bildebene
+        // für Unendlich, positiv auf der Seite des Pupillenorts), für die Kino-Stufe (com.dan.shutter.Aberration)
 
         /** Unschärfekreis (Durchmesser mm, mit Vorzeichen) für den Abstand d (m). */
         public double cocMm(double dM) {
@@ -272,7 +277,8 @@ public final class Lens {
         double fieldScale = fieldScale();
 
         return new Optics(f, n, n / Math.sqrt(trans), 2 * rep, focusMm, breath, halfDiag, c[0], c[1], c[2], c[3], c[4],
-                c[6], c[5][0], c[5][2], c[5][3], cnt, gd, ang, coef, sunMm, af, fieldScale);
+                c[6], c[5][0], c[5][2], c[5][3], cnt, gd, ang, coef, sunMm, af, fieldScale, c[7],
+                s.entrancePupilZ(lg) - s.front(), s.surfaces.get(0).semiAperture());
     }
 
 
@@ -341,7 +347,7 @@ public final class Lens {
             }
         }
         double dzr = s.bfl(Spectrum.RGB_NM[0]) - s.bfl(lg), dzb = s.bfl(Spectrum.RGB_NM[2]) - s.bfl(lg);
-        return new double[][]{ri, di, lr, lb, cat, {saMax, 0, dzr, dzb}, sap};
+        return new double[][]{ri, di, lr, lb, cat, {saMax, 0, dzr, dzb}, sap, taR};
     }
 
     /** „50 mm · f/2,8 · Fokus 12,0 m · 8 Lamellen“ */

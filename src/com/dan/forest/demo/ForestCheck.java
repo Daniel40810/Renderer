@@ -265,6 +265,7 @@ public final class ForestCheck {
         brocken();
         lituya();
         rinde();
+        schwebe();
         System.out.println(fails == 0 ? "Alles in Ordnung." : fails + " Prüfungen fehlgeschlagen.");
         if (fails > 0) System.exit(1);
     }
@@ -489,6 +490,29 @@ public final class ForestCheck {
     }
 
     static final long RINDE_CRC = 0xaf748ec7L;
+
+    /**
+     * Seit LituyaBay1958 W9c Runde 2 („Schwebe“): minGround nimmt die Bäume auf Grund unter der Grenze (die Dichte wird
+     * gemittelt und reicht am Ufer eine Zelle ins Wasser), sonst bleibt alles gleich.
+     */
+    static void schwebe() {
+        ForestCulture cu = new ForestCulture(1, 1, 6, 1958);
+        cu.density = ForestCulture.Grid.density((x, z, s) -> 1.0, 1, -600, -600, 1200, 64);
+        // ein Hang von −20 m (Westen, im Wasser) bis +20 m (Osten)
+        cu.height = ForestCulture.Grid.heights((x, z) -> (float) (x / 30.0), -600, -600, 1200, 256);
+        ForestCulture.Tree t = new ForestCulture.Tree();
+        int alle = 0, nass = 0, trocken = 0;
+        for (int j = -100; j < 100; j++)
+            for (int i = -100; i < 100; i++)
+                if (cu.at(i, j, t)) { alle++; if (t.y + 0.2f * t.scale < 1) nass++; }
+        cu.minGround = 1;
+        int danach = 0, unter = 0;
+        for (int j = -100; j < 100; j++)
+            for (int i = -100; i < 100; i++)
+                if (cu.at(i, j, t)) { danach++; if (t.y + 0.2f * t.scale < 1) unter++; else trocken++; }
+        check(String.format(java.util.Locale.GERMAN, "Kultur: minGround 1 m nimmt die %d Bäume auf tieferem Grund, die übrigen %d bleiben (vorher %d)", nass, danach, alle),
+                nass > 1000 && unter == 0 && danach == alle - nass && trocken == danach);
+    }
 
     private static void check(String what, boolean ok) {
         System.out.println((ok ? "  ok    " : "  FEHLER ") + what);

@@ -152,7 +152,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 | [`ground`](src/com/dan/ground/README.md) | Bodendecke: Gräser, Blumen, Steine, Erde, niedergetreten |
 | [`reed`](src/com/dan/reed/README.md) | Schilf, Binsen und Gras im Wind |
 | [`tree`](src/com/dan/tree/README.md) | Bäume, Sträucher und Gräser aus Unreal-Assets, mit Detailstufen |
-| [`forest`](src/com/dan/forest/README.md) | Prozedurale Bäume und Wälder mit Wind, Jahreszeit und Laubfall |
+| [`forest`](src/com/dan/forest/README.md) | Prozedurale Bäume und Wälder mit Wind, Jahreszeit und Laubfall; kein Baum im Wasser (`minGround`), Erdkrümmung, Teil des Bodengitters neu (`terrainChanged(x0, z0, x1, z1)`) |
 | [`road`](src/com/dan/road/README.md) | Pfad, Feldweg, Straße, Autobahn – Trasse, Fahrbahn, Verkehr |
 | [`route`](src/com/dan/route/README.md) | Wegenetze, kürzeste Wege, Ströme von Fußgängern und Fahrzeugen |
 | [`rail`](src/com/dan/rail/README.md) | Gleise und Züge |
@@ -186,9 +186,9 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 
 | Paket | Inhalt |
 |---|---|
-| [`lens`](src/com/dan/lens/README.md) | Das Objektiv aus echten Linsenschnitten (Weitwinkel nach Nakamura, Doppel-Gauß nach Tronnier, Tele 250 mm; nach der Brennweite gewählt): Tiefenschärfe mit Bokeh in der Form der Blende, Katzenauge, sphärische Aberration im Kreis, Farbsäume, Fokusatmung, Verzeichnung, Randabfall, Geisterbilder und der Beugungsstern der Sonne, Schleierlicht, Schärfezieher |
+| [`lens`](src/com/dan/lens/README.md) | Das Objektiv aus echten Linsenschnitten (Weitwinkel nach Nakamura, Doppel-Gauß nach Tronnier, Tele 250 mm; nach der Brennweite gewählt): Tiefenschärfe mit Bokeh in der Form der Blende, Katzenauge, sphärische Aberration im Kreis, Farbsäume, Fokusatmung, Verzeichnung, Randabfall, Geisterbilder und der Beugungsstern der Sonne, Schleierlicht, Schärfezieher; Tropfen auf der Frontlinse (`FrontDrops`: Schleier beim Tele, Flecken beim Weitwinkel, Leuchten in der Sonne) |
 | [`film`](src/com/dan/film/README.md) | Der Film vom Negativ über die Kopie auf die Leinwand: Kurven je Schicht (Eastman Color 5248 auf 5382 von 1958, Kodak Vision3 250D und 500T auf 2383 von heute), orange Maske, Kopierlicht in Punkten, Korn nach Selwyn, Halation aus dem Träger (Ring aus Fresnel und Totalreflexion, Rückschicht, grauer Träger), Bildstand, Flackern, verblassende Kopien; CinemaScope, Super 35, Academy, VistaVision |
-| [`shutter`](src/com/dan/shutter/README.md) | Die Belichtung einer Filmkamera: Umlaufblende mit Öffnungsgang, die Kino-Stufe aus Teilbildern über Zeit, Pupille und Bildpunkt (echte Tiefenschärfe und Bewegungsunschärfe für alles), Bewegungsunschärfe in Echtzeit nach McGuire 2012, Zeitlupe, Wagenrad |
+| [`shutter`](src/com/dan/shutter/README.md) | Die Belichtung einer Filmkamera: Umlaufblende mit Öffnungsgang, die Kino-Stufe aus Teilbildern über Zeit, Pupille und Bildpunkt (echte Tiefenschärfe und Bewegungsunschärfe für alles), Bewegungsunschärfe in Echtzeit nach McGuire 2012, Zeitlupe, Wagenrad; sphärische Aberration und Längsfarbfehler je Teilbild (`Aberration`), Lichter als ganze Kreise statt körniger Punkte |
 | [`kino`](src/com/dan/kino/README.md) | Kinomodus für Regiebücher: Breitwand, Vor- und Abspann, Untertitel, Überblendung |
 | [`soundscape`](src/com/dan/soundscape/README.md) | Erzeugter Ton ohne Audiodateien: Wind, See, Regen, Möwen, Donner, Nebelhorn |
 | [`store`](src/com/dan/store/README.md) | Presets und Zustand speichern, mit oder ohne Oracle |

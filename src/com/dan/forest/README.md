@@ -382,3 +382,22 @@ licht.mossTexture = com.dan.moss.gl.MossGl.upload(gl, moos);  licht.mossTile = m
 - das übrige Netz bleibt unverändert.
 
 **Grenzen.** Karten sind flach (zwei gekreuzte Bilder). Das gewürfelte Alpha braucht eine Kantenglättung über die Zeit; ohne sie rauschen die Fäden. Moos nur auf der Rinde, nicht auf dem Boden der Krone.
+
+## Seit LituyaBay1958 W9c Runde 2: kein Baum im Wasser, Erdkrümmung, Teil des Bodengitters neu
+
+Befund in Lituya (`docs/status/Schwebe_W09C.png`): Die Bäume schwebten nah am Auge Meter über dem Boden. Ursache war nicht forest, sondern das Bodengitter der App (es kam aus einem anderen Höhenmodell als das nahe Gelände). Dabei fielen drei Dinge auf, die forest selbst betreffen:
+
+- **`ForestCulture.minGround` / `ForestGpu.minGround`** (m, Vorgabe −∞): kein Baum, wo der Grund tiefer liegt. Die Dichte wird zwischen ihren Zellen gemittelt; am Ufer und am Rand eines Gebiets ohne Wald stehen so noch Bäume eine Dichtezelle weit hinein, auf einem Grund, der dort schon unter dem Wasser liegen kann. Gleiche Rechnung in `forestgpu_cull.comp` (`uMinGround`), in `ForestCulture.at` und damit in `nearTrees` und `cullCpu`.
+- **`ForestGpu.curvature`** (1/m, Vorgabe 0): die Erdkrümmung wie in `com.dan.clipmap`, 1/(2R′). Jeder Baum sinkt um r² · curvature, r sein Abstand über den Boden zum Auge (`uCurv`): in 4,5 km 1,4 m mit R′ = 6 371 km / 0,87. Vorher standen ferne Bäume um diesen Betrag über einem Gelände mit Erdkrümmung. `nearTrees` und `cullCpu` geben den Fuß ohne Krümmung (nah unter 0,1 mm).
+- **`ForestGpu.terrainChanged(x0, z0, x1, z1)`**: nur ein Rechteck des Bodengitters hat sich geändert; beim nächsten `update` geht nur dieses Stück auf die Grafikkarte (`glTexSubImage2D`) statt des ganzen Gitters (4 096² sind 64 MB). Mehrere Rechtecke vor einem `update` werden zu ihrer Hülle. In Lituya wechselt so der Grund im Gilbert Inlet zwischen heute und 1958 (rund 400 × 330 Zellen).
+
+```java
+wald.minGround = 1.0;                                   // nicht im Wasser
+wald.curvature = 1 / (2 * clipmap.curvatureRadius);    // wie das Gelände
+System.arraycopy(grund1958, …, gitter.v, …);           // Gitter in der App ändern …
+wald.terrainChanged(x0, z0, x1, z1);                   // … und nur dieses Stück hochladen
+```
+
+**Prüfung.** `ForestCheck`: minGround 1 m nimmt an einem Hang von −20 bis +20 m genau die Bäume auf tieferem Grund (21 000 von 40 000), die übrigen bleiben gleich. `forestgpu_cull.comp` mit Mesa übersetzt.
+
+**Grenze.** Das Bodengitter muss das Gelände sein, das die App zeichnet. forest kann das nicht prüfen; in Lituya stand der Wald auf IfSAR (5 m), das nahe Gelände kam aus dem Lidar (0,5 m), unter Wald im Median 4,9 m tiefer.

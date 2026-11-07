@@ -52,7 +52,22 @@ public final class LensGl {
         public boolean snap;
         /** Messfeld des Autofokus (uv). */
         public double focusU = 0.5, focusV = 0.5;
+        /**
+         * Seit W9c Runde 2: Tropfen auf der Frontlinse ({@link com.dan.lens.FrontDrops}): der Anteil des Bündels unter Wasser
+         * als Gitter dropW × dropH über das Bild (Zeilen von unten; null: trocken), die Verteilung der Ablenkung
+         * ({@link com.dan.lens.FrontDrops#phase}, je Steradiant, Ringe bis dropMaxRad) und der Anteil, der durchgeht.
+         * Ein neues Gitter (anderes Feld) wird hochgeladen.
+         */
+        public float[] dropCover;
+        public int dropW, dropH;
+        public double[] dropPhase;
+        public double dropMaxRad, dropTransmit = 0.75;
+        /** Ob die Sonne für die Tropfen zu sehen ist (0 … 1; mal sunVisible): auch außerhalb des Bilds, das die Tiefe nicht kennt. */
+        public double dropSunVisible = 1;
     }
+
+    private int dropTex;
+    private float[] dropUploaded;
 
     public static final int TILE = 8, GLARE_LEVELS = 7, SPOT_CAP = 4096;
 
@@ -316,7 +331,17 @@ public final class LensGl {
 
         // 6b Schleierlicht
         boolean glare = L.glare && L.glareFraction > 0;
-        if (glare) {
+        boolean drops = v.dropCover != null && v.dropW > 0 && v.dropH > 0 && v.dropCover.length >= v.dropW * v.dropH && v.dropPhase != null;
+        if (drops && v.dropCover != dropUploaded) {   // W9c Runde 2: das Gitter der Tropfen
+            if (dropTex == 0) dropTex = texture(gl, 1, 1, GL4.GL_R16F, GL.GL_LINEAR, false);
+            gl.glBindTexture(GL.GL_TEXTURE_2D, dropTex);
+            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL4.GL_R16F, v.dropW, v.dropH, 0, GL4.GL_RED, GL.GL_FLOAT, java.nio.FloatBuffer.wrap(v.dropCover));
+            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR);
+            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
+            gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+            dropUploaded = v.dropCover;
+        }
+        if (glare || drops) {
             p = use(gl, "gdown");
             int s = v.colorTexture, sw = w, sh = h;
             for (int i = 0; i < GLARE_LEVELS; i++) {
@@ -366,6 +391,32 @@ public final class LensGl {
         setf(gl, p, "uZoom", (float) zoom);
         setf(gl, p, "uGlare", (float) L.glareFraction);
         setf(gl, p, "uVigGain", (float) L.vignettingGain);
+        // W9c Runde 2: Tropfen auf der Frontlinse
+        seti(gl, p, "uDropOn", drops ? 1 : 0);
+        if (drops) {
+            tex(gl, p, "uDropCover", 6, dropTex);
+            tex(gl, p, "uDropWide", 7, texDown[Math.min(4, GLARE_LEVELS - 1)]);
+            setf(gl, p, "uDropT", (float) v.dropTransmit);
+            setf(gl, p, "uDropDmax", (float) v.dropMaxRad);
+            float[] ph = new float[32];
+            for (int k = 0; k < 32; k++) ph[k] = k < v.dropPhase.length ? (float) v.dropPhase[k] : 0f;
+            int lp = loc(gl, p, "uDropP");
+            if (lp < 0) lp = loc(gl, p, "uDropP[0]");
+            if (lp >= 0) gl.glUniform1fv(lp, 32, ph, 0);
+            setf(gl, p, "uFocalPx", (float) (o.efl() / pitch));
+            boolean sunOn = v.sunDir != null && v.viewProj != null && v.sunIrradiance != null;
+            seti(gl, p, "uDropSunOn", sunOn ? 1 : 0);
+            if (sunOn) {
+                float[] inv = invert(v.viewProj);
+                int li = loc(gl, p, "uInvVP");
+                if (li >= 0 && inv != null) gl.glUniformMatrix4fv(li, 1, false, inv, 0);
+                // das Auge: der Punkt, den die Projektion auf w = 0 legt, (e, 1) ∝ inv · (0, 0, 1, 0)
+                if (inv != null && Math.abs(inv[11]) > 1e-20) set3(gl, p, "uDropEye", inv[8] / inv[11], inv[9] / inv[11], inv[10] / inv[11]);
+                set3(gl, p, "uDropSunDir", (float) v.sunDir[0], (float) v.sunDir[1], (float) v.sunDir[2]);
+                double sv = Math.max(0, Math.min(1, v.sunVisible)) * Math.max(0, Math.min(1, v.dropSunVisible));
+                set3(gl, p, "uDropSunE", (float) (v.sunIrradiance[0] * sv), (float) (v.sunIrradiance[1] * sv), (float) (v.sunIrradiance[2] * sv));
+            }
+        }
         draw(gl, texOut, w, h);
         stamp(gl, 7);
 
@@ -524,6 +575,34 @@ public final class LensGl {
         gl.glBindTexture(GL.GL_TEXTURE_2D, t);
         seti(gl, p, n, unit);
         gl.glActiveTexture(GL.GL_TEXTURE0);
+    }
+
+    /** Inverse einer 4 × 4-Matrix (Spalten), null wenn singulär (W9c Runde 2: Richtung je Bildpunkt). */
+    static float[] invert(float[] m) {
+        double[] a = new double[16];
+        for (int i = 0; i < 16; i++) a[i] = m[i];
+        double[] inv = new double[16];
+        inv[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] + a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
+        inv[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] - a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
+        inv[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] + a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
+        inv[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] - a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
+        inv[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] - a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
+        inv[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] + a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
+        inv[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] - a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
+        inv[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] + a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
+        inv[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] + a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
+        inv[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] - a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
+        inv[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] + a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
+        inv[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] - a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
+        inv[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] - a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
+        inv[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] + a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
+        inv[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] - a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
+        inv[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] + a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
+        double det = a[0] * inv[0] + a[1] * inv[4] + a[2] * inv[8] + a[3] * inv[12];
+        if (Math.abs(det) < 1e-30) return null;
+        float[] o = new float[16];
+        for (int i = 0; i < 16; i++) o[i] = (float) (inv[i] / det);
+        return o;
     }
 
     private static int texture(GL4 gl, int tw2, int th2, int fmt, int filter, boolean mips) {

@@ -15,6 +15,42 @@ uniform float uHalfDiag;        // mm
 uniform float uZoom;            // gegen leere Ecken bei Tonnenverzeichnung
 uniform float uGlare, uVigGain;
 uniform sampler2D uGlareTex;    // Schleierlicht (halbe Auflösung, normiert), aus glare_down/glare_up
+// Seit W9c Runde 2: Tropfen auf der Frontlinse (com.dan.lens.FrontDrops). Der Anteil c des Bündels, der durch Wasser geht,
+// fehlt dem scharfen Bild; davon geht uDropT durch und wird nach uDropP (je Steradiant, 32 Ringe bis uDropDmax) abgelenkt:
+// aus dem Bild ringsum (Pyramide, 1/32) und von der Sonne (auch außerhalb des Bilds, bis 41° neben dem Bildpunkt).
+uniform int uDropOn, uDropSunOn;
+uniform sampler2D uDropCover;
+uniform sampler2D uDropWide;
+uniform float uDropT, uDropDmax, uFocalPx;
+uniform float uDropP[32];
+uniform mat4 uInvVP;
+uniform vec3 uDropSunDir, uDropSunE, uDropEye;
+
+float dropP(float d) {
+    float x = d / uDropDmax * 32.0 - 0.5;
+    if (x >= 31.5) return 0.0;
+    int i = int(clamp(floor(x), 0.0, 30.0));
+    float f = clamp(x - float(i), 0.0, 1.0);
+    return mix(uDropP[i], uDropP[i + 1], f);
+}
+
+// Mittel des Bilds ringsum, gewichtet wie das abgelenkte Licht (drei Ringe zu je 8 Punkten)
+vec3 dropWide(vec2 uv) {
+    vec3 acc = vec3(0.0);
+    float wsum = 0.0;
+    for (int r = 0; r < 3; r++) {
+        float d = uDropDmax * (float(r) + 0.5) / 3.0;
+        float wr = dropP(d) * (cos(d - uDropDmax / 6.0) - cos(d + uDropDmax / 6.0));
+        float rp = tan(d) * uFocalPx;
+        for (int k = 0; k < 8; k++) {
+            float a = float(k) * 0.785398 + float(r) * 0.4;
+            vec2 q = uv + rp * vec2(cos(a), sin(a)) / uFull;
+            acc += wr * textureLod(uDropWide, clamp(q, vec2(0.0), vec2(1.0)), 0.0).rgb;
+            wsum += wr;
+        }
+    }
+    return wsum > 0.0 ? acc / wsum : vec3(0.0);
+}
 
 float focusMm() {
     float x = texelFetch(uState, ivec2(0), 0).x;
@@ -58,6 +94,19 @@ void main() {
         o.b = sensorAt(0.5 + (vUV - 0.5) * sc.b, fmm).b;
     }
     if (uGlareOn == 1 && uGlare > 0.0) o = mix(o, texture(uGlareTex, vUV).rgb, uGlare);
+    if (uDropOn == 1) {
+        float c = clamp(texture(uDropCover, vUV).r, 0.0, 1.0);
+        if (c > 1e-4) {
+            vec3 scat = uDropT * dropWide(vUV);
+            if (uDropSunOn == 1) {
+                vec4 wp = uInvVP * vec4(vUV * 2.0 - 1.0, 0.5, 1.0);   // ein Punkt auf dem Strahl (endlich bei jeder Tiefe)
+                vec3 dir = normalize(wp.xyz / wp.w - uDropEye);
+                float ds = acos(clamp(dot(dir, normalize(uDropSunDir)), -1.0, 1.0));
+                scat += uDropSunE * dropP(ds);
+            }
+            o = o * (1.0 - c) + c * scat;
+        }
+    }
     if (uVigOn == 1) o *= mix(1.0, table17(uRI, r), uVigGain);
     frag = vec4(max(o, vec3(0.0)), 1.0);
 }
