@@ -139,3 +139,5 @@ gemalt, nicht durch Kristalle gerechnet; 46°-Ring, Bögen und Säulen fehlen. D
 
 - `Sky.greenFlash` (0 aus, wie bisher): die Luft bricht Grün etwas stärker als Rot (Brechzahl der Luft bei 650, 550, 450 nm), das grüne Bild der Sonne steht an der Kimm rund 0,22′ über dem roten, das blaue 0,36′ darüber (es verlöscht auf dem langen Weg). `sky.frag` zeichnet die Sonnenscheibe dann je Farbkanal mit eigener Brechung; beim Untergang ist der letzte Rand grün. 1 ist die reine Brechung (grüner Rand 1 bis 2 s, im Fernglas oder Fernrohr), 2 bis 4 eine Luftspiegelung über warmem Wasser, die den grünen Blitz einige Sekunden lang macht [G].
 - `GreenFlash`: Faktoren je Kanal, Versatz in Bogenminuten, sichtbarer Anteil der Scheibe je Kanal über einer Kimm. `SkyCheck` (Abschnitt Grünes Leuchten) prüft Versatz und Dauer.
+
+**Seit LituyaBay1958 W8a:** `SkyGl.View.discs` (Vorgabe true) – aus, zeichnet der Himmel ohne Sonnen- und Mondscheibe, etwa für ein Spiegelbild, dessen Wasser den Glanz selbst legt.

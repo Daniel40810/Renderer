@@ -45,6 +45,8 @@ public final class SkyGl {
         public double fovyDeg = 55, preExposure = 1, time;
         /** Unter der Kimm eine schlichte Wasserfläche zeigen (Szenen ohne eigenes Meer). */
         public boolean sea;
+        /** Seit LituyaBay1958 W8a: Sonnen- und Mondscheibe zeichnen (aus für ein Spiegelbild, dessen Wasser den Glanz selbst legt). */
+        public boolean discs = true;
     }
 
     /** Ein Uniform: Art (f = float/vec, m3, m4, v4 = vec4-Feld, i = int) und Werte. */
@@ -227,6 +229,7 @@ public final class SkyGl {
         sky.put("uReversed", U.i(v.reversedZ ? 1 : 0));
         sky.put("uPre", U.f(v.preExposure));
         sky.put("uSea", U.f(v.sea ? 1 : 0));
+        sky.put("uDiscs", U.f(v.discs ? 1 : 0));
         sky.put("uEyeR", U.f(eyeR));
         sky.put("uNight", U.f(Sky.NIGHT_LUMINANCE));
         sky.put("uMilkyGain", U.f(st.milkyWay ? 1 : 0));

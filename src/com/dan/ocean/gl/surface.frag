@@ -56,6 +56,49 @@ uniform int uMaskMode;          // 1: nur innen zeichnen, −1: nur außen, 0: a
 uniform int uUnder;             // seit Rungholt Phase 6: das Auge liegt unter dem Spiegel
 uniform vec4 uHoleA;            // seit Sylt Phase 7a: Loch für ein anderes Wasser (Netz der Brecher): Mitte x, z, Richtung u (x, z)
 uniform vec4 uHoleB;            // halbe Länge längs u, halbe Breite quer, weicher Rand (m), an (1)
+// seit LituyaBay1958 W8a: planare Spiegelung (Bild der gespiegelten Szene samt Himmel, seine Tiefe, seine Kamera)
+uniform sampler2D uPlanar, uPlanarDepth;
+uniform int uPlanarOn;
+uniform mat4 uPlanarVP;
+uniform vec4 uPlanarP;          // Spiegelebene, Nahebene, Fernebene, tan(halbes Blickfeld)
+uniform vec4 uPlanarE;          // Auge beim Spiegelbild, umgekehrte Tiefe (1)
+uniform vec3 uPlanarF;          // Blickrichtung beim Spiegelbild
+uniform vec3 uPlanarR;          // Anteil, verborgene Rauigkeit, ihr Zuwachs je m
+
+// Der gespiegelte Strahl r von P aus, im Spiegelbild: Das Bild eines Punkts X in der gespiegelten Szene liegt dort, wo die
+// Kamera den gespiegelten Punkt X' = P' + d'·D sieht (P' = P an der Ebene gespiegelt, d' = r mit umgekehrtem y). D folgt
+// aus der Tiefe des Spiegelbilds (zwei Schritte: erst die Richtung, dann der Punkt in dieser Tiefe, dann noch einmal);
+// ohne Tiefe (Himmel) gilt die Richtung. Rückgabe: Farbe, Deckung (Alpha des Bilds mal Rand).
+vec4 planarLookup(vec3 P, vec3 r, float dist) {
+    vec3 Pm = vec3(P.x, 2.0 * uPlanarP.x - P.y, P.z);
+    vec3 ds = vec3(r.x, -r.y, r.z);
+    vec4 c = uPlanarVP * vec4(ds, 0.0);
+    if (c.w <= 1e-6) return vec4(0.0);
+    vec2 uv = c.xy / c.w * 0.5 + 0.5;
+    float den = dot(ds, uPlanarF);
+    for (int i = 0; i < 2; i++) {
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
+        float z = textureLod(uPlanarDepth, uv, 0.0).r;
+        float vz;
+        if (uPlanarE.w > 0.5) vz = z > 0.0 ? uPlanarP.y / z : -1.0;
+        else { float zn = z * 2.0 - 1.0; vz = z < 1.0 ? 2.0 * uPlanarP.z * uPlanarP.y / ((uPlanarP.z + uPlanarP.y) - zn * (uPlanarP.z - uPlanarP.y)) : -1.0; }
+        if (vz <= 0.0 || den <= 1e-4) break;
+        float D = (vz - dot(Pm - uPlanarE.xyz, uPlanarF)) / den;
+        if (D <= 0.0) break;
+        vec4 b = uPlanarVP * vec4(Pm + ds * D, 1.0);
+        if (b.w <= 1e-4) break;
+        uv = b.xy / b.w * 0.5 + 0.5;
+    }
+    vec2 e = min(uv, 1.0 - uv);
+    float edge = smoothstep(0.0, 0.015, min(e.x, e.y));
+    if (edge <= 0.0) return vec4(0.0);
+    // Mip-Stufe: was die Normale nicht trägt (Kräusel unter dem Gitter, in der Ferne gefiltert), streut den Strahl um
+    // rund 2σ; im Bild sind das 2σ / (2 tan(φ/2)) der Höhe
+    float sig = min(0.08, uPlanarR.y + uPlanarR.z * dist);
+    float px = 2.0 * sig * float(textureSize(uPlanar, 0).y) / max(2.0 * uPlanarP.w, 1e-3);
+    vec4 R = textureLod(uPlanar, uv, log2(max(px, 1.0)));
+    return vec4(R.rgb, clamp(R.a, 0.0, 1.0) * edge);
+}
 
 // Lichtstärke des Punktlichts in Richtung w (vom Licht weg), mal Faktor
 vec3 pointIntensity(vec3 w) {
@@ -265,6 +308,10 @@ void main() {
     vec3 r = reflect(-V, n);
     r.y = abs(r.y);
     vec3 refl = sky(r);
+    if (uPlanarOn == 1) {
+        vec4 pl = planarLookup(vWorld, r, vDist);
+        refl = mix(refl, pl.rgb, pl.a * uPlanarR.x);
+    }
 
     // Wasserkörper: Streulicht aus Himmel und Sonne, im Kamm heller und türkis. Maßstab (Phase 3, physikalisches
     // Licht): Bestrahlung von oben E = Sonne · sin h + Himmel (≈ 3,5 · Zenit-Strahldichte); das Wasser gibt davon

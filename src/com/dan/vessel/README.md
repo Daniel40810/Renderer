@@ -89,3 +89,31 @@ if (kette.broken()) …                            // kette.brokenTime(), kette.
 | `Mesh` | Netz eines Kutters |
 | `gl/VesselGl`, `vessel.vert`, `vessel.frag` | Zeichnen |
 | `demo/Bucht`, `VesselCheck`, `VesselDemo` | Prüfbucht, Prüfung, Vorführung |
+
+## Der Bootsbauer (seit LituyaBay1958 W8a)
+
+Aus den Kästen von Phase 15 wird ein Boot, das man aus 10 m ansehen kann. `Troller` ist der Bauplan (Anstrich, Aufbauten, Rigg, Fanggeschirr, Abnutzung; Vorgaben `edrie`, `badger`, `sunmore`, `fuer(hull)`), `Shipwright.build(t)` baut daraus das Netz, `gl/CraftGl` zeichnet es. Vorbild [G]: hölzerne Troller aus Südostalaska der 1940er/50er (Fotos aus Pelican, Sitka, Juneau; Vorlagen `templates/Fischkutter*.jpg` in LituyaBay1958).
+
+- **Rumpf aus denselben Spanten wie der Starrkörper** (`Hull.halfBreadth`, geprüft: 0,0 mm Abweichung): Kraweel mit Plankennähten (16 cm) und versetzten Stoßfugen, Spiegel, halbrunde Scheuerleiste und zweite Leiste, Stevenbeschlag, Ruder, Schraube.
+- **Anstrich nach der Höhe:** kupferrotes Unterwasserschiff, von Hand gezogener schwarzer Wasserpass, weißes Freibord, farbiger Schergang; Rostfahnen genau unter den Speigatten, grünbrauner Bewuchs am Wasserpass und eine Schmutzlinie darüber, Schrammen längs, abgeplatzte Farbe an Kanten (aus der Kantenschärfe je Ecke), nass bis über die Wasserlinie (dunkler, glatter).
+- **Deck und Verschanzung:** gewölbtes Deck aus 11-cm-Planken mit Kalfaterung, Verschanzung mit Stützen und Speigatten, lackiertes Schandeck, Heckreling.
+- **Steuerhaus:** eingezogene Seiten, geneigte Front mit drei Scheiben in Rahmen und Laibung, Tür mit Messinggriff, Rückfenster, gewölbtes Dach mit Überstand, Stirnleiste und Haltegriffen; innen Konsole und Steuerrad mit acht Speichen (durch das Glas zu sehen), Positionslichter, Rettungsring, Schornstein mit Regenkappe, Scheinwerfer, Antenne.
+- **Logis** davor mit drei Bullaugen je Seite (Messing), Pilzlüfter, Kombüsenrohr; **Fischraumluke**, **Trollgrube** mit vier Trollwinden (Gurdies) samt Draht und Bremshebel, Tauwerk in Buchten, Fischkisten, Eimer.
+- **Rigg:** Mast mit Saling, Ankerlicht (Rundumlicht) und Dampferlicht, Ladebaum mit Hanger; Vorstag und Wanten über die Saling zu den Püttingen. **Trollstangen** am Mastfuß (Winkel einstellbar), mit Hanger, Vor- und Achterholer; vor Anker hängen **Schlingerdämpfer** („flopper stoppers“) 3,2 m tief. **Besan mit Stützsegel** („riding sail“), gewölbt, mit Schot.
+- **Anker:** Ankerwinde mit Trommel und Kettennuss, Bugrolle zwischen Wangen, Kette über die Rolle, Poller.
+- **Name** an beiden Bugseiten und am Spiegel mit Heimathafen (Schrifttextur aus Java2D).
+- **Verdeckung je Ecke** (24 Strahlen, Hüllkörperbaum, parallel) und **Kantenschärfe** je Ecke: dunkle Winkel unter Leisten und im Steuerhaus, Abnutzung an Kanten.
+- Rund 44 000 Dreiecke, 21 Drähte, gebaut in rund 2 s (zwei Kerne; `CraftGl.prepare` baut im Hintergrund).
+
+**`gl/CraftGl`:** zwei Durchgänge (`drawOpaque`, danach `drawTransparent` für Glas, Drähte und Lichthöfe), eigener Schatten aus einer Schattenkarte je Boot (2048², PCF), Sonne mit GGX, Himmel als Halbkugel mit der Verdeckung, Spiegelung des Rundumbilds mit Fresnel und Glanzverdeckung, Dunst; Werkstoffe im Shader (Rumpf, Deck, Lack, Farbe, Stahl, Eisen, Glas, Tauwerk, Segeltuch, Lampe, Schrift, Dach, Messing, Holz, innen). Drähte als Bänder zur Kamera mit mindestens gut einem Bildpunkt Breite und anteiliger Deckung (kein Flimmern, kein Verschwinden in der Ferne). Schnittebene für Spiegelbilder (`View.clip`). Licht im Maßstab von `com.dan.forest`.
+
+```java
+CraftGl craft = new CraftGl();
+craft.init(gl);
+craft.prepare(edrie.hull, Troller.fuer(edrie.hull));       // baut im Hintergrund
+if (craft.drawOpaque(gl, edrie.hull, edrie.model(), view, light)) { … }
+// … übrige deckende Szene …
+craft.drawTransparent(gl, edrie.hull, edrie.model(), view, light);
+```
+
+**Prüfung** `demo/CraftCheck` (36 Prüfungen, „Alles in Ordnung“): Rumpf auf den Spanten, Länge mit Ruder, Masthöhe, Spannweite der Stangen, Verdeckung und Kanten im Bereich, Glas, Schrift, Drähte, Ankerlicht, reproduzierbar, Bauzeit. `--export datei` schreibt das Netz der Edrie für Vorschauen.
