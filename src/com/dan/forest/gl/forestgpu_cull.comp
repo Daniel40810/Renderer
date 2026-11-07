@@ -29,6 +29,8 @@ uniform int uStOn;
 uniform float uYaw[16], uYawSpread[16], uYawOn[16], uSize[16];
 uniform float uNear[16];     // Nahschnitt je Art (m, 0 = keiner): näher stehende Bäume zeichnet die App selbst
 uniform float uNearBand;     // Breite des gewürfelten Übergangs (m)
+uniform float uMinGround;    // seit LituyaBay1958 W9c Runde 2: kein Baum auf tieferem Grund (m), wie ForestCulture.minGround
+uniform float uCurv;         // seit W9c Runde 2: Erdkrümmung 1/(2R') wie die Clipmap (0 = flach)
 
 uint pcg(uint v) {
     uint s = v * 747796405u + 2891336453u;
@@ -120,7 +122,10 @@ void main() {
         yaw = atan(-cos(a), sin(a)) + (rot / 3.14159265 - 1.0) * 0.15;
     }
     float gy = uHgtOn == 1 ? hgtAt(x, z) : 0.0;
+    if (gy < uMinGround) return;
     float y = st == 3 ? gy : gy - 0.2 * scale;
+    // W9c Runde 2: der Baum sinkt mit dem Gelände um r²/(2R') (Abstand über den Boden zum Auge)
+    y -= ((x - uEye.x) * (x - uEye.x) + (z - uEye.z) * (z - uEye.z)) * uCurv;
     int T = 4 * S * V;
     int type = (st * S + s) * V + v;
 

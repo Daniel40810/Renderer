@@ -134,6 +134,9 @@ public final class LensSystem {
     /** Lage der letzten Fläche (mm). */
     public double back() { return z[z.length - 1]; }
 
+    /** Ort des Scheitels der ersten Fläche (mm, absolut auf der Achse; seit W9c Runde 2). */
+    public double front() { return z[0]; }
+
     // ======================================================================== paraxial
 
     /** Ein Ereignis auf dem Weg: an Fläche k brechen oder spiegeln. */

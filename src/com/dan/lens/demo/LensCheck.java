@@ -198,8 +198,49 @@ public final class LensCheck {
         double prim = 4 * g.fNumber() * g.fNumber() * Math.PI * Math.pow(g.pupilMm() / 2, 2) / Math.PI;   // Fluss der Sonne durch die Pupille, gleich gerechnet
         check("Geisterbilder: zusammen unter 1 % des Lichts der Sonne", sum / prim < 0.01, "%.3f %%", 100 * sum / prim);
 
+        tropfen();
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " von " + (ok + bad) + " Prüfungen fehlgeschlagen.");
         System.exit(bad == 0 ? 0 : 1);
+    }
+
+    /** Seit W9c Runde 2: Tropfen auf der Frontlinse (FrontDrops). */
+    static void tropfen() {
+        com.dan.lens.FrontDrops d = new com.dan.lens.FrontDrops();
+        double t = d.transmitted(), dm = Math.toDegrees(d.maxDeflection());
+        check("Tropfen (60° auf Glas): über arcsin(1/n) = 48,6° ganz zurückgeworfen – es geht (0,75/0,866)² durch, abgelenkt bis 41,4°",
+                Math.abs(t - Math.pow((1 / 1.333) / Math.sin(Math.toRadians(60)), 2)) < 1e-12 && Math.abs(dm - 41.4) < 0.1, "durch %.4f, größte Ablenkung %.2f°", t, dm);
+        double[] ph = d.phase(32);
+        double sum = 0, mean = 0, dmax = d.maxDeflection();
+        for (int k = 0; k < 32; k++) {
+            double d0 = dmax * k / 32, d1 = dmax * (k + 1) / 32, om = 2 * Math.PI * (Math.cos(d0) - Math.cos(d1));
+            sum += ph[k] * om;
+            mean += ph[k] * om * 0.5 * (d0 + d1);
+        }
+        check("Tropfen: die Verteilung der Ablenkung trägt genau das Durchgehende; im Mittel um 14°", Math.abs(sum - t) < 1e-9 && Math.toDegrees(mean / sum) > 12 && Math.toDegrees(mean / sum) < 25,
+                "Σ p ΔΩ = %.6f (%.6f), mittlere Ablenkung %.1f°", sum, t, Math.toDegrees(mean / sum));
+        d.set(new double[]{0}, new double[]{0}, new double[]{1.0}, 1);
+        double c1 = d.coverAt(0, 0, 12), c2 = d.coverAt(12, 0, 12);
+        check("Tropfen: einer von 1 mm in der Mitte deckt (1/12)² des Bündels einer Pupille von 12 mm, auf dem Rand des Bündels knapp halb so viel",
+                Math.abs(c1 - 1 / 144.0) < 1e-12 && Math.abs(c2 - 0.5 / 144) < 0.05 / 144, "%.5f (%.5f), am Rand %.5f", c1, 1 / 144.0, c2);
+        // gleiche Tropfen auf Tele (Pupille 23 mm hinter 15 mm, Feld ±4°) und Weitwinkel (Pupille 4,1 mm hinter 12 mm, Feld ±38°)
+        java.util.Random r = new java.util.Random(7);
+        int n = 25;
+        double[] x = new double[n], y = new double[n], rr = new double[n];
+        for (int i = 0; i < n; i++) {
+            double a = 2 * Math.PI * r.nextDouble(), q = 11 * Math.sqrt(r.nextDouble());
+            x[i] = q * Math.cos(a); y[i] = q * Math.sin(a); rr[i] = 0.4 + 1.2 * r.nextDouble();
+        }
+        d.set(x, y, rr, n);
+        float[] tele = d.coverage(48, 27, 24.9, 14.0, 250, 15.3, 23.0), weit = d.coverage(48, 27, 24.9, 14.0, 15.5, 12.1, 4.1);
+        double[] st = minMaxMean(tele), sw = minMaxMean(weit);
+        check("Tropfen: beim Tele ein gleichmäßiger Schleier, beim Weitwinkel einzelne Flecken (gleiche 25 Tropfen)",
+                (st[1] - st[0]) / st[2] < 0.1 && (sw[1] - sw[0]) / sw[2] > 1.5, "Tele %.3f … %.3f, Weitwinkel %.3f … %.3f", st[0], st[1], sw[0], sw[1]);
+    }
+
+    static double[] minMaxMean(float[] g) {
+        double lo = 1e9, hi = -1e9, s = 0;
+        for (float v : g) { lo = Math.min(lo, v); hi = Math.max(hi, v); s += v; }
+        return new double[]{lo, hi, s / g.length};
     }
 
     private static void check(String what, boolean pass, String fmt, Object... v) {

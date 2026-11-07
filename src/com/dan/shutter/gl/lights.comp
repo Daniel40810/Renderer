@@ -1,0 +1,57 @@
+// lights.comp — Kino-Stufe (com.dan.shutter), seit W9c Runde 2: die Lichter eines Teilbilds. Ein Teilbild sieht die Szene
+// durch einen Punkt der Pupille: ein kleines helles Licht fällt auf einen Bildpunkt, über n Teilbilder auf n Punkte des
+// Unschärfekreises – bei 64 Teilbildern körnig. Hier: Bildpunkte über der Schwelle uThresh, die uIso-mal heller sind als der
+// Ring in 3 Bildpunkten Abstand (vereinzelt) und deren Kreis größer ist als uMinR, geben ihren Überschuss über
+// max(uThresh, uIso · Ring) in eine Liste, mit der Mitte ihres Kreises (der Ort ohne den Versatz dieses Orts der Pupille,
+// x − S · p) und S, dem Halbmesser (Bildpunkte, mit Vorzeichen) je Einheit der Pupille. splat.vert/.frag legen daraus den
+// ganzen Kreis an, wie ihn die ganze Pupille gäbe. Ohne Platz in der Liste bleibt das Licht im Bild.
+// uClean: das Teilbild ohne den Überschuss.
+layout(local_size_x = 16, local_size_y = 16) in;
+uniform sampler2D uHdr;
+uniform sampler2D uDepth;
+layout(rgba16f, binding = 0) writeonly uniform image2D uClean;
+layout(std430, binding = 1) buffer Cmd { uint cmd[4]; };     // Zeichenbefehl: Ecken, Instanzen (3 je Licht), 0, 0
+layout(std430, binding = 2) buffer Lights { vec4 L[]; };     // je Licht: (Mitte x, y, S, 0), (Überschuss rgb, 0)
+uniform ivec2 uSize;
+uniform float uThresh, uIso;
+uniform int uCap;
+uniform int uReversed;
+uniform float uNear, uFar;
+uniform float uCocK;            // Halbmesser des Unschärfekreises (Bildpunkte) je Dioptrie
+uniform float uFocusD;          // 1 / Schärfe (1/m)
+uniform vec2 uPupilP;           // Ort dieses Teilbilds in der Pupille
+uniform float uMinR;            // kleinster Halbmesser, der gestreut wird (Bildpunkte)
+
+float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float viewDepth(float d) {
+    if (uReversed == 1) return uNear / max(d, 1e-12);
+    float ndc = d * 2.0 - 1.0;
+    return 2.0 * uNear * uFar / ((uFar + uNear) - ndc * (uFar - uNear));
+}
+
+const ivec2 RING[8] = ivec2[8](ivec2(3, 0), ivec2(2, 2), ivec2(0, 3), ivec2(-2, 2), ivec2(-3, 0), ivec2(-2, -2), ivec2(0, -3), ivec2(2, -2));
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= uSize.x || p.y >= uSize.y) return;
+    vec3 c = max(texelFetch(uHdr, p, 0).rgb, vec3(0.0));
+    vec3 o = c;
+    float l = lum(c);
+    if (l > uThresh) {
+        vec3 r = vec3(0.0);
+        for (int k = 0; k < 8; k++) r += max(texelFetch(uHdr, clamp(p + RING[k], ivec2(0), uSize - 1), 0).rgb, vec3(0.0));
+        float lim = max(uThresh, uIso * lum(r) * 0.125);
+        float d = viewDepth(texelFetch(uDepth, p, 0).r);
+        float S = uCocK * (uFocusD - 1.0 / max(d, 1e-3));
+        if (l > lim && abs(S) > uMinR) {
+            uint k = atomicAdd(cmd[1], 3u) / 3u;
+            if (k < uint(uCap)) {
+                vec3 cl = c * (lim / l);
+                L[2u * k] = vec4(vec2(p) + 0.5 - S * uPupilP, S, 0.0);
+                L[2u * k + 1u] = vec4(c - cl, 0.0);
+                o = cl;
+            }
+        }
+    }
+    imageStore(uClean, p, vec4(o, 1.0));
+}

@@ -16,6 +16,16 @@ import java.util.Map;
  * App rechnet je Teilbild die Szene zur Zeit des Teilbilds, mit der Kamera am Ort der Pupille und dem Versatz im Bildpunkt
  * ({@link com.dan.shutter.SubFrames}), und gibt das HDR-Bild hierher. Das Ergebnis hat Mip-Stufen. Danach: Mischen aus,
  * Framebuffer und Viewport verändert.
+ * <p>
+ * Seit LituyaBay1958 W9c Runde 2:
+ * <ul>
+ * <li><b>Fehler des Objektivs</b>: je Farbe ein Versatz des Teilbilds ({@link View#shiftUv}, aus
+ * {@link com.dan.shutter.Aberration}): sphärische Aberration und Längsfarbfehler.</li>
+ * <li><b>Lichter</b> ({@code lights.comp}, {@code splat.vert}): vereinzelte helle Bildpunkte geben ihren Überschuss nicht als
+ * Punkt in die Summe, sondern als Fleck von der Größe ihrer Zelle der Pupille (Halbmesser des Unschärfekreises · κ / √n). Über
+ * n Teilbilder füllen die Flecken den Kreis lückenlos; Form, Katzenauge, Ring der sphärischen Aberration und Farbsäume kommen
+ * weiter aus den Orten der Pupille. Dafür braucht der View die Tiefe und die Schärfe.</li>
+ * </ul>
  */
 public final class ShutterGl {
 
@@ -32,11 +42,47 @@ public final class ShutterGl {
         public double tanPerPx;
         /** Blendenzahl (für die Flanke der Umlaufblende). */
         public double fNumber = 2.8;
+        /**
+         * Seit W9c Runde 2: Versatz des Teilbilds je Farbe (uv: rx, ry, gx, gy, bx, by), etwa
+         * {@link com.dan.shutter.Aberration#shiftUv}; null: keiner.
+         */
+        public double[] shiftUv;
+        /**
+         * Seit W9c Runde 2, für die Lichter: Leuchtdichte (Einheiten der Szene), ab der ein vereinzelter Bildpunkt als Licht
+         * gilt (0: aus; die Linse nimmt etwa 2 / Belichtung), Tiefe des Teilbilds und wie sie zu lesen ist.
+         */
+        public double lightThreshold;
+        public int depthTexture;
+        public boolean reversedZ;
+        public double near = 0.1, far = 1e5;
+        /** Halbmesser des Unschärfekreises (Bildpunkte) je Dioptrie Abstand von der Schärfe: (D/2) · f / Bildpunkt; Schärfe (m). */
+        public double cocPxPerDiopter, focusM = 10;
+        /** Teilbilder dieses Filmbilds. */
+        public int subframes = 1;
+        /**
+         * Seit W9c Runde 2, für die Lichter als ganze Kreise: die Blende wie {@link com.dan.shutter.Pupil} (Lamellen, Rundung,
+         * Drehung, Umkreis → Fläche π als pupilScale), TA_best in Bildpunkten an ρ = k/16 · pupilScale
+         * ({@link com.dan.shutter.Aberration#taBestPx}, 17 Werte; null: keine) und der Längsfarbfehler in Bildpunkten je
+         * Einheit der Pupille ({@link com.dan.shutter.Aberration#chromaticPx}).
+         */
+        public int blades;
+        public double roundness = 1, rotationDeg, pupilScale = 1;
+        public double[] taBestPx;
+        public double chromaRPx, chromaBPx;
     }
+
+    /** Seit W9c Runde 2: ein Licht muss so oft heller sein als sein Ring in 3 Bildpunkten Abstand (vereinzelt) [G]. */
+    public double lightIsolation = 4;
+    /** Seit W9c Runde 2: kleinere Kreise (Halbmesser in Bildpunkten) bleiben im Bild (dort ist auch ein Punkt nicht körnig). */
+    public double lightMinRadius = 1.5;
+    /** Seit W9c Runde 2: höchstens so viele Lichter je Teilbild (weitere bleiben im Bild als Punkt). */
+    public int lightCap = 65536;
+    /** Seit W9c Runde 2: Lichter im letzten Teilbild (nach {@link #resolve}; −1: nicht gelesen). */
+    public int lastLights = -1;
 
     private final Shutter shutter;
     private boolean ready;
-    private int progAcc, progRes, vao, fbo, sumTex, outTex, w, h, count;
+    private int progAcc, progRes, progLights, progClamp, progSplat, vao, fbo, sumTex, outTex, cleanTex, cmdBuf, lightBuf, lightBufCap, w, h, count;
     private final Map<Integer, Map<String, Integer>> locs = new HashMap<>();
 
     public ShutterGl(Shutter shutter) { this.shutter = shutter; }
@@ -47,23 +93,33 @@ public final class ShutterGl {
     public int count() { return count; }
 
     public void init(GL4 gl) {
-        String vs = read("fullscreen.vert");
-        progAcc = program(gl, vs, read("accumulate.frag"));
+        String vs = read("fullscreen.vert"), win = read("window.glsl");
+        progAcc = program(gl, vs, win + read("accumulate.frag"));
         progRes = program(gl, vs, read("resolve.frag"));
-        int[] a = new int[1];
+        progLights = compute(gl, read("lights.comp"));
+        progClamp = compute(gl, read("lights_clamp.comp"));
+        progSplat = program(gl, win + read("splat.vert"), win + read("splat.frag"));
+        int[] a = new int[2];
         gl.glGenVertexArrays(1, a, 0);
         vao = a[0];
         gl.glGenFramebuffers(1, a, 0);
         fbo = a[0];
+        gl.glGenBuffers(2, a, 0);
+        cmdBuf = a[0];
+        lightBuf = a[1];
+        gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cmdBuf);
+        gl.glBufferData(GL4.GL_SHADER_STORAGE_BUFFER, 16, null, GL4.GL_DYNAMIC_DRAW);
+        gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
         ready = true;
     }
 
     /** Eine neue Summe der Größe width × height (leer). */
     public void begin(GL4 gl, int width, int height) {
         if (width != w || height != h || sumTex == 0) {
-            if (sumTex != 0) gl.glDeleteTextures(2, new int[]{sumTex, outTex}, 0);
+            if (sumTex != 0) gl.glDeleteTextures(3, new int[]{sumTex, outTex, cleanTex}, 0);
             sumTex = tex(gl, GL4.GL_RGBA32F, width, height);
             outTex = texMip(gl, width, height);
+            cleanTex = tex(gl, GL4.GL_RGBA16F, width, height);
             w = width;
             h = height;
         }
@@ -78,6 +134,46 @@ public final class ShutterGl {
     /** Ein Teilbild in die Summe. */
     public void add(GL4 gl, View v) {
         if (!ready) return;
+        // W9c Runde 2: die Lichter herauslösen (Liste und Teilbild ohne ihren Überschuss)
+        boolean lights = v.lightThreshold > 0 && v.depthTexture != 0 && lightCap > 0;
+        int src = v.hdrTexture;
+        if (lights) {
+            if (lightBufCap != lightCap) {
+                gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, lightBuf);
+                gl.glBufferData(GL4.GL_SHADER_STORAGE_BUFFER, 32L * lightCap, null, GL4.GL_DYNAMIC_COPY);
+                gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
+                lightBufCap = lightCap;
+            }
+            gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cmdBuf);
+            gl.glBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, 16, com.jogamp.common.nio.Buffers.newDirectIntBuffer(new int[]{4, 0, 0, 0}));
+            gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
+            int q = progLights;
+            gl.glUseProgram(q);
+            bind(gl, q, "uHdr", 0, v.hdrTexture);
+            bind(gl, q, "uDepth", 1, v.depthTexture);
+            gl.glBindImageTexture(0, cleanTex, 0, false, 0, GL4.GL_WRITE_ONLY, GL4.GL_RGBA16F);
+            gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 1, cmdBuf);
+            gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 2, lightBuf);
+            int l = loc(gl, q, "uSize");
+            if (l >= 0) gl.glUniform2i(l, w, h);
+            setf(gl, q, "uThresh", (float) v.lightThreshold);
+            setf(gl, q, "uIso", (float) lightIsolation);
+            seti(gl, q, "uCap", lightCap);
+            seti(gl, q, "uReversed", v.reversedZ ? 1 : 0);
+            setf(gl, q, "uNear", (float) v.near);
+            setf(gl, q, "uFar", (float) v.far);
+            setf(gl, q, "uCocK", (float) v.cocPxPerDiopter);
+            setf(gl, q, "uFocusD", (float) (1 / Math.max(1e-3, v.focusM)));
+            set2(gl, q, "uPupilP", (float) v.pupilU, (float) v.pupilV);
+            setf(gl, q, "uMinR", (float) lightMinRadius);
+            gl.glDispatchCompute((w + 15) / 16, (h + 15) / 16, 1);
+            gl.glMemoryBarrier(GL4.GL_SHADER_STORAGE_BARRIER_BIT);
+            gl.glUseProgram(progClamp);
+            seti(gl, progClamp, "uCap", lightCap);
+            gl.glDispatchCompute(1, 1, 1);
+            gl.glMemoryBarrier(GL4.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL4.GL_TEXTURE_FETCH_BARRIER_BIT | GL4.GL_SHADER_STORAGE_BARRIER_BIT | GL4.GL_COMMAND_BARRIER_BIT);
+            src = cleanTex;
+        }
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo);
         gl.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, sumTex, 0);
         gl.glViewport(0, 0, w, h);
@@ -88,7 +184,49 @@ public final class ShutterGl {
         gl.glBindVertexArray(vao);
         int p = progAcc;
         gl.glUseProgram(p);
-        bind(gl, p, "uHdr", 0, v.hdrTexture);
+        bind(gl, p, "uHdr", 0, src);
+        fenster(gl, p, v);
+        double[] sh = v.shiftUv;
+        set2(gl, p, "uShiftR", sh == null ? 0 : (float) sh[0], sh == null ? 0 : (float) sh[1]);
+        set2(gl, p, "uShiftG", sh == null ? 0 : (float) sh[2], sh == null ? 0 : (float) sh[3]);
+        set2(gl, p, "uShiftB", sh == null ? 0 : (float) sh[4], sh == null ? 0 : (float) sh[5]);
+        gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
+        if (lights) {
+            // die Lichter als Flecken (indirekt: so viele, wie die Liste hat; je Licht drei Farben)
+            int q = progSplat;
+            gl.glUseProgram(q);
+            fenster(gl, q, v);
+            seti(gl, q, "uCap", lightCap);
+            int l = loc(gl, q, "uTA");
+            if (l >= 0) {
+                float[] f = new float[17];
+                for (int k = 0; k < 17; k++) f[k] = v.taBestPx == null ? 0 : (float) v.taBestPx[k];
+                gl.glUniform1fv(l, 17, f, 0);
+            }
+            setf(gl, q, "uRhoTop", (float) v.pupilScale);
+            l = loc(gl, q, "uKc");
+            if (l >= 0) gl.glUniform3f(l, (float) v.chromaRPx, 0f, (float) v.chromaBPx);
+            setf(gl, q, "uSqueezeP", (float) Math.max(1e-3, v.squeeze));
+            seti(gl, q, "uBlades", v.blades);
+            setf(gl, q, "uRound", (float) v.roundness);
+            setf(gl, q, "uRot", (float) Math.toRadians(v.rotationDeg));
+            setf(gl, q, "uScaleP", (float) v.pupilScale);
+            gl.glBindBufferBase(GL4.GL_SHADER_STORAGE_BUFFER, 2, lightBuf);
+            gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, cmdBuf);
+            gl.glDrawArraysIndirect(GL.GL_TRIANGLE_STRIP, 0);
+            gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, 0);
+        }
+        gl.glDisable(GL.GL_BLEND);
+        gl.glUseProgram(0);
+        gl.glBindVertexArray(0);
+        count++;
+        lastWithLights = lights;
+    }
+
+    private boolean lastWithLights;
+
+    /** Die Uniforms des Zeitfensters und des Katzenauges (window.glsl). */
+    private void fenster(GL4 gl, int p, View v) {
         Shutter s = shutter;
         setf(gl, p, "uTau", (float) v.tauS);
         setf(gl, p, "uOpen", (float) s.openS());
@@ -108,15 +246,17 @@ public final class ShutterGl {
         }
         setf(gl, p, "uTanPerPx", (float) v.tanPerPx);
         set2(gl, p, "uSize", w, h);
-        gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
-        gl.glDisable(GL.GL_BLEND);
-        gl.glUseProgram(0);
-        gl.glBindVertexArray(0);
-        count++;
     }
 
     /** Die Summe geteilt (RGBA16F); wo kein Teilbild zählte, lastTexture. Gibt die Textur zurück. */
     public int resolve(GL4 gl, int lastTexture) {
+        if (lastWithLights) {   // W9c Runde 2: wie viele Lichter das letzte Teilbild hatte (einmal je Filmbild)
+            java.nio.IntBuffer ib = com.jogamp.common.nio.Buffers.newDirectIntBuffer(4);
+            gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cmdBuf);
+            gl.glGetBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, 16, ib);
+            gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
+            lastLights = ib.get(1) / 3;
+        } else lastLights = -1;
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo);
         gl.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, outTex, 0);
         gl.glViewport(0, 0, w, h);
@@ -141,7 +281,12 @@ public final class ShutterGl {
         if (!ready) return;
         gl.glDeleteProgram(progAcc);
         gl.glDeleteProgram(progRes);
-        if (sumTex != 0) gl.glDeleteTextures(2, new int[]{sumTex, outTex}, 0);
+        gl.glDeleteProgram(progLights);
+        gl.glDeleteProgram(progClamp);
+        gl.glDeleteProgram(progSplat);
+        gl.glDeleteBuffers(2, new int[]{cmdBuf, lightBuf}, 0);
+        lightBufCap = 0;
+        if (sumTex != 0) gl.glDeleteTextures(3, new int[]{sumTex, outTex, cleanTex}, 0);
         gl.glDeleteFramebuffers(1, new int[]{fbo}, 0);
         gl.glDeleteVertexArrays(1, new int[]{vao}, 0);
         locs.clear();
@@ -199,6 +344,29 @@ public final class ShutterGl {
         } catch (IOException e) {
             throw new IllegalStateException("Shader " + file + ": " + e.getMessage(), e);
         }
+    }
+
+    static int compute(GL4 gl, String src) {
+        int p = gl.glCreateProgram(), sh = gl.glCreateShader(GL4.GL_COMPUTE_SHADER);
+        gl.glShaderSource(sh, 1, new String[]{"#version 430 core\n" + src}, null, 0);
+        gl.glCompileShader(sh);
+        int[] ok = new int[1];
+        gl.glGetShaderiv(sh, GL4.GL_COMPILE_STATUS, ok, 0);
+        if (ok[0] == 0) {
+            byte[] log = new byte[8192];
+            gl.glGetShaderInfoLog(sh, log.length, null, 0, log, 0);
+            throw new IllegalStateException("com.dan.shutter: " + new String(log, StandardCharsets.UTF_8).trim());
+        }
+        gl.glAttachShader(p, sh);
+        gl.glDeleteShader(sh);
+        gl.glLinkProgram(p);
+        gl.glGetProgramiv(p, GL4.GL_LINK_STATUS, ok, 0);
+        if (ok[0] == 0) {
+            byte[] log = new byte[8192];
+            gl.glGetProgramInfoLog(p, log.length, null, 0, log, 0);
+            throw new IllegalStateException("com.dan.shutter: " + new String(log, StandardCharsets.UTF_8).trim());
+        }
+        return p;
     }
 
     static int program(GL4 gl, String vs, String fs) {
