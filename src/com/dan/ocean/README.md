@@ -156,3 +156,14 @@ light.kielRect1 = wakeGl.rect(1);
 ## Planare Spiegelung (seit LituyaBay1958 W8a)
 
 `Light.planarTexture`, `planarDepth`, `planarViewProj` (Kamera beim Spiegelbild, ungespiegelt), `planarEye`, `planarForward`, `planarLevel`, `planarNear`/`planarFar`, `planarReversed`, `planarTanHalfFovY`, `planarMix`, `planarRough`/`planarRoughPerM`. Ein Bild der am Wasserspiegel gespiegelten Szene samt Himmel (Alpha 1, wo etwas steht) ersetzt die Spiegelung des Rundumbilds. Für jeden gespiegelten Strahl r von P aus greift die See genau dorthin, wo die Kamera den gespiegelten Punkt P′ + d′·D sieht (d′ = r mit umgekehrtem y, D aus der Tiefe des Spiegelbilds in zwei Schritten; ohne Tiefe die Richtung): mit der eigenen Normale der See (Wellen, Kräusel, Regen), so wellig wie das Wasser. Mip-Stufe nach der verborgenen Rauigkeit (2σ in Bildhöhen). Am Rand des Bilds und wo das Bild nichts trägt, bleibt das Rundumbild. Ein Spiegelbild aus einem früheren Bild gilt weiter, weil die Kamera beim Spiegelbild mitgegeben wird. Vorgabe aus: die anderen Szenen bleiben, wie sie sind.
+
+## Spiegelruhe (seit LituyaBay1958 W8b)
+
+`Light.calm` {Einsetzen, voll (m/s), Streuung (ln), Fleckgröße (m)}, `calmWind`, `calmTime`; Vorgabe aus. Unter einer Schwelle des Winds bilden sich keine Kräuselwellen (Kahma und Donelan 1988, Donelan und Plant 2009): Der Wind am Ort ist der Wind mal einem log-normalen Böenfeld, dessen Flecken mit 0,8 des Winds treiben und sich wandeln; die Steigungen der Windsee wachsen zwischen Einsetzen und voller Stärke von 3 % auf 100 %, die Dünung bleibt. Bei Windstille ein Spiegel, bei leisem Zug Katzenpfoten. Glanz und verborgene Rauigkeit der planaren Spiegelung folgen.
+
+## Feines Feld, Maske der Schauer, Facetten an den Einschlägen (seit LituyaBay1958 W8b Runde 2)
+
+- `Light.detail2Texture`, `detail2Tile`, `detail2Strength`, `detail2Center`, `detail2Roughness`: ein zweites, feineres Feld in einem kleineren Fenster (Art 1, fest in der Welt), das zum ersten addiert wird (andere Wellenzahlen); in seinem Fenster gilt für die Facetten nur noch die Rauigkeit unter seinem Raster.
+- `Light.detailMask`, `detailMaskRect`: Karte 0 … 1, wo es regnet; Störung und Facetten nur dort (ferne Ringe nicht unter trockenem Himmel).
+- **Facetten an den Einschlägen:** Die Wahrscheinlichkeit einer Facette folgt der Stärke des aufgelösten Felds am Ort (0,25 + 0,75 · |∇h|² / Mittel, bis 4-fach), die Stärke je Facette bleibt: Die verborgene Varianz sammelt sich an den jungen Einschlägen und ihren inneren Ringen, im Mittel unverändert; wo das Feld ausgeblendet ist, gleich verteilt.
+- Planare Spiegelung: knapp außerhalb des Bilds am Rand greifen statt ausblenden (kein heller Streifen am Bildrand).

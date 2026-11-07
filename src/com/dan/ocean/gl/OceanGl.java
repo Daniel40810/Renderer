@@ -201,6 +201,30 @@ public final class OceanGl {
         public double planarMix = 1;
         /** Verborgene Rauigkeit (mittlere Steigung), die die Normale nicht trägt: Grundwert und Zuwachs je m Abstand. */
         public double planarRough = 0.0025, planarRoughPerM = 6e-6;
+        /**
+         * Seit LituyaBay1958 W8b: Spiegelruhe. Unter einer Schwelle des Winds entstehen keine Kräuselwellen (Kahma und
+         * Donelan 1988; Donelan und Plant 2009): die See bleibt spiegelglatt, bis eine Böe sie aufraut. Der Wind am Ort ist
+         * {@code calmWind} mal einem log-normalen Böenfeld (Flecken von {@code calm[3]} m, die mit 0,8 des Winds treiben
+         * und sich wandeln); die Kräusel wachsen zwischen {@code calm[0]} und {@code calm[1]} m/s von glatt bis voll.
+         * calm[2]: Streuung des Böenfelds (ln). calm[0] = 0: aus (wie bisher).
+         */
+        public double[] calm = {0, 0, 0.45, 45};
+        /**
+         * Seit W8b Runde 2: das feine zweite Feld des Regens (Kaskade, nur Art 1): Textur wie {@code detailTexture},
+         * Kante (m), Stärke, Mitte; detail2Roughness: mittlere quadratische Steigung unter seinem Raster (im Fenster statt
+         * {@code detailRoughness}). 0 = keins.
+         */
+        public int detail2Texture;
+        public double detail2Tile = 0.75, detail2Strength, detail2Roughness;
+        public double[] detail2Center = {0, 0};
+        /**
+         * Seit W8b Runde 2: wo es regnet – Karte 0 … 1 (R32F) über dem Rechteck {x0, z0, Kante}: die Störung und ihre
+         * Facetten nur dort, wo ein Schauer fällt (ferne Ringe nicht unter trockenem Himmel). 0 = überall.
+         */
+        public int detailMask;
+        public double[] detailMaskRect = {0, 0, 1};
+        /** Wind über dem Wasser für die Spiegelruhe (m/s), Zeit (s, fortlaufend) für das Treiben der Flecken. */
+        public double calmWind, calmTime;
     }
 
     /**
@@ -571,6 +595,21 @@ public final class OceanGl {
                 (float) Math.max(1, light.kielRect0[2]), light.kielTexture != 0 && light.kielRect0[3] > 0 ? 1f : 0f);
         gl.glUniform4f(gl.glGetUniformLocation(p, "uKielR1"), (float) light.kielRect1[0], (float) light.kielRect1[1],
                 (float) Math.max(1, light.kielRect1[2]), light.kielTexture != 0 && light.kielRect1[3] > 0 ? 1f : 0f);
+        // seit W8b Runde 2: feines Feld (Einheit 18), Maske des Regens (Einheit 19)
+        gl.glActiveTexture(GL.GL_TEXTURE0 + 18);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, light.detail2Texture);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uDetail2"), 18);
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uDetail2P"), (float) Math.max(1e-3, light.detail2Tile), (float) light.detail2Strength, (float) Math.max(0, light.detail2Roughness),
+                light.detail2Texture != 0 && light.detail2Strength > 0 ? 1f : 0f);
+        gl.glUniform2f(gl.glGetUniformLocation(p, "uDetail2Q"), (float) light.detail2Center[0], (float) light.detail2Center[1]);
+        gl.glActiveTexture(GL.GL_TEXTURE0 + 19);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, light.detailMask);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uDetailMask"), 19);
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uDetailMaskR"), (float) light.detailMaskRect[0], (float) light.detailMaskRect[1], (float) Math.max(1, light.detailMaskRect[2]),
+                light.detailMask != 0 ? 1f : 0f);
+        // seit LituyaBay1958 W8b: Spiegelruhe
+        gl.glUniform4f(gl.glGetUniformLocation(p, "uCalm"), (float) light.calm[0], (float) light.calm[1], (float) light.calm[2], (float) light.calm[3]);
+        gl.glUniform2f(gl.glGetUniformLocation(p, "uCalmW"), (float) light.calmWind, (float) (light.calmTime % 100_000.0));
         // seit LituyaBay1958 W8a: planare Spiegelung (Einheiten 16, 17)
         boolean planar = light.planarTexture != 0 && light.planarDepth != 0 && light.planarViewProj != null;
         gl.glActiveTexture(GL.GL_TEXTURE0 + 16);

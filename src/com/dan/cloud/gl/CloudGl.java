@@ -82,6 +82,12 @@ public final class CloudGl {
         public double[] dir = {0, 1, 0};
         public double[][] colorAt = new double[8][3];
         public double[] ambTop = {0.1, 0.12, 0.15}, ambBot = {0.01, 0.012, 0.012};
+        /**
+         * Seit LituyaBay1958 W8b: Abstufung des gestreuten Lichts einer dicken Decke nach der Blickrichtung, wie der
+         * CIE-Normhimmel (com.dan.sky.CieSky): a, b der Abstufung φ(Z) = 1 + a·exp(b / cos Z), Normierung (1 / Mittel, damit
+         * die Bestrahlungsstärke gleich bleibt), Stärke 0 … 1 (0 = aus, wie bisher). Nur von unterhalb der Decke.
+         */
+        public double[] gradation = {0, -1, 1, 0};
         public double haze = 1e-4;
         /** Blitzleuchten im Raymarching (alt, Phase 3: Ort, Stärke); Phase 10 nimmt die Lichtpunkte unten. */
         public double[] flash = {0, 0, 0, 0};
@@ -300,6 +306,7 @@ public final class CloudGl {
         m.put("uLightDir", U.f(norm(l.dir)));
         m.put("uAmbTop", U.f(l.ambTop));
         m.put("uAmbBot", U.f(l.ambBot));
+        m.put("uGrad", U.f(l.gradation[0], l.gradation[1], l.gradation[2], l.gradation[3]));
         m.put("uHaze", U.f(l.haze));
         m.put("uFlash", U.f(l.flash));
         m.put("uCam", U.f(eye));

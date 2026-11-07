@@ -32,9 +32,9 @@ public final class Precip {
      */
     public enum Quality {
         LOW(4_000, 2.5, 2.2, 4_096, 256, 0.006, 0, 0, 4, 10),
-        MEDIUM(12_000, 3.0, 3.0, 12_288, 512, 0.004, 0, 0, 6, 14),
-        HIGH(24_000, 3.5, 3.5, 24_576, 1024, 0.003, 0, 0, 8, 20),
-        ULTRA(48_000, 4.5, 4.0, 49_152, 1024, 0.002, 0, 0, 10, 32);
+        MEDIUM(12_000, 3.0, 3.0, 12_288, 512, 0.004, 512, 0.0015, 6, 14),
+        HIGH(24_000, 3.5, 3.5, 24_576, 1024, 0.003, 512, 0.0012, 8, 20),
+        ULTRA(48_000, 4.5, 4.0, 49_152, 1024, 0.002, 1024, 0.001, 10, 32);   // seit W8b Runde 2: feines Feld (nur mit PrecipGl.fine)
         public final int drops, splashes, rippleRes, fineRes, layers, curtainSteps;
         public final double box, boxY, rippleCell, fineCell;
         Quality(int drops, double box, double boxY, int splashes, int rippleRes, double rippleCell, int fineRes, double fineCell,

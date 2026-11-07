@@ -56,6 +56,33 @@ uniform int uMaskMode;          // 1: nur innen zeichnen, −1: nur außen, 0: a
 uniform int uUnder;             // seit Rungholt Phase 6: das Auge liegt unter dem Spiegel
 uniform vec4 uHoleA;            // seit Sylt Phase 7a: Loch für ein anderes Wasser (Netz der Brecher): Mitte x, z, Richtung u (x, z)
 uniform vec4 uHoleB;            // halbe Länge längs u, halbe Breite quer, weicher Rand (m), an (1)
+// seit W8b Runde 2: feines zweites Feld (Kaskade), Maske des Regens
+uniform sampler2D uDetail2, uDetailMask;
+uniform vec4 uDetail2P;         // Kante (m), Stärke, Rauigkeit unter seinem Raster, an (1)
+uniform vec2 uDetail2Q;         // Mitte
+uniform vec4 uDetailMaskR;      // x0, z0, Kante (m), an (1)
+// seit LituyaBay1958 W8b: Spiegelruhe (Schwelle des Winds für Kräuselwellen, Böenfeld mit treibenden Flecken)
+uniform vec4 uCalm;             // Einsetzen, voll (m/s), Streuung (ln), Fleckgröße (m); x = 0: aus
+uniform vec2 uCalmW;            // Wind (m/s), Zeit (s)
+float calmN(vec2 x) {
+    vec2 i = floor(x), f = x - i;
+    f = f * f * (3.0 - 2.0 * f);
+    float a = fract(sin(dot(i, vec2(127.1, 311.7))) * 43758.5453), b = fract(sin(dot(i + vec2(1, 0), vec2(127.1, 311.7))) * 43758.5453);
+    float c = fract(sin(dot(i + vec2(0, 1), vec2(127.1, 311.7))) * 43758.5453), d = fract(sin(dot(i + vec2(1, 1), vec2(127.1, 311.7))) * 43758.5453);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+// Anteil der Kräusel am Ort: Wind am Ort = Wind · exp(σ · z) mit z aus vier Oktaven Rauschen (Mittel 0, Streuung ≈ 1),
+// treibend mit 0,8 des Winds in Windrichtung und langsam gewandelt; glatt unter dem Einsetzen, voll ab der vollen Stärke
+float calmRipple(vec2 p) {
+    if (uCalm.x <= 0.0) return 1.0;
+    vec2 wd = vec2(sin(uWindTo), -cos(uWindTo));
+    vec2 q = (p - wd * uCalmW.x * 0.8 * uCalmW.y) / uCalm.w;
+    float t = uCalmW.y / max(uCalm.w / max(uCalmW.x, 0.3), 5.0) * 0.15;
+    float n = 0.5 * calmN(q + vec2(t, 0.0)) + 0.25 * calmN(q * 2.03 + vec2(5.2, -t)) + 0.125 * calmN(q * 4.1 + 9.1) + 0.0625 * calmN(q * 8.3 + 2.7);
+    float z = (n - 0.469) / 0.135;
+    float u = uCalmW.x * exp(uCalm.z * z);
+    return smoothstep(uCalm.x, uCalm.y, u);
+}
 // seit LituyaBay1958 W8a: planare Spiegelung (Bild der gespiegelten Szene samt Himmel, seine Tiefe, seine Kamera)
 uniform sampler2D uPlanar, uPlanarDepth;
 uniform int uPlanarOn;
@@ -89,9 +116,11 @@ vec4 planarLookup(vec3 P, vec3 r, float dist) {
         if (b.w <= 1e-4) break;
         uv = b.xy / b.w * 0.5 + 0.5;
     }
+    // seit W8b Runde 2: knapp außerhalb (Wellen am Bildrand) am Rand greifen statt ausblenden – sonst ein heller Streifen
     vec2 e = min(uv, 1.0 - uv);
-    float edge = smoothstep(0.0, 0.015, min(e.x, e.y));
+    float edge = smoothstep(-0.03, -0.005, min(e.x, e.y));
     if (edge <= 0.0) return vec4(0.0);
+    uv = clamp(uv, vec2(0.0005), vec2(0.9995));
     // Mip-Stufe: was die Normale nicht trägt (Kräusel unter dem Gitter, in der Ferne gefiltert), streut den Strahl um
     // rund 2σ; im Bild sind das 2σ / (2 tan(φ/2)) der Höhe
     float sig = min(0.08, uPlanarR.y + uPlanarR.z * dist);
@@ -203,6 +232,10 @@ void main() {
         sx += dv.x; sz += dv.y; jx += dv.z; jz += dv.w;
         keep *= 1.0 - clamp(texture(uDisp, uv).w * g, 0.0, 1.0);
     }
+    // seit W8b: Spiegelruhe – ohne Wind am Ort keine Kräusel (die Dünung bleibt)
+    float rip = calmRipple(vWorld.xz);
+    float calmK = mix(0.03, 1.0, rip);
+    sx *= calmK; sz *= calmK; jx *= calmK; jz *= calmK;
     vec3 swd, sws;
     swell(vRest, swd, sws);
     sws *= swellGain(vRest);
@@ -221,10 +254,12 @@ void main() {
         }
     }
     float detailShown = 0.0;   // seit W7b Runde 5: welcher Anteil der getragenen Steigung hier zu sehen ist (Amplitude)
+    vec2 rsDet = vec2(0.0);
+    float win2 = 0.0, rainMask = 1.0;
     if (uDetailP.w > 0.0) {
         if (uDetailQ.z < 0.5) {
             detailShown = exp(-vDist / uDetailP.z);
-            rs += texture(uDetail, vWorld.xz / uDetailP.x).rg * uDetailP.y * detailShown;
+            rsDet = texture(uDetail, vWorld.xz / uDetailP.x).rg * uDetailP.y * detailShown;
         } else {
             // Feld fest in der Welt: im Fenster echt, draußen zwei gedrehte Abfragen (Steigung zurückgedreht), gemittelt
             vec2 rel = abs(vWorld.xz - uDetailQ.xy) / uDetailP.x;
@@ -234,8 +269,22 @@ void main() {
             vec2 a = texture(uDetail, (R1 * vWorld.xz) / uDetailP.x + 0.37).rg, b = texture(uDetail, (R2 * vWorld.xz) / uDetailP.x + 0.71).rg;
             vec2 far = (transpose(R1) * a + transpose(R2) * b) * 0.7071;
             detailShown = win + (1.0 - win) * exp(-vDist / uDetailP.z);
-            rs += (near * win + far * (1.0 - win) * exp(-vDist / uDetailP.z)) * uDetailP.y;
+            rsDet = (near * win + far * (1.0 - win) * exp(-vDist / uDetailP.z)) * uDetailP.y;
+            // seit W8b Runde 2: das feine Feld nah am Auge trägt die Wellen unter dem groben Raster (andere Wellenzahlen,
+            // also einfach dazu); in seinem Fenster liegt unter dem Raster nur noch, was auch es nicht trägt
+            if (uDetail2P.w > 0.5) {
+                vec2 rel2 = abs(vWorld.xz - uDetail2Q) / uDetail2P.x;
+                win2 = 1.0 - smoothstep(0.30, 0.47, max(rel2.x, rel2.y));
+                rsDet += texture(uDetail2, vWorld.xz / uDetail2P.x).rg * uDetail2P.y * win2;
+            }
         }
+        // seit W8b Runde 2: nur wo ein Schauer fällt (die Karte der Schauer); ferne Ringe nicht unter trockenem Himmel
+        if (uDetailMaskR.w > 0.5) {
+            vec2 mu = (vWorld.xz - uDetailMaskR.xy) / uDetailMaskR.z;
+            rainMask = all(greaterThanEqual(mu, vec2(0.0))) && all(lessThanEqual(mu, vec2(1.0))) ? clamp(textureLod(uDetailMask, mu, 0.0).r, 0.0, 1.0) : 0.0;
+        }
+        rsDet *= rainMask;
+        rs += rsDet;
     }
     // seit W7b Runde 5: Varianz erhalten. Was die Störung hier nicht als Steigung zeigt – unter ihrem Raster, in der
     // Mip-Stufe weggemittelt, in der Ferne ausgeblendet –, ist trotzdem da: als Neigung einzelner Facetten. Nur ein
@@ -257,8 +306,15 @@ void main() {
         vec2 g1 = sqrt(-2.0 * log(ua.x)) * vec2(cos(6.2831853 * ua.y), sin(6.2831853 * ua.y));
         vec2 g2 = sqrt(-2.0 * log(ub.x)) * vec2(cos(6.2831853 * ub.y), sin(6.2831853 * ub.y));
         float pS = clamp(uDetailR.z, 1e-3, 1.0), pR = clamp(uDetailR.w, 1e-3, 1.0);
-        if (sel.x < pS) rsJ += sqrt(0.5 * fSub * uDetailR.x * s2 / pS) * g1;
-        if (sel.y < pR) rsJ += sqrt(0.5 * hid * s2 / pR) * g2;
+        // seit W8b Runde 2: die Facetten sitzen, wo das Feld gerade stark ist – an den jungen Einschlägen und ihren inneren
+        // Ringen – statt gleich verteilt: Wahrscheinlichkeit mal (0,25 + 0,75 · |∇h|² / Mittel), im Mittel dieselbe
+        float eLoc = dot(rsDet, rsDet) / max(1e-12, s2 * max(uDetailR.y, 1e-8) * max(rainMask, 1e-3) * max(rainMask, 1e-3));
+        // (die Stärke je Facette bleibt, so sammelt sich die Varianz selbst dort; wo das Feld ausgeblendet ist, gleich verteilt)
+        float clus = mix(1.0, 0.25 + 0.75 * min(eLoc / max(detailShown * detailShown, 0.05), 4.0), clamp(detailShown, 0.0, 1.0));
+        float pSl = clamp(pS * clus, 1e-3, 1.0), pRl = clamp(pR * clus, 1e-3, 1.0);
+        float sub = mix(uDetailR.x, uDetail2P.z, win2 * uDetail2P.w) * rainMask, hidM = hid * rainMask;
+        if (sel.x < pSl) rsJ += sqrt(0.5 * fSub * sub * s2 / pS) * g1;
+        if (sel.y < pRl) rsJ += sqrt(0.5 * hidM * s2 / pR) * g2;
         detailJ = true;
     }
     // seit Timmendorf Phase 8: Neigung und Schaum des Kielwassers von außen
@@ -309,7 +365,7 @@ void main() {
     r.y = abs(r.y);
     vec3 refl = sky(r);
     if (uPlanarOn == 1) {
-        vec4 pl = planarLookup(vWorld, r, vDist);
+        vec4 pl = planarLookup(vWorld, r, vDist * mix(0.3, 1.0, rip));
         refl = mix(refl, pl.rgb, pl.a * uPlanarR.x);
     }
 
@@ -339,7 +395,7 @@ void main() {
     vec3 col = mix(body + sss, refl, F);
 
     // Glitzer: Sonne und Mond, rauer mit der Entfernung (die kleinen Wellen sind dort weggefiltert)
-    float rough = clamp(0.012 + vDist * 0.00002, 0.012, 0.12);
+    float rough = clamp(0.012 + vDist * 0.00002, 0.012, 0.12) * mix(0.3, 1.0, rip);   // W8b: auf glattem Wasser ist der Glanz eine Scheibe
     float a2 = rough * rough;
     vec3 Hs = normalize(uSunDir + V);
     float nh = max(dot(n, Hs), 0.0);

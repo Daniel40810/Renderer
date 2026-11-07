@@ -10,6 +10,7 @@
 in vec2 vUv;
 out vec4 frag;
 uniform mat4 uInvVP;
+uniform float uDrift;   // seit W8b Runde 2: 1 = Schichten ziehen mit dem Wind
 uniform vec3 uEye;
 uniform sampler2D uSceneDepth;
 uniform int uReversed, uHasDepth;
@@ -47,10 +48,12 @@ float sceneDist(vec3 dir) {
 // Ein Gitter der Schale: n Tropfen je m³ (Größen d0..d1, mittlere Fallgeschwindigkeit vt, mittleres D² m2), Schale
 // von sa (Dicke ds, sichtbar bis tEnd). Die Zellen sind aus der vollen Dicke so groß, dass je Zelle ein Tropfen kommt;
 // jeder Tropfen liegt irgendwo in der Dicke (hinter der Szene: verdeckt). Das Gitter fällt mit vt; den Wind quer zum
-// Blick zeigt die Neigung jeder Spur (ein seitlich ziehendes Gitter wäre in benachbarten Bildpunkten verschieden).
+// Blick zeigt die Neigung jeder Spur. Seit LituyaBay1958 W8b Runde 2 zieht das Gitter auch seitlich: um den Wind quer
+// zur Bildmitte (drift, m) – je Schale derselbe Versatz, darum ohne Scherung zwischen benachbarten Bildpunkten; am Bildrand
+// weicht die Komponente um höchstens 1 − cos(φ/2) ab.
 struct Lat { float n, d0, d1, vt, m2; };
 
-float lattice(vec2 uv, float sa, float ds, float tEnd, Lat q, float lam, uint salt, float wPerp, float wMax, float pw) {
+float lattice(vec2 uv, float sa, float ds, float tEnd, Lat q, float lam, uint salt, float wPerp, float wMax, float pw, float drift) {
     if (q.n <= 0.0 || q.d1 <= q.d0) return 0.0;
     float vis = clamp((tEnd - sa) / ds, 0.0, 1.0);
     float mean = q.n * ds * vis * 0.785398 * q.m2 * 1e-6;
@@ -60,7 +63,7 @@ float lattice(vec2 uv, float sa, float ds, float tEnd, Lat q, float lam, uint sa
     float T = uPB.w;
     float area = 1.0 / max(1e-9, q.n * ds);
     float cv = max(sqrt(area), length(vec2(wMax, q.vt)) * T * 1.2 + 0.01), cu = area / cv;
-    vec2 g = vec2(uv.x, uv.y + q.vt * mod(uPB.y, 600.0)) / vec2(cu, cv);
+    vec2 g = vec2(uv.x - drift, uv.y + q.vt * mod(uPB.y, 600.0)) / vec2(cu, cv);
     vec2 cell = floor(g);
     float c = 0.0;
     for (int j = 0; j <= 1; j++) {
@@ -118,6 +121,11 @@ void main() {
     vec3 acc = vec3(0.0);
     vec2 wTot = uPC.xy + uPC.zw;
     float wPerpBase = dot(wTot, vec2(-V.z, V.x) / horiz), wMax = length(wTot) + uPE.y;   // Wind quer zum Blick
+    // seit W8b Runde 2: der seitliche Zug des Gitters aus dem Wind quer zur Bildmitte
+    vec4 c0 = uInvVP * vec4(0.0, 0.0, uReversed == 1 ? 1.0 : -1.0, 1.0), c1 = uInvVP * vec4(0.0, 0.0, uReversed == 1 ? 0.0001 : 1.0, 1.0);
+    vec3 Vc = normalize(c1.xyz / c1.w - c0.xyz / c0.w);
+    float hc = max(length(Vc.xz), 1e-3);
+    float drift = (uDrift > 0.5 ? dot(wTot, vec2(-Vc.z, Vc.x) / hc) : 0.0) * mod(uPB.y, 600.0);
     for (int i = 0; i < 16; i++) {
         if (i >= uLayers) break;
         float s = uStart * pow(ratio, (float(i) + 0.5) / float(uLayers));
@@ -139,15 +147,15 @@ void main() {
             // unter dem Kronendach: freier Durchfall (Anteil) und große Tropfen vom Dach, kaum Wind
             Lat a = inBox ? boxL : allL;
             a.n *= uPG.x;
-            cov += lattice(uv, sa, ds, tEnd, a, lam, sA, wPerpBase * 0.2, wMax * 0.2, pw);
+            cov += lattice(uv, sa, ds, tEnd, a, lam, sA, wPerpBase * 0.2, wMax * 0.2, pw, drift * 0.2);
             if (!inBox) {
                 Lat dr;
                 dr.n = pDrip(loc) * uPBox.x / uPBox.y; dr.d0 = uPG.z; dr.d1 = uPG.w;
                 dr.vt = pTerminal(0.5 * (uPG.z + uPG.w)); dr.m2 = 0.5 * (uPG.z * uPG.z + uPG.w * uPG.w);
-                cov += lattice(uv, sa, ds, tEnd, dr, 0.01, sA ^ 0x51u, wPerpBase * 0.2, wMax * 0.2, pw);
+                cov += lattice(uv, sa, ds, tEnd, dr, 0.01, sA ^ 0x51u, wPerpBase * 0.2, wMax * 0.2, pw, drift * 0.2);
             }
         } else {
-            cov += lattice(uv, sa, ds, tEnd, inBox ? boxL : allL, lam, sA, wPerpBase, wMax, pw);
+            cov += lattice(uv, sa, ds, tEnd, inBox ? boxL : allL, lam, sA, wPerpBase, wMax, pw, drift);
         }
         float a = clamp(cov, 0.0, 1.0) * uStrength;
         float fd = 1.0 - exp(-s / max(1.0, uPFogDist));
