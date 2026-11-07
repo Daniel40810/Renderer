@@ -186,7 +186,8 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 
 | Paket | Inhalt |
 |---|---|
-| [`lens`](src/com/dan/lens/README.md) | Das Objektiv aus einem echten Linsenschnitt (Doppel-Gauß, 10 Glasflächen): Tiefenschärfe mit Bokeh in der Form der Blende, Katzenauge, sphärische Aberration im Kreis, Farbsäume, Fokusatmung, Verzeichnung, Randabfall, 45 Geisterbilder und der Beugungsstern der Sonne, Schärfezieher |
+| [`lens`](src/com/dan/lens/README.md) | Das Objektiv aus echten Linsenschnitten (Weitwinkel nach Nakamura, Doppel-Gauß nach Tronnier, Tele 250 mm; nach der Brennweite gewählt): Tiefenschärfe mit Bokeh in der Form der Blende, Katzenauge, sphärische Aberration im Kreis, Farbsäume, Fokusatmung, Verzeichnung, Randabfall, Geisterbilder und der Beugungsstern der Sonne, Schleierlicht, Schärfezieher |
+| [`film`](src/com/dan/film/README.md) | Der Film vom Negativ über die Kopie auf die Leinwand: Kurven je Schicht (Eastman Color 5248 auf 5382 von 1958, Kodak Vision3 250D und 500T auf 2383 von heute), orange Maske, Kopierlicht in Punkten, Korn nach Selwyn, Halation aus dem Träger (Ring aus Fresnel und Totalreflexion, Rückschicht, grauer Träger), Bildstand, Flackern, verblassende Kopien; CinemaScope, Super 35, Academy, VistaVision |
 | [`kino`](src/com/dan/kino/README.md) | Kinomodus für Regiebücher: Breitwand, Vor- und Abspann, Untertitel, Überblendung |
 | [`soundscape`](src/com/dan/soundscape/README.md) | Erzeugter Ton ohne Audiodateien: Wind, See, Regen, Möwen, Donner, Nebelhorn |
 | [`store`](src/com/dan/store/README.md) | Presets und Zustand speichern, mit oder ohne Oracle |

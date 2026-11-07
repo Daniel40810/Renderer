@@ -1,5 +1,5 @@
 // glare_up.frag — eine Stufe größer: die kleinere Stufe mit einem Zeltfilter 3 × 3, dazu diese Stufe mit ihrem Gewicht.
-// Über alle Stufen ergibt das Σ w_l · Unschärfe_l mit w_l = 2^(−l/2): ein Kern, der wie r^−2,5 abfällt [G] (com.dan.lens).
+// Über alle Stufen ergibt das Σ w_l · Unschärfe_l mit w_l = 2^(−3l/4): ein Kern, der wie r^−2,75 abfällt [G] (com.dan.lens).
 in vec2 vUV;
 out vec4 frag;
 uniform sampler2D uLow;         // größere Stufe (kleiner)

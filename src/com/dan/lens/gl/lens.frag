@@ -1,6 +1,6 @@
 // lens.frag — das Bild auf dem Sensor (com.dan.lens): scharfes und unscharfes Bild nach dem Unschärfekreis gemischt, die
 // gestreuten Lichter darüber; je Farbkanal an der Stelle, an die das Objektiv ihn legt (Verzeichnung aus den echten
-// Hauptstrahlen, Farbquerfehler); Schleierlicht (ein kleiner Teil allen Lichts über das ganze Bild, Kern ∝ r^−2,5 [G]
+// Hauptstrahlen, Farbquerfehler); Schleierlicht (ein kleiner Teil allen Lichts über das ganze Bild, Kern ∝ r^−2,75 [G]
 // aus der Pyramide glare_down/glare_up); Randabfall (Fassungen · cos⁴). Ein- und Ausgabe in Einheiten der Szene (vor der Belichtung).
 in vec2 vUV;
 out vec4 frag;

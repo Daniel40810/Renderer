@@ -16,7 +16,15 @@ void main() {
     if (p.x >= sz.x || p.y >= sz.y) return;
     vec4 h = texelFetch(uHalf, p, 0);
     float lum = dot(h.rgb, vec3(0.2126, 0.7152, 0.0722));
-    if (abs(h.a) > 3.0 && lum > uThresh) {
+    // nur vereinzelte Lichter (W9a Runde 2): viermal heller als der Ring zwei halbe Bildpunkte weiter; helle Flächen (Himmel,
+    // Wolken) sammelt bokeh.frag, das ist dort richtig und kostet nicht je Licht einen großen Kreis
+    float ring = 0.0;
+    for (int k = 0; k < 8; k++) {
+        ivec2 o = ivec2(round(2.0 * vec2(cos(0.785398 * float(k)), sin(0.785398 * float(k)))));
+        ring += dot(texelFetch(uHalf, clamp(p + o, ivec2(0), sz - 1), 0).rgb, vec3(0.2126, 0.7152, 0.0722));
+    }
+    ring *= 0.125;
+    if (abs(h.a) > 3.0 && lum > uThresh && lum > 4.0 * ring) {
         vec3 keep = h.rgb * (uThresh / lum);
         uint k = atomicAdd(cmd.instances, 1u);
         if (k < uint(uCap)) {
