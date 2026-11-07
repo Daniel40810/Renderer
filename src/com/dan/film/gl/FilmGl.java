@@ -34,7 +34,8 @@ public final class FilmGl {
 
     private final Film film;
     private boolean ready;
-    private int progDown, progHal, progFilm, vao, fbo, downTex, halTex, hw, hh;
+    private int progDown, progHal, progFilm, vao, fbo, downTex, halTex, hw, hh, wTex, wKx = -1, wKy = -1;
+    private String wKey;
     private final Map<Integer, Map<String, Integer>> locs = new HashMap<>();
     private Stock tableFor;
     private float[] table;
@@ -87,7 +88,25 @@ public final class FilmGl {
                 hh = bs[1];
             }
             double rbx = r[0] * hw / v.outWidth, rby = r[1] * hh / v.outHeight;
-            double[] nk = Film.halationNorm(table, rbx, rby);
+            String key = System.identityHashCode(table) + "|" + Math.round(rbx * 1000) + "|" + Math.round(rby * 1000);
+            if (!key.equals(wKey)) {   // Gewichte des Kerns als Textur, neu nur, wenn Material oder Puffer wechseln
+                double[] nk = Film.halationNorm(table, rbx, rby);
+                wKx = (int) nk[1];
+                wKy = (int) nk[2];
+                float[] wt = Film.halationWeights(table, rbx, rby);
+                if (wTex != 0) gl.glDeleteTextures(1, new int[]{wTex}, 0);
+                int[] t = new int[1];
+                gl.glGenTextures(1, t, 0);
+                wTex = t[0];
+                gl.glBindTexture(GL.GL_TEXTURE_2D, wTex);
+                gl.glTexStorage2D(GL.GL_TEXTURE_2D, 1, GL4.GL_R32F, 2 * wKx + 1, 2 * wKy + 1);
+                gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 4);
+                gl.glTexSubImage2D(GL.GL_TEXTURE_2D, 0, 0, 0, 2 * wKx + 1, 2 * wKy + 1, GL4.GL_RED, GL.GL_FLOAT, java.nio.FloatBuffer.wrap(wt));
+                gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST);
+                gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST);
+                gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+                wKey = key;
+            }
             gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, fbo);
             gl.glViewport(0, 0, hw, hh);
             // 1 die Belichtung der roten Schicht auf den Puffer gemittelt
@@ -102,13 +121,9 @@ public final class FilmGl {
             gl.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, halTex, 0);
             gl.glUseProgram(progHal);
             tex(gl, progHal, "uDown", 0, downTex);
-            set2(gl, progHal, "uRc", (float) rbx, (float) rby);
+            tex(gl, progHal, "uW", 1, wTex);
             int lk = loc(gl, progHal, "uK");
-            if (lk >= 0) gl.glUniform2i(lk, (int) nk[1], (int) nk[2]);
-            setf(gl, progHal, "uReach", (float) Film.HALATION_REACH);
-            int lt = loc(gl, progHal, "uTable[0]");
-            if (lt >= 0) gl.glUniform1fv(lt, table.length, table, 0);
-            setf(gl, progHal, "uNorm", (float) (1 / nk[0]));
+            if (lk >= 0) gl.glUniform2i(lk, wKx, wKy);
             gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
         }
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, v.targetFbo);
@@ -196,6 +211,9 @@ public final class FilmGl {
         gl.glDeleteProgram(progHal);
         gl.glDeleteProgram(progFilm);
         if (halTex != 0) gl.glDeleteTextures(2, new int[]{downTex, halTex}, 0);
+        if (wTex != 0) gl.glDeleteTextures(1, new int[]{wTex}, 0);
+        wTex = 0;
+        wKey = null;
         gl.glDeleteFramebuffers(1, new int[]{fbo}, 0);
         gl.glDeleteVertexArrays(1, new int[]{vao}, 0);
         locs.clear();

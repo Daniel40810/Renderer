@@ -148,8 +148,12 @@ public final class Film {
         return new double[]{x, x / format.squeeze()};
     }
 
-    /** Reichweite des Halationskerns (Vielfache des Ringhalbmessers); was weiter fällt, ist im Kern nicht mehr enthalten. */
-    public static final double HALATION_REACH = 4.0;
+    /**
+     * Reichweite des Halationskerns (Vielfache des Ringhalbmessers); was weiter fällt, ist im Kern nicht mehr enthalten
+     * (5248 mit grauem Träger: 2 %, Vision3 mit Rückschicht: rund 10 % seines ohnehin schwachen Scheins). W9c: 3 statt 4
+     * (auf der Radeon kostete der Film 2,3 bis 2,9 ms, der größte Teil davon die Halation).
+     */
+    public static final double HALATION_REACH = 3.0;
     /** Auflösung des Halationspuffers: Bildpunkte je Ringhalbmesser (der Puffer ist so viel kleiner als das Bild). */
     public static final double HALATION_TEXELS = 3.0;
     /** Streuung in den Schichten auf dem Rückweg (Vielfache des Ringhalbmessers) [G: rund 20 µm, die Dicke der Schichten]. */
@@ -222,6 +226,19 @@ public final class Film {
     public static int[] halationBuffer(int w, int h, double rx, double ry) {
         return new int[]{(int) Math.max(1, Math.min(w, Math.round(w * HALATION_TEXELS / Math.max(1e-6, rx)))),
                 (int) Math.max(1, Math.min(h, Math.round(h * HALATION_TEXELS / Math.max(1e-6, ry))))};
+    }
+
+    /**
+     * Die Gewichte des Kerns im Puffer als Bild (2kx + 1) × (2ky + 1), schon durch ihre Summe geteilt (für halation.frag als
+     * Textur: ein Zugriff statt der Rechnung je Punkt). Zeile für Zeile von −ky, Spalte von −kx.
+     */
+    public static float[] halationWeights(float[] table, double rbx, double rby) {
+        double[] nk = halationNorm(table, rbx, rby);
+        int kx = (int) nk[1], ky = (int) nk[2], w = 2 * kx + 1;
+        float[] out = new float[w * (2 * ky + 1)];
+        for (int dy = -ky; dy <= ky; dy++)
+            for (int dx = -kx; dx <= kx; dx++) out[(dy + ky) * w + dx + kx] = (float) (halationAt(table, Math.hypot(dx / rbx, dy / rby)) / nk[0]);
+        return out;
     }
 
     /** Summe der Gewichte über die Scheibe im Puffer (Ringhalbmesser rbx, rby in Puffer-Bildpunkten) und ihre Reichweite kx, ky. */
