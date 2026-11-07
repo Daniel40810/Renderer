@@ -186,6 +186,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 
 | Paket | Inhalt |
 |---|---|
+| [`lens`](src/com/dan/lens/README.md) | Das Objektiv aus einem echten Linsenschnitt (Doppel-Gauß, 10 Glasflächen): Tiefenschärfe mit Bokeh in der Form der Blende, Katzenauge, sphärische Aberration im Kreis, Farbsäume, Fokusatmung, Verzeichnung, Randabfall, 45 Geisterbilder und der Beugungsstern der Sonne, Schärfezieher |
 | [`kino`](src/com/dan/kino/README.md) | Kinomodus für Regiebücher: Breitwand, Vor- und Abspann, Untertitel, Überblendung |
 | [`soundscape`](src/com/dan/soundscape/README.md) | Erzeugter Ton ohne Audiodateien: Wind, See, Regen, Möwen, Donner, Nebelhorn |
 | [`store`](src/com/dan/store/README.md) | Presets und Zustand speichern, mit oder ohne Oracle |
