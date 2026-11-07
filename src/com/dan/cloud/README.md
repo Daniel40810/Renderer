@@ -140,3 +140,5 @@ cloudGl.draw(gl, snapshot, licht, v);
 Die Kappe seit Runde 1b: Kanal A der Strömungskarte ist jetzt die geglättete Hülle der Gipfel (das Höchste der Nachbarschaft, danach zweimal geglättet). Ohne Glätten blieben die Zellkanten als senkrechte Wände in der Kappe stehen. `CloudCheck`: auf einer Linie quer durch den Rand der Kappe größter Sprung je 10 m 1,5 % der Bedeckung.
 
 Grenzen: Die Wolken bleiben in der Ferne weich (halbe Auflösung, zeitliche Mischung); Quellwolken haben keine harten Blumenkohlkanten. Ein Feld aus vielen Haufen, das man auf 25 km von der Seite sieht, wirkt grau und dicht, nicht wie einzelne Türme.
+
+**Seit LituyaBay1958 W8b:** `CloudGl.Light.gradation` (a, b, Normierung, Stärke; Vorgabe aus) – das Licht, das eine dicke Decke nach unten streut, nach der Blickrichtung abgestuft wie der CIE-Normhimmel (`com.dan.sky.CieSky`): zum Zenit heller, zur Kimm dunkler, bei gleicher Bestrahlungsstärke am Boden. Gilt für die Vielfachstreuung, das Umgebungslicht in der Wolke und die ferne Decke, nur für ein Auge unter der Basis.

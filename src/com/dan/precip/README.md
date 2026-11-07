@@ -81,3 +81,10 @@ g.draw(gl4, view, 1.0);                     // nach der Szene, ins HDR-Ziel mit 
 - Schichten sind Schalen um das Auge (Parallaxe beim Gehen stimmt nicht ganz); steil nach oben oder unten fehlen sie.
 - Zufällige Einschläge gibt es nur im Wellenfenster auf Wasser; Spritzer auf Grund nur im Kasten.
 - Wind unter dem Kronendach ein Fünftel [G]; Tropfen vom Dach fallen mit Fallgeschwindigkeit.
+
+## Seit LituyaBay1958 W8b Runde 2
+
+- **Feines zweites Wellenfeld** (`PrecipGl.fine`, Vorgabe aus; `Quality.fineRes`, `fineCell`: MEDIUM 512 × 1,5 mm, HIGH 512 × 1,2 mm, ULTRA 1 024 × 1 mm): ein kleineres Fenster nah am Auge, das genau die Wellen zwischen π/rippleCell und π/fineCell trägt – zusammen mit dem groben Feld dasselbe Spektrum (Kaskade ohne Doppelzählung), nah bis in die Kapillarwellen von 2 bis 3 mm. Eigene Einschläge ins Fenster (die zufälligen nach der Verteilung, die echten aus dem Kasten), eigene Dämpfung je Welle wie das grobe Feld. `fineTexture()`, `fineSize()`, `fineCenter()`, `fineRoughness()` (was unter seinem Raster bleibt).
+- **Schichten ziehen mit dem Wind** (`layersDrift`, Vorgabe an): das Gitter jeder Schale um den Wind quer zur Bildmitte versetzt, je Schale derselbe Versatz – ohne Scherung zwischen benachbarten Bildpunkten (am Bildrand höchstens 1 − cos(φ/2) Abweichung der Komponente).
+- **Schritte im Vorhang** (`curtainStepShare`, Vorgabe 1): Anteil der Schritte je Stufe; der Vorhang tastet je Bild versetzt ab, vor einer zeitlichen Glättung reicht die Hälfte.
+- **Karte der Schauer** (`curtainTexture()`, `curtainRect()`) als Maske für das Wasser (siehe `com.dan.ocean`).

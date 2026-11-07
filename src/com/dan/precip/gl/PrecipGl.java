@@ -90,6 +90,22 @@ public final class PrecipGl {
     private int progDrops, progDrop, progLayers, progCurtain, progEnv, progSplash, progSplashDraw, progRSrc, progRPack, progRStep, progROut, vao;
     private final Map<Integer, Integer> fftByN = new HashMap<>();
     private int ssboDrops, ssboParts, ssboImpacts, ssboRSrc;
+    /**
+     * Seit LituyaBay1958 W8b Runde 2: das feine zweite Wellenfeld nah am Auge (Kaskade): ein Fenster mit
+     * {@code Quality.fineCell} statt {@code rippleCell}, das nur die Wellen zwischen π/rippleCell und π/fineCell trägt –
+     * zusammen mit dem groben Feld genau dasselbe Spektrum, nah bis in die Kapillarwellen von 2 bis 3 mm. Vorgabe aus.
+     */
+    public volatile boolean fine = false;
+    /** Seit W8b Runde 2: die Schichten ziehen mit dem Wind quer zum Blick (Vorgabe an). */
+    public volatile boolean layersDrift = true;
+    /**
+     * Seit W8b Runde 2: Schritte im Vorhang je Stufe mal diesem Anteil. Der Vorhang wird vor der zeitlichen Glättung
+     * gezeichnet und tastet je Bild versetzt ab; die Glättung mittelt die Schritte mehrerer Bilder. 1 = wie bisher.
+     */
+    public volatile double curtainStepShare = 1;
+    private int ssboRSrc2, imgSrc2, imgState2, imgOut2, texRipple2, rippleN2;
+    private double rippleDx2;
+    private final double[] rippleMid2 = new double[2];
     private int texMap, texGround, texPhase, texEnv, imgSrc, imgState, imgOut, texRipple;
     private int dropsCap, partsCap, rippleN;
     private double rippleDx;
@@ -219,6 +235,37 @@ public final class PrecipGl {
             int fn = n;
             fftByN.computeIfAbsent(n, k -> compute(gl, "fft.comp", null, new String[]{"N " + fn, "HALF " + (fn / 2)}));
         }
+        int n2 = fine ? q.fineRes : 0;
+        if (n2 != rippleN2 || (n2 > 0 && q.fineCell != rippleDx2)) {
+            Gl.deleteTextures(gl, imgSrc2, imgState2, imgOut2, texRipple2);
+            imgSrc2 = imgState2 = imgOut2 = texRipple2 = 0;
+            if (n2 > 0) {
+                imgSrc2 = tex2d(gl, GL4.GL_RGBA32F, n2, n2, GL.GL_NEAREST, GL.GL_REPEAT);
+                imgState2 = tex2d(gl, GL4.GL_RGBA32F, n2, n2, GL.GL_NEAREST, GL.GL_REPEAT);
+                imgOut2 = tex2d(gl, GL4.GL_RGBA32F, n2, n2, GL.GL_NEAREST, GL.GL_REPEAT);
+                clearTex(gl, imgState2, n2);
+                int levels = 1 + (int) Math.floor(Math.log(n2) / Math.log(2));
+                int[] v = new int[1];
+                gl.glGenTextures(1, v, 0);
+                texRipple2 = v[0];
+                gl.glBindTexture(GL.GL_TEXTURE_2D, texRipple2);
+                gl.glTexStorage2D(GL.GL_TEXTURE_2D, levels, GL4.GL_RGBA16F, n2, n2);
+                gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR_MIPMAP_LINEAR);
+                gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
+                gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_REPEAT);
+                gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_REPEAT);
+                if (gl.isExtensionAvailable("GL_EXT_texture_filter_anisotropic")) gl.glTexParameterf(GL.GL_TEXTURE_2D, 0x84FE, 16f);
+                gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+                if (ssboRSrc2 == 0) { int[] b2 = new int[1]; gl.glGenBuffers(1, b2, 0); ssboRSrc2 = b2[0]; }
+                gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, ssboRSrc2);
+                gl.glBufferData(GL4.GL_SHADER_STORAGE_BUFFER, (long) n2 * n2 * 4, ByteBuffer.allocateDirect(n2 * n2 * 4).order(ByteOrder.nativeOrder()), GL4.GL_DYNAMIC_DRAW);
+                gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
+                int fn2 = n2;
+                fftByN.computeIfAbsent(n2, k -> compute(gl, "fft.comp", null, new String[]{"N " + fn2, "HALF " + (fn2 / 2)}));
+            }
+            rippleN2 = n2;
+            rippleDx2 = q.fineCell;
+        }
     }
 
     /** Linearer Filter (die Karte der Schauer wird bilinear zwischen den Zellmitten gelesen). */
@@ -319,8 +366,10 @@ public final class PrecipGl {
     }
 
     /** Mitte des Wellenfensters: vom Treffpunkt des unteren Bildrands mit dem Wasser ein gutes Drittel des Fensters ins Bild. */
-    private void rippleCenter(Precip.Snapshot s) {
-        double size = rippleN * rippleDx, h = s.eyeY() - s.waterLevel();
+    private void rippleCenter(Precip.Snapshot s) { rippleCenter(s, rippleN * rippleDx, rippleMid); }
+
+    private void rippleCenter(Precip.Snapshot s, double size, double[] rippleMid) {
+        double h = s.eyeY() - s.waterLevel();
         double[] a = aim;
         double ax = 0, ay = 0, az = 0;
         if (a != null) {
@@ -339,9 +388,18 @@ public final class PrecipGl {
     }
 
     private void ripples(GL4 gl, Precip.Snapshot s) {
-        int n = rippleN;
-        double size = n * rippleDx;
         rippleCenter(s);
+        field(gl, s, rippleN, rippleDx, rippleMid, imgSrc, imgState, imgOut, texRipple, ssboRSrc, 0, Math.PI / rippleDx, 1);
+        if (rippleN2 > 0 && texRipple2 != 0) {
+            rippleCenter(s, rippleN2 * rippleDx2, rippleMid2);
+            field(gl, s, rippleN2, rippleDx2, rippleMid2, imgSrc2, imgState2, imgOut2, texRipple2, ssboRSrc2, Math.PI / rippleDx, Math.PI / rippleDx2, 0);
+        }
+    }
+
+    /** Ein Wellenfeld: Einschläge ins Fenster (n Zellen zu dx um mid), Band kLow … kHigh fortschreiben, ausgeben. */
+    private void field(GL4 gl, Precip.Snapshot s, int n, double rippleDx, double[] rippleMid, int imgSrc, int imgState, int imgOut, int texRipple, int ssboRSrc,
+                       double kLow, double kHigh, int append) {
+        double size = n * rippleDx;
         // zufällige Einschläge: alle Tropfen ab 0,3 mm bei voller Menge auf das Fenster (der Shader dünnt nach der Karte aus
         // und behält nach v / v(dmax): so viele Züge, dass im Mittel Drops.impacts ankommen)
         double rate = s.rate() <= 0 ? 0 : Drops.impactDraws(s.n0(), s.lambda(), 0.3, s.dmax()) * size * size * s.dt();
@@ -357,7 +415,7 @@ public final class PrecipGl {
         gl.glUniform1ui(loc(gl, progRSrc, "uFrame"), frame);
         gl.glUniform1i(loc(gl, progRSrc, "uBoxCap"), BOX_CAP);
         gl.glUniform1i(loc(gl, progRSrc, "uStatCap"), STAT_CAP);
-        gl.glUniform1i(loc(gl, progRSrc, "uAppend"), 1);
+        gl.glUniform1i(loc(gl, progRSrc, "uAppend"), append);
         gl.glDispatchCompute((stat + BOX_CAP + 63) / 64, 1, 1);
         gl.glMemoryBarrier(GL4.GL_SHADER_STORAGE_BARRIER_BIT);
         // Festkomma in die Fläche, vorwärts wandeln
@@ -372,7 +430,7 @@ public final class PrecipGl {
         gl.glUniform1i(loc(gl, progRStep, "uN"), n);
         gl.glUniform1f(loc(gl, progRStep, "uSize"), (float) size);
         gl.glUniform1f(loc(gl, progRStep, "uDt"), (float) s.dt());
-        gl.glUniform2f(loc(gl, progRStep, "uBand"), 0f, (float) (Math.PI / rippleDx));
+        gl.glUniform2f(loc(gl, progRStep, "uBand"), (float) kLow, (float) kHigh);
         gl.glUniform2f(loc(gl, progRStep, "uDamp"), (float) Ripples.FILM, (float) Ripples.BASE);
         gl.glUniform1i(loc(gl, progRStep, "uInject"), 1);
         gl.glBindImageTexture(0, imgSrc, 0, false, 0, GL4.GL_READ_ONLY, GL4.GL_RGBA32F);
@@ -403,6 +461,16 @@ public final class PrecipGl {
             gl.glDispatchCompute(n, 1, 1);
             gl.glMemoryBarrier(GL4.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
+    }
+
+    /** Seit W8b Runde 2: das feine Feld (0 = keins), seine Kante, seine Mitte, die Rauigkeit unter seinem Raster. */
+    public int fineTexture() { return texRipple2; }
+    public double fineSize() { return rippleN2 * rippleDx2; }
+    public double[] fineCenter() { return rippleMid2.clone(); }
+    public double fineRoughness() {
+        Precip.Snapshot s = snap;
+        if (s == null || s.rate() <= 0 || rippleN2 <= 0) return 0;
+        return Math.max(0, Ripples.slopeVariance(s.n0(), s.lambda(), 0.3, s.dmax(), 0) - Ripples.slopeVariance(s.n0(), s.lambda(), 0.3, s.dmax(), rippleDx2));
     }
 
     /** Wellenfeld fürs Wasser: (∂h/∂x, ∂h/∂z, h, ∂h/∂t), RGBA16F, ringsum geschlossen, mit Mip-Stufen; 0 vor dem ersten {@link #update}. */
@@ -485,7 +553,7 @@ public final class PrecipGl {
             lightU(gl, progCurtain);
             viewU(gl, progCurtain, v, depth);
             gl.glUniform1f(loc(gl, progCurtain, "uStart"), (float) LAYERS_END);
-            gl.glUniform1i(loc(gl, progCurtain, "uSteps"), s.quality().curtainSteps);
+            gl.glUniform1i(loc(gl, progCurtain, "uSteps"), Math.max(4, (int) Math.round(s.quality().curtainSteps * Math.max(0.1, Math.min(1, curtainStepShare)))));
             gl.glUniform1i(loc(gl, progCurtain, "uFrame"), frame);
             gl.glUniform1f(loc(gl, progCurtain, "uStrength"), (float) Math.min(2, strength));
             bindTex(gl, 7, l.shadowTexture, progCurtain, "uPShadow");
@@ -503,6 +571,7 @@ public final class PrecipGl {
             gl.glUniform1i(loc(gl, progLayers, "uLayers"), s.quality().layers);
             gl.glUniform1f(loc(gl, progLayers, "uStart"), 0.6f);
             gl.glUniform1f(loc(gl, progLayers, "uEnd"), (float) LAYERS_END);
+            gl.glUniform1f(loc(gl, progLayers, "uDrift"), layersDrift ? 1f : 0f);
             gl.glUniform1f(loc(gl, progLayers, "uStrength"), (float) Math.min(2, strength));
             gl.glDrawArrays(GL.GL_TRIANGLES, 0, 3);
         }
@@ -783,6 +852,9 @@ public final class PrecipGl {
         if (vao != 0) gl.glDeleteVertexArrays(1, new int[]{vao}, 0);
         gl.glDeleteBuffers(4, new int[]{ssboDrops, ssboParts, ssboImpacts, ssboRSrc}, 0);
         Gl.deleteTextures(gl, texMap, texGround, texPhase, texEnv, imgSrc, imgState, imgOut, texRipple);
+        Gl.deleteTextures(gl, imgSrc2, imgState2, imgOut2, texRipple2);
+        if (ssboRSrc2 != 0) gl.glDeleteBuffers(1, new int[]{ssboRSrc2}, 0);
+        imgSrc2 = imgState2 = imgOut2 = texRipple2 = ssboRSrc2 = rippleN2 = 0;
         progDrops = progDrop = progLayers = progCurtain = progEnv = progSplash = progSplashDraw = progRSrc = progRPack = progRStep = progROut = vao = 0;
         texMap = texGround = texPhase = texEnv = imgSrc = imgState = imgOut = texRipple = 0;
         dropsCap = partsCap = rippleN = 0;

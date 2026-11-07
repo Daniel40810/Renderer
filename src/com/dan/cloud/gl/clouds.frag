@@ -15,6 +15,16 @@ uniform int uReversed;
 uniform vec3 uCam;
 uniform vec3 uLightDir;     // zum Gestirn (Sonne oder Mond)
 uniform vec3 uAmbTop, uAmbBot;
+uniform vec4 uGrad;          // seit LituyaBay1958 W8b: Abstufung der Decke (CIE): a, b, Normierung, Stärke
+// Licht, das eine dicke Decke nach unten streut, ist nicht gleich in alle Richtungen: zum Zenit heller, zur Kimm dunkler
+// (CIE-Normhimmel, ISO 15469; Typ 1 an der Kimm ein Drittel des Zenits wie bei Moon und Spencer 1942). Normiert, damit
+// die Bestrahlungsstärke am Boden gleich bleibt; nur für ein Auge unter der Basis.
+float gradOf(vec3 d) {
+    if (uGrad.w <= 0.0 || heightOf(uCam) > uType1.x) return 1.0;
+    float cz = max(d.y, 0.0);
+    float phi = 1.0 + uGrad.x * exp(uGrad.y / max(cz, 0.02));
+    return mix(1.0, phi * uGrad.z, uGrad.w);
+}
 uniform float uHaze;        // Auslöschung des Dunsts je m
 uniform vec2 uSteps;        // höchste Schrittzahl, Schrittweite nah am Auge in m (wächst mit der Entfernung)
 uniform int uLightSteps;
@@ -79,6 +89,7 @@ float lightDepth(vec3 p) {
 
 void main() {
     vec3 d = viewDir(vUV);
+    float gd = gradOf(d);
     float sd = sceneDist(vUV);
     vec3 L = vec3(0.0);
     float T = 1.0, distSum = 0.0, distW = 0.0;
@@ -142,7 +153,7 @@ void main() {
             // Pulvereffekt: dünne Ränder, die vom Licht wegzeigen, bleiben dunkel
             float powder = mix(1.0, 1.0 - exp(-2.4 * s / uType2.x), 0.5 - 0.5 * c);
             vec3 amb = mix(uAmbBot, uAmbTop, clamp(tt, 0.0, 1.0)) * (0.35 + 0.65 * clamp(tt, 0.0, 1.0));
-            vec3 S = s * ((sunC * ms0 + diffC * ms) * powder + amb);
+            vec3 S = s * ((sunC * ms0 + diffC * ms * gd) * powder + amb * gd);
             if (uFlash.w > 0.0) {
                 float df = length(p - uFlash.xyz);
                 S += s * vec3(0.9, 0.95, 1.1) * uFlash.w / (1.0 + df * df / 250000.0);
@@ -162,7 +173,7 @@ void main() {
     bool aboveDeck = heightOf(uCam) > uType1.x + uType1.z;
     if (uFlat == 0 && uDeck.w > 0.0 && (d.y > -0.005 || aboveDeck) && seg.x >= 0.0 && seg.x < 400000.0 && (seg.y > uMaxDist || aboveDeck && seg.x > uMaxDist)
             && sd > max(uMaxDist, seg.x) && T > 0.01) {
-        L += T * uDeck.w * uDeck.rgb;
+        L += T * uDeck.w * uDeck.rgb * gd;
         if (distW <= 1e-4) dist = uMaxDist;
         T *= 1.0 - uDeck.w;
     }

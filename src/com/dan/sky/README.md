@@ -141,3 +141,5 @@ gemalt, nicht durch Kristalle gerechnet; 46°-Ring, Bögen und Säulen fehlen. D
 - `GreenFlash`: Faktoren je Kanal, Versatz in Bogenminuten, sichtbarer Anteil der Scheibe je Kanal über einer Kimm. `SkyCheck` (Abschnitt Grünes Leuchten) prüft Versatz und Dauer.
 
 **Seit LituyaBay1958 W8a:** `SkyGl.View.discs` (Vorgabe true) – aus, zeichnet der Himmel ohne Sonnen- und Mondscheibe, etwa für ein Spiegelbild, dessen Wasser den Glanz selbst legt.
+
+**Seit LituyaBay1958 W8b: `CieSky`** – der CIE-Normhimmel mit allen 15 Typen nach ISO 15469 / CIE S 011 (Kittler, Darula und Perez 1998): Abstufung φ(Z) = 1 + a·exp(b/cos Z), Streuindikatrix f(χ), relative Leuchtdichte L/L_z, Mittel über die Halbkugel und die Abstufung bei gleicher Bestrahlungsstärke (`normalizedGradation`), Typ zu einer Bewölkung (`forCover`). Prüfung `demo/CieCheck`: Typ 1 an der Kimm 0,335 des Zenits (Moon und Spencer 1942: 1/3), 30° über der Kimm wie (1 + 2 sin γ)/3, Mittel 1,000, Typ 5 gleichmäßig, Typ 12 um die Sonne heller.
