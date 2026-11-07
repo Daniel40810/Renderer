@@ -1,6 +1,7 @@
 package com.dan.exposure.demo;
 
 import com.dan.exposure.EyeAdaptation;
+import com.dan.exposure.PreExposure;
 
 import java.util.Locale;
 
@@ -57,6 +58,19 @@ public final class ExposureCheck {
         z.snap();
         z.update(dunkel, 0.016);
         check(Math.abs(z.ev() - z.target()) < 1e-12, "nach snap() gilt die nächste Messung sofort (Schnitt, Standbild)");
+        // Vorbelichtung (aus Lituya W1): Bezug ergibt den Schlüssel, Teilanpassung, Tag, Glättung, Standbild
+        PreExposure p = new PreExposure();
+        double v = p.update(p.reference, p.reference, 1, -5, 0, 0, true);
+        check(Math.abs(v - p.key / p.reference) < 1e-12, String.format(Locale.GERMAN, "Vorbelichtung beim Bezug: %.4f = Schlüssel/Bezug", v));
+        double hell8 = p.exposureFor(p.reference * 256, p.adaptation) / p.exposureFor(p.reference, p.adaptation);
+        check(Math.abs(Math.log(hell8) / Math.log(2) + 8 * p.adaptation) < 1e-9, String.format(Locale.GERMAN, "256-mal heller: %.1f Blenden weniger (Anpassung %.1f)", -Math.log(hell8) / Math.log(2), p.adaptation));
+        double nacht = p.update(1e-6, 1e-6, 1, -12, 0, 0, true), tag = p.update(1e-6, 1e-6, 1, 40, 0, 0, true);
+        check(Math.abs(tag / nacht - 0.5) < 1e-12, "am Tag eine Blende weniger (W6)");
+        double wolken = p.update(1e-3, 1e-3, 0.01, -12, 0, 0, true) / p.update(1e-3, 1e-3, 1, -12, 0, 0, true);
+        check(Math.abs(wolken - Math.pow(0.05, -p.adaptation)) < 1e-9, String.format(Locale.GERMAN, "unter Wolken heller belichtet, Faktor höchstens bis 0,05 (×%.2f)", wolken));
+        p.update(0.105, 0.105, 1, -5, 0, 0, true);
+        double v0 = p.value(), z0 = p.update(0.105 * 16, 0.105 * 16, 1, -5, 0, 1 / 1.5 * 0.5, false), zz = p.target();
+        check(Math.abs(Math.log(z0 / v0) / Math.log(zz / v0) - 0.5) < 1e-9, "Glättung in log: nach dt·Rate = 0,5 halber Weg");
         System.out.println(e);
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Prüfungen fehlgeschlagen.");
         if (bad > 0) System.exit(1);

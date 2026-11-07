@@ -96,6 +96,13 @@ public final class ClipmapCheck {
         int ai = java.util.Arrays.asList(a).indexOf("--daten");
         if (ai >= 0 && a.length > ai + 3) daten(new File(a[ai + 1]), Double.parseDouble(a[ai + 2]), Double.parseDouble(a[ai + 3]));
         else System.out.println("  (ohne --daten <ordner> <ost> <nord>: keine Stichproben an Kacheln)");
+        // seit LituyaBay1958 W5 (K15, herausgezogen 07.11.2026): Mitte beim Tele
+        {
+            double[] weit = Clipmap.focusCenter(0, 0, new double[]{2000, 0}, 40), mittel = Clipmap.focusCenter(0, 0, new double[]{2000, 0}, 21.5),
+                    tele = Clipmap.focusCenter(0, 0, new double[]{2000, 0}, 9), fern = Clipmap.focusCenter(0, 0, new double[]{20000, 0}, 9);
+            check(weit[0] == 0 && Math.abs(mittel[0] - 1000) < 1e-9 && tele[0] == 2000 && Math.abs(fern[0] - 6000) < 1e-9 && Clipmap.focusCenter(1, 2, null, 9)[1] == 2,
+                    String.format(java.util.Locale.GERMAN, "Mitte beim Tele: 40° am Auge, 21,5° halb (%.0f m), 9° am Ziel, höchstens 6 km (%.0f m), ohne Ziel am Auge", mittel[0], fern[0]));
+        }
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
         System.exit(bad == 0 ? 0 : 1);
     }

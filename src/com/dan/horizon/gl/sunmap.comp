@@ -1,0 +1,26 @@
+// sunmap.comp — com.dan.horizon (LituyaBay1958, Werkbuch Welle W1, L2): aus einer Horizontkarte die Karte „Sonne“ (0..1)
+// für Dinge, die ihren Bergschatten als Schattenkarte von oben lesen (Wald aus com.dan.forest: Light.shadowTexture,
+// Wasser). Gemessen in halber Höhe uLift über dem Boden (Baumkronen). Der Wirt kann einen eigenen Schatten dazugeben
+// (sunmap_host.glsl: hzHostShadow, etwa Wolken); ohne Wirt ist er 1.
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(r8, binding = 0) writeonly uniform image2D uOut;
+uniform sampler2D uHorizon;
+uniform float uSunEl, uLift;
+#ifndef HZ_PENUMBRA
+#define HZ_PENUMBRA 0.0046
+#endif
+#ifndef HZ_LIFT
+#define HZ_LIFT 2000.0
+#endif
+uniform vec4 uGrid;     // x0, z0, Kante, Zellen
+uniform vec3 uSunDir;   // Richtung zur Sonne
+#include "sunmap_host.glsl"
+void main() {
+    ivec2 ij = ivec2(gl_GlobalInvocationID.xy);
+    vec2 hz = texelFetch(uHorizon, ij, 0).rg;
+    // Halbschatten der Sonnenscheibe und ein wenig Hub für die Kronen (Hindernis in rund 2 km)
+    float v = smoothstep(-HZ_PENUMBRA, HZ_PENUMBRA, uSunEl - hz.x + uLift * 0.5 / HZ_LIFT);
+    vec2 xz = uGrid.xy + (vec2(ij) + 0.5) / uGrid.w * uGrid.z;
+    v *= hzHostShadow(vec3(xz.x, max(hz.y, 0.0) + uLift * 0.5, xz.y), uSunDir);
+    imageStore(uOut, ij, vec4(v));
+}

@@ -103,6 +103,7 @@ public final class CliffCheck {
         locker();
         fern();
         fern2();
+        scour();
         System.out.println(c.describe());
         System.out.println(m.describe());
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Fehler.");
@@ -364,6 +365,16 @@ public final class CliffCheck {
     }
 
     static double lum(Cliff.Sample s) { return 0.2126 * s.albedo[0] + 0.7152 * s.albedo[1] + 0.0722 * s.albedo[2]; }
+
+    /** Seit LituyaBay1958 W3b (herausgezogen 07.11.2026): der abgeschürfte Hang als Baustein für Shader eines Wirts. */
+    static void scour() {
+        String t;
+        try (java.io.InputStream in = CliffCheck.class.getResourceAsStream("/com/dan/cliff/gl/scour.glsl")) {
+            t = in == null ? "" : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) { t = ""; }
+        check(t.contains("CliffScour cliffScour(") && t.contains("vec3 cliffScourWet(") && t.contains("vec3 cliffScourLogs(") && !t.contains("uniform"),
+                "Baustein gl/scour.glsl: cliffScour, cliffScourWet, cliffScourLogs, ohne Uniforms (mit Mesa gegen Lituya geprüft)");
+    }
 
     static void check(boolean c, String what) {
         if (!c) bad++;

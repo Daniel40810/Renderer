@@ -27,6 +27,24 @@ import java.util.Locale;
  */
 public final class Clipmap {
     /** Qualitätsstufen (Paketvertrag Punkt 7): Punkte je Kante einer Stufe. */
+    /**
+     * Mitte der Clipmap für ein Tele (aus LituyaBay1958, Werkbuch Welle W5, K15): die Ringe liegen um ihre Mitte, und die
+     * Mitte war immer das Auge; ein Hang in 2 km bekam mit 135 mm die Stufe zu 16–32 m, obwohl ein Bildpunkt dort rund
+     * 0,3 m deckt (Berge aus Pappe). Jetzt wandert die Mitte ab einem Bildwinkel von wideDeg (27°, rund 50 mm auf 24 mm
+     * Bildhöhe) zum Zielpunkt der Bildmitte, voll ab wideDeg − 11° (16°, rund 85 mm), höchstens maxDist m weit (6 km).
+     * hit: Zielpunkt der Bildmitte {x, z} oder null (kein Gelände im Blick). Ergebnis {x, z}.
+     */
+    public static double[] focusCenter(double eyeX, double eyeZ, double[] hit, double fovyDeg, double wideDeg, double maxDist) {
+        double w = Math.max(0, Math.min(1, (wideDeg - fovyDeg) / 11.0));
+        if (w <= 0 || hit == null) return new double[]{eyeX, eyeZ};
+        double dx = hit[0] - eyeX, dz = hit[1] - eyeZ, d = Math.hypot(dx, dz);
+        double k = w * Math.min(1, maxDist / Math.max(d, 1));
+        return new double[]{eyeX + dx * k, eyeZ + dz * k};
+    }
+
+    /** Wie oben mit 27° und 6 km (Lituya). */
+    public static double[] focusCenter(double eyeX, double eyeZ, double[] hit, double fovyDeg) { return focusCenter(eyeX, eyeZ, hit, fovyDeg, 27.0, 6000); }
+
     public enum Quality {
         LOW(129), MEDIUM(193), HIGH(257), ULTRA(385);
         public final int grid;

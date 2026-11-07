@@ -101,6 +101,10 @@ Die Pakete stammen aus den Szenenprojekten *Lighthouse*, *Haithabu*, *Geiranger*
 <td><a href="src/com/dan/beachchair/README.md"><img src="docs/img/beachchair.png" alt="beachchair"></a><br><b>beachchair</b> – Strandkörbe: Ostsee und Nordsee, Lehne, Fußstützen, abends zu</td>
 <td><a href="src/com/dan/beach/README.md"><img src="docs/img/beach.png" alt="beach"></a><br><b>beach</b> – Strand aus einem Asset: Relief und Korn, nass und zertreten</td>
 </tr>
+<tr>
+<td><a href="src/com/dan/horizon/README.md"><img src="docs/img/horizon.png" alt="horizon"></a><br><b>horizon</b> – Kette an einer Bucht bei 0,8° Sonne: die Gipfel glühen, die Bucht im Schatten</td>
+<td><a href="src/com/dan/surge/README.md"><img src="docs/img/surge.png" alt="surge"></a><br><b>surge</b> – Front im Fjord, Querschnitt der Lippe, Schleier am Hang</td>
+</tr>
 </table>
 
 ---
@@ -114,6 +118,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 | Paket | Inhalt |
 |---|---|
 | [`sky`](src/com/dan/sky/README.md) | Sonne, Mond und Planeten nach Datum und Ort, Streuung in der Atmosphäre, Dämmerung, 8 920 Sterne, Milchstraße, Regenbogen, Glorie, grüner Blitz |
+| [`horizon`](src/com/dan/horizon/README.md) | Licht im Gebirge: Bergschatten aus Horizontkarten (Erdkrümmung, Brechung, Kimm des Meers), Alpenglühen aus der Luftmasse am Punkt, Luftperspektive in zwei Schichten, Himmelslicht nach der Richtung einer Fläche |
 | [`cloud`](src/com/dan/cloud/README.md) | Cumulus bis Gewitterturm, Schichtwolken, Schleier; Bedeckung in Achteln, Wolkenschatten |
 | [`fog`](src/com/dan/fog/README.md) | Seenebel in Bänken, Nebel über Gelände, Nebelschallsignale mit Kennung |
 | [`rain`](src/com/dan/rain/README.md) | Tropfenstreifen, Regenvorhänge, Ringe und Krönchen auf dem Wasser, Sichtweite im Regen |
@@ -129,6 +134,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 |---|---|
 | [`ocean`](src/com/dan/ocean/README.md) | Windsee aus einem Spektrum, Dünung, Schaumköpfe und -straßen, Ringwellen |
 | [`wave`](src/com/dan/wave/README.md) | Flachwasserlöser: eine Welle läuft, läuft auf, wird zurückgeworfen |
+| [`surge`](src/com/dan/surge/README.md) | Das Bild einer Riesenwelle aus einem Löser: brechende Wand mit Lippe und Vorhang, Durchlicht, Walze, Weißwasser, Gischtwand und Kammgischt, die Zunge am Hang, Schleier, die zurückfallen |
 | [`surf`](src/com/dan/surf/README.md) | Welle von der offenen See bis zum Strand: Shoaling, Brechen, Auflauf |
 | [`spray`](src/com/dan/spray/README.md) | Spritzwasser, Sprühnebel und Gischtfahnen an Körpern |
 | [`wake`](src/com/dan/wake/README.md) | Kielwasser, Bugwelle und Schwell |
