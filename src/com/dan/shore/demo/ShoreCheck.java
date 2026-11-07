@@ -10,7 +10,8 @@ import java.util.Random;
  * Prüfung von {@code com.dan.shore} ohne Grafikkarte (seit LituyaBay1958 W6 Runde 8): Böschung an einer geraden Stufe
  * (Verlauf wie {@link ShoreRamp#fall}), Land unverändert, zweiter Durchgang ohne Wirkung, Felsufer und kleine Stufen ohne
  * Strand, schräge Ufer gleich breit, Kacheln mit Rand gleich dem ganzen Raster, Grund unter {@code floor} unverändert,
- * glattes Wasser gegen Strand mit Rauschen.
+ * glattes Wasser gegen Strand mit Rauschen; seit W9c Runde 2b die Quellen als byte und der sparsame Zusammenhang gegen die
+ * Rechnung vorher.
  */
 public final class ShoreCheck {
     static int all, bad;
@@ -161,8 +162,59 @@ public final class ShoreCheck {
         boolean[] dran = HydroFlat.attached(kand, anker, m, m);
         check(dran[50 * m + 39] && !dran[101 * m + 151], "Strand am Land bleibt, Insel im Wasser nicht");
 
+        // 9 W9c Runde 2b: Quellen als byte wie als int; Zusammenhang sparsam wie vorher (zufällige Felder gegen die alte Rechnung)
+        Random rz = new Random(11);
+        int p = 300;
+        float[] fz = new float[p * p];
+        int[] gi = new int[p * p];
+        byte[] gb = new byte[p * p];
+        boolean[] ka = new boolean[p * p], an = new boolean[p * p];
+        boolean gleichMaske = true, gleichDran = true;
+        long nDran = 0;
+        for (int lauf = 0; lauf < 6; lauf++) {
+            for (int z9 = 0; z9 < p * p; z9++) {
+                int i = z9 % p, j = z9 / p;
+                int quelle = (i / 70 + j / 90 + lauf) % 3;
+                gi[z9] = quelle;
+                gb[z9] = (byte) quelle;
+                // Wasser in Flecken (gleich hoch je Quelle), dazwischen Land mit Rauschen, ab und zu NaN
+                boolean wasser = Math.sin(i / 17.0 + lauf) * Math.cos(j / 23.0) > 0.2;
+                fz[z9] = rz.nextDouble() < 0.01 ? Float.NaN : wasser ? 0.8f + 0.1f * quelle : (float) (1 + 0.02 * rz.nextGaussian());
+                double u = rz.nextDouble();
+                an[z9] = u < 0.002 * (lauf + 1);
+                ka[z9] = !an[z9] && u < 0.45 + 0.03 * lauf;
+            }
+            boolean[] mi = HydroFlat.mask(fz, gi, p, p, HydroFlat.TOL, HydroFlat.MIN_EQUAL), mb = HydroFlat.mask(fz, gb, p, p, HydroFlat.TOL, HydroFlat.MIN_EQUAL);
+            gleichMaske &= java.util.Arrays.equals(mi, mb);
+            boolean[] neu = HydroFlat.attached(ka, an, p, p), alt = attachedAlt(ka, an, p, p);
+            gleichDran &= java.util.Arrays.equals(neu, alt);
+            for (boolean b : neu) if (b) nDran++;
+        }
+        check(gleichMaske, "Quellen als byte: dieselbe Maske wie als int (6 zufällige Felder 300 × 300, drei Quellen, NaN)");
+        check(gleichDran, String.format(Locale.GERMAN, "Zusammenhang sparsam (Anker der Reihe nach, Stapel wächst mit der Front): wie vorher (6 Felder, %,d Zellen dran)", nDran));
+
         System.out.printf(Locale.GERMAN, "ShoreCheck: %d von %d Prüfungen bestanden%n", all - bad, all);
         if (bad > 0) System.exit(1);
+    }
+
+    /** Die Rechnung bis W9c Runde 2 (alle Anker auf einmal, Stapel ein int je Zelle): Maßstab für die sparsame. */
+    static boolean[] attachedAlt(boolean[] candidate, boolean[] anchor, int w, int h) {
+        int n = w * h;
+        boolean[] seen = new boolean[n];
+        int[] stack = new int[n];
+        int sp = 0;
+        for (int k = 0; k < n; k++) if (anchor[k]) { seen[k] = true; stack[sp++] = k; }
+        while (sp > 0) {
+            int k = stack[--sp], i = k % w, j = k / w;
+            for (int y = Math.max(0, j - 1); y <= Math.min(h - 1, j + 1); y++)
+                for (int x = Math.max(0, i - 1); x <= Math.min(w - 1, i + 1); x++) {
+                    int q = y * w + x;
+                    if (!seen[q] && candidate[q]) { seen[q] = true; stack[sp++] = q; }
+                }
+        }
+        boolean[] r = new boolean[n];
+        for (int k = 0; k < n; k++) r[k] = candidate[k] && seen[k];
+        return r;
     }
 
     static void check(boolean ok, String s) {
