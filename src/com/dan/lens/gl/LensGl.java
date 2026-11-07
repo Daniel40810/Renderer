@@ -161,11 +161,60 @@ public final class LensGl {
         }
     }
 
+    /**
+     * W9c: Zeiten der Teile auf der Grafikkarte messen (Zeitstempel, gelesen zwei Bilder später, ohne zu warten). Namen in
+     * {@link #TIME_NAMES}, Werte in {@link #timingsMs()} (geglättet).
+     */
+    public volatile boolean timing;
+    public static final String[] TIME_NAMES = {"Schärfe", "Kreise", "Lichter", "Sammeln", "Streuen", "Schleier", "Sensor", "Sonne"};
+    private final int[] tq = new int[2 * 9];
+    private final boolean[] tqIssued = new boolean[2];
+    private final double[] tms = new double[8];
+    private int tset;
+
+    /** Geglättete Zeiten der Teile (ms), wie {@link #TIME_NAMES}. */
+    public double[] timingsMs() { return tms.clone(); }
+
+    /** „Sammeln 3,1 · Kreise 0,4 · …“ (die teuersten zuerst) oder leer. */
+    public String timingLine() {
+        if (!timing) return "";
+        Integer[] o = new Integer[tms.length];
+        for (int i = 0; i < o.length; i++) o[i] = i;
+        java.util.Arrays.sort(o, (a, b) -> Double.compare(tms[b], tms[a]));
+        StringBuilder b = new StringBuilder();
+        for (int i : o) b.append(b.length() > 0 ? " · " : "").append(TIME_NAMES[i]).append(' ').append(String.format(java.util.Locale.GERMAN, "%.2f", tms[i]));
+        return b.toString();
+    }
+
+    private boolean tActive;
+
+    private void stamp(GL4 gl, int i) { if (tActive) gl.glQueryCounter(tq[tset * 9 + i], GL4.GL_TIMESTAMP); }
+
+    private void timingBegin(GL4 gl) {
+        tActive = false;
+        if (!timing) return;
+        if (tq[0] == 0) gl.glGenQueries(tq.length, tq, 0);
+        for (int k = 0; k < 2; k++) {
+            if (!tqIssued[k]) continue;
+            int[] av = new int[1];
+            gl.glGetQueryObjectiv(tq[k * 9 + 8], GL4.GL_QUERY_RESULT_AVAILABLE, av, 0);
+            if (av[0] == 0) continue;
+            long[] t = new long[9];
+            for (int i = 0; i < 9; i++) gl.glGetQueryObjecti64v(tq[k * 9 + i], GL4.GL_QUERY_RESULT, t, i);
+            for (int i = 0; i < 8; i++) tms[i] = tms[i] * 0.85 + 0.15 * Math.max(0, (t[i + 1] - t[i]) / 1e6);
+            tqIssued[k] = false;
+        }
+        if (tqIssued[tset]) return;   // noch unterwegs: dieses Bild ohne Messung
+        tActive = true;
+        stamp(gl, 0);
+    }
+
     /** Ein Bild durch das Objektiv. Gibt die Textur mit dem Bild auf dem Sensor zurück (oder die Eingabe, wenn nicht bereit). */
     public int apply(GL4 gl, View v) {
         if (!ready || v.colorTexture == 0 || v.depthTexture == 0) return v.colorTexture;
         if (v.width != w || v.height != h) resize(gl, v.width, v.height);
         readBack(gl);
+        timingBegin(gl);
         Lens L = lens;
         double focusNow = L.autoFocus ? (Double.isNaN(focusRead) ? lastFocusM : focusRead) : (Double.isNaN(focusRead) ? L.focusM : focusRead);
         L.aspect = w / (double) h;
@@ -200,6 +249,7 @@ public final class LensGl {
         stateIdx ^= 1;
         int st = dst;
         requestRead(gl, st);
+        stamp(gl, 1);
 
         boolean dof = L.depthOfField;
         if (dof) {
@@ -220,6 +270,7 @@ public final class LensGl {
             tex(gl, p, "uSrc", 0, texT1);
             seti(gl, p, "uMode", 1);
             draw(gl, texT2, tw, th);
+            stamp(gl, 2);
             // 4 Lichter herauslösen
             gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, cmdBuf);
             IntBuffer cmd = Buffers.newDirectIntBuffer(new int[]{4, 0, 0, 0});
@@ -234,6 +285,7 @@ public final class LensGl {
             seti(gl, p, "uCap", SPOT_CAP);
             gl.glDispatchCompute((hw + 7) / 8, (hh + 7) / 8, 1);
             gl.glMemoryBarrier(GL4.GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL4.GL_TEXTURE_FETCH_BARRIER_BIT | GL4.GL_SHADER_STORAGE_BARRIER_BIT | GL4.GL_COMMAND_BARRIER_BIT);
+            stamp(gl, 3);
             // 5 Sammeln
             p = use(gl, "bokeh");
             common(gl, p, o, pitch, v);
@@ -243,6 +295,7 @@ public final class LensGl {
             seti(gl, p, "uRings", rings);
             setf(gl, p, "uMaxCoc", maxCoc);
             draw(gl, texDof, hw, hh);
+            stamp(gl, 4);
             // 6 Lichter als Kreise (indirekt: so viele, wie die Liste hat)
             target(gl, texSpr, hw, hh);
             gl.glClearColor(0, 0, 0, 0);
@@ -258,7 +311,8 @@ public final class LensGl {
             gl.glDrawArraysIndirect(GL.GL_TRIANGLE_STRIP, 0);
             gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, 0);
             gl.glDisable(GL.GL_BLEND);
-        }
+        } else { stamp(gl, 2); stamp(gl, 3); stamp(gl, 4); }
+        stamp(gl, 5);
 
         // 6b Schleierlicht
         boolean glare = L.glare && L.glareFraction > 0;
@@ -287,6 +341,7 @@ public final class LensGl {
             }
         }
 
+        stamp(gl, 6);
         // 7 Sensor
         p = use(gl, "lens");
         common(gl, p, o, pitch, v);
@@ -312,6 +367,7 @@ public final class LensGl {
         setf(gl, p, "uGlare", (float) L.glareFraction);
         setf(gl, p, "uVigGain", (float) L.vignettingGain);
         draw(gl, texOut, w, h);
+        stamp(gl, 7);
 
         // 8 Sonne im Objektiv
         double[] sun = sunPixel(v);
@@ -345,6 +401,8 @@ public final class LensGl {
         gl.glBindTexture(GL.GL_TEXTURE_2D, texOut);
         gl.glGenerateMipmap(GL.GL_TEXTURE_2D);
         gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+        stamp(gl, 8);
+        if (tActive) { tqIssued[tset] = true; tset ^= 1; }
         gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0);
         gl.glUseProgram(0);
         gl.glBindVertexArray(0);
@@ -483,6 +541,7 @@ public final class LensGl {
     }
 
     public void dispose(GL4 gl) {
+        if (tq[0] != 0) { gl.glDeleteQueries(tq.length, tq, 0); java.util.Arrays.fill(tq, 0); tqIssued[0] = tqIssued[1] = false; }
         if (!ready) return;
         for (int p : progs.values()) gl.glDeleteProgram(p);
         progs.clear();

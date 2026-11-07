@@ -7,6 +7,9 @@
 // Empfängers begrenzt); Vordergrund vor dem Fokus wird eigens gesammelt und mit seiner Deckung darübergelegt – auch über
 // sich selbst, so wird sein Rand von beiden Seiten weich, und was dahinter liegt, kommt aus der Nachbarschaft.
 // Ergebnis: rgb, a = Deckung durch unscharfen Vordergrund (lens.frag nimmt dann dieses Bild statt seines eigenen).
+// W9c (Kosten bei offener Blende, W9AP2: 16–23 ms): so viele Ringe, wie die Reichweite braucht (Abstand der Punkte rund
+// 1,6 halbe Bildpunkte, höchstens uRings), und je Punkt nur einmal Richtung, Rand der Blende und Helligkeit im Kreis (die
+// Farbkanäle unterscheiden sich nur in der Größe des Kreises).
 in vec2 vUV;
 out vec4 frag;
 uniform sampler2D uHalf;        // Farbe (ohne die gestreuten Lichter), a = c (halbe Bildpunkte)
@@ -31,14 +34,17 @@ void main() {
     vec3 dc = dcHalf();
     float mmPerHalf = 2.0 * uPitch;
 
-    int nS = 4 * uRings * (uRings + 1) + 1;
+    int nR = clamp(int(ceil(reach / 1.6)), 1, uRings);
+    int nS = 4 * nR * (nR + 1) + 1;
     float aSample = reach * reach / float(nS);      // Fläche je Punkt / π
     vec3 bgA = vec3(0.0), bgW = vec3(0.0), fgA = vec3(0.0), fgW = vec3(0.0);
     float c0c = c0.a;
     bool fgC = c0c < -1.0;
-    for (int k = 0; k <= uRings; k++) {
+    bool catA = uCat.x < 50.0, catB = uCat.z < 50.0;
+    vec2 cA = uCat.y * th * er, cB = uCat.w * th * er;
+    for (int k = 0; k <= nR; k++) {
         int n = k == 0 ? 1 : 8 * k;
-        float rr = k == 0 ? 0.0 : (float(k) - 0.25) / (float(uRings) - 0.25) * reach;
+        float rr = k == 0 ? 0.0 : (float(k) - 0.25) / (max(float(nR), 1.0) - 0.25) * reach;
         float ph = float(k) * 2.39996;               // goldener Winkel je Ring gegen Muster
         for (int i = 0; i < n; i++) {
             float a = ph + 6.2831853 * float(i) / float(n);
@@ -48,15 +54,31 @@ void main() {
             vec2 off = vec2(sp - p);
             float cs = s.a;
             bool back = cs >= c0c;
+            // je Punkt einmal: Richtung in der Pupille (mit der Stauchung) und der Rand der Blende dort, für beide Vorzeichen
+            vec2 offS = vec2(off.x, off.y / uSqueeze);
+            float lenS = length(offS);
+            float phi = lenS > 1e-6 ? atan(offS.y, offS.x) : 0.0;
+            float apP = apRadius(phi), apN = apRadius(phi + PI);
+            // Helligkeit im Kreis (sphärische Aberration) einmal, mit dem Kreis in Grün
+            float cg = cs + dc[1];
+            if (back) { float lim = max(abs(c0c + dc[1]), 1.0); cg = clamp(cg, -lim, lim); }
+            float sa = saWeight(min(2.0 * length(off) / max(abs(cg), 0.75), 1.0), cg * mmPerHalf);
             vec3 w3;
             for (int ch = 0; ch < 3; ch++) {
                 float cc = cs + dc[ch];
                 if (back) { float lim = max(abs(c0c + dc[ch]), 1.0); cc = clamp(cc, -lim, lim); }   // Hintergrund nicht über Schärferes
                 float ac = max(abs(cc), 0.75);
-                vec2 q = 2.0 * off / (sign(cc + 1e-6) * ac);           // Pupille: q = −2(p − s)/c, p − s = −off
+                float sg = cc >= -1e-6 ? 1.0 : -1.0;
                 float wEdge = 1.5 / ac;
-                float cov = pupil(q, wEdge, th, er);
-                w3[ch] = cov * saWeight(min(length(q), 1.0), cc * mmPerHalf) / (ac * ac);
+                // Pupille: q = −2(p − s)/c, p − s = −off; Rand der Blende (Umkreis 1) und die Kreise der Fassungen
+                float rq = 2.0 * lenS / ac;
+                float cov = clamp(((sg > 0.0 ? apP : apN) - rq / uAreaRoot) / (wEdge / uAreaRoot) + 0.5, 0.0, 1.0);
+                if (catA || catB) {
+                    vec2 q = (2.0 * sg / ac) * offS;
+                    if (catA) cov *= clamp((uCat.x - length(q - cA)) / wEdge + 0.5, 0.0, 1.0);
+                    if (catB) cov *= clamp((uCat.z - length(q - cB)) / wEdge + 0.5, 0.0, 1.0);
+                }
+                w3[ch] = cov * sa / (ac * ac);
             }
             bool fgS = cs < -1.0 && cs <= c0c + 0.5;                   // vor dem Fokus und nicht hinter dem Empfänger
             if (fgS) {
