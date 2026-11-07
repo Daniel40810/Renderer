@@ -1,0 +1,41 @@
+// ripple_step.comp — jede Welle genau fortschreiben (wie Ripples.advance): Quelle hinein (V̂ −= |k| Î / ρ, Cauchy und
+// Poisson), dann der gedämpfte Schwinger mit ω² = g k + (σ/ρ) k³ und γ = 2 ν k² · Haut + Grund. Danach die Spektren
+// für die Rückwandlung: (Ĥ (1 − kx)) → h + i ∂x h und (i kz Ĥ + i V̂) → ∂z h + i ∂t h.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba32f) uniform readonly image2D uSrc;
+layout(binding = 1, rgba32f) uniform image2D uState;
+layout(binding = 2, rgba32f) uniform writeonly image2D uOut;
+uniform int uN;
+uniform float uSize;       // Kante (m)
+uniform float uDt;
+uniform vec2 uBand;        // kLow, kHigh (1/m)
+uniform vec2 uDamp;        // Haut (Faktor auf 2νk²), Grundverlust (1/s)
+uniform int uInject;
+const float G = 9.81, SR = 0.0728 / 998.2, NU = 1.002e-3 / 998.2, RHO = 998.2;
+
+float kAxis(int i) { return 6.28318530718 / uSize * float(i < uN / 2 ? i : i - uN); }
+
+void main() {
+    ivec2 o = ivec2(gl_GlobalInvocationID.xy);
+    if (o.x >= uN || o.y >= uN) return;
+    float kx = kAxis(o.x), kz = kAxis(o.y), k = length(vec2(kx, kz));
+    vec4 s = imageLoad(uState, o);
+    if (!(k >= uBand.x && k < uBand.y && k > 0.0)) {
+        imageStore(uState, o, vec4(0.0));
+        imageStore(uOut, o, vec4(0.0));
+        return;
+    }
+    if (uInject == 1) {
+        vec2 src = imageLoad(uSrc, o).xy;
+        s.zw -= k / RHO * src;
+    }
+    float w2 = G * k + SR * k * k * k, gm = 2.0 * NU * k * k * uDamp.x + uDamp.y;
+    float wd = sqrt(max(1e-12, w2 - gm * gm)), e = exp(-gm * uDt), c = cos(wd * uDt), sn = sin(wd * uDt);
+    float hh = e * (c + gm / wd * sn), hv = e * sn / wd, vv = e * (c - gm / wd * sn), vh = -e * w2 / wd * sn;
+    vec2 H = hh * s.xy + hv * s.zw, Vv = vh * s.xy + vv * s.zw;
+    imageStore(uState, o, vec4(H, Vv));
+    float dkx = o.x == uN / 2 ? 0.0 : kx, dkz = o.y == uN / 2 ? 0.0 : kz;
+    vec2 z1 = H * (1.0 - dkx);
+    vec2 z2 = vec2(-dkz * H.y, dkz * H.x) + vec2(-Vv.y, Vv.x);
+    imageStore(uOut, o, vec4(z1, z2));
+}

@@ -1,0 +1,12 @@
+// ripple_out.comp — die Fläche nach der Rückwandlung als Textur für das Wasser: (∂h/∂x, ∂h/∂z, h, ∂h/∂t), mal 1/N².
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba32f) uniform readonly image2D uImg;
+layout(binding = 1, rgba16f) uniform writeonly image2D uTex;
+uniform int uN;
+void main() {
+    ivec2 o = ivec2(gl_GlobalInvocationID.xy);
+    if (o.x >= uN || o.y >= uN) return;
+    vec4 a = imageLoad(uImg, o) / float(uN * uN);
+    vec4 r = vec4(a.y, a.z, a.x, a.w);
+    imageStore(uTex, o, r);
+}

@@ -38,6 +38,9 @@ uniform sampler2D uBodyShadow;   // Schatten eines Körpers (Turm, Schiff) auf d
 uniform vec4 uBodyRect;         // wie uShadowRect
 uniform sampler2D uDetail;      // feine Störung (Regenringe): Steigung in RG, kachelbar, optional
 uniform vec4 uDetailP;          // Kachel in m, Stärke, Reichweite in m, an (1) / aus (0)
+uniform vec4 uDetailQ;          // seit LituyaBay1958 W7b: Mitte x, z des Fensters, Art (0 Kachel, 1 Feld fest in der Welt), —
+uniform vec4 uDetailR;          // seit W7b Runde 5: mittlere quadratische Steigung unter dem Raster der Störung, die sie trägt (0, 0 = aus), Anteile der Fläche dazu
+uniform int uDetailN;           // Bildzähler für die Rauigkeit (zeitliche Glättung mittelt)
 uniform sampler2D uPointTex;    // Punktlicht: Lichtstärke cd je Richtung vom Licht (Rundumbild), optional
 uniform vec4 uPointPos;         // Ort des Punktlichts, Faktor (0 = aus)
 uniform float uPointSigma;      // Auslöschung der Luft auf dem Weg zum Wasser (1/m)
@@ -174,7 +177,47 @@ void main() {
             longFoam = smoothstep(0.04, 0.15, length(ls)) * smoothstep(0.15, 0.8, l0.x);
         }
     }
-    if (uDetailP.w > 0.0) rs += texture(uDetail, vWorld.xz / uDetailP.x).rg * uDetailP.y * exp(-vDist / uDetailP.z);
+    float detailShown = 0.0;   // seit W7b Runde 5: welcher Anteil der getragenen Steigung hier zu sehen ist (Amplitude)
+    if (uDetailP.w > 0.0) {
+        if (uDetailQ.z < 0.5) {
+            detailShown = exp(-vDist / uDetailP.z);
+            rs += texture(uDetail, vWorld.xz / uDetailP.x).rg * uDetailP.y * detailShown;
+        } else {
+            // Feld fest in der Welt: im Fenster echt, draußen zwei gedrehte Abfragen (Steigung zurückgedreht), gemittelt
+            vec2 rel = abs(vWorld.xz - uDetailQ.xy) / uDetailP.x;
+            float win = 1.0 - smoothstep(0.30, 0.47, max(rel.x, rel.y));
+            vec2 near = texture(uDetail, vWorld.xz / uDetailP.x).rg;
+            const mat2 R1 = mat2(0.8, 0.6, -0.6, 0.8), R2 = mat2(-0.28, 0.96, -0.96, -0.28);
+            vec2 a = texture(uDetail, (R1 * vWorld.xz) / uDetailP.x + 0.37).rg, b = texture(uDetail, (R2 * vWorld.xz) / uDetailP.x + 0.71).rg;
+            vec2 far = (transpose(R1) * a + transpose(R2) * b) * 0.7071;
+            detailShown = win + (1.0 - win) * exp(-vDist / uDetailP.z);
+            rs += (near * win + far * (1.0 - win) * exp(-vDist / uDetailP.z)) * uDetailP.y;
+        }
+    }
+    // seit W7b Runde 5: Varianz erhalten. Was die Störung hier nicht als Steigung zeigt – unter ihrem Raster, in der
+    // Mip-Stufe weggemittelt, in der Ferne ausgeblendet –, ist trotzdem da: als Neigung einzelner Facetten. Nur ein
+    // Anteil p der Fläche trägt sie (Regen: unter dem Raster p ≈ 0,2 um die jungen Einschläge, die Ringe p ≈ 0,34), dafür
+    // mit Varianz/p – so bleibt der Spiegel zwischen den Einschlägen glatt. Die zeitliche Glättung mittelt die Facetten
+    // eines Bildpunkts, wie sie in seinem Fußabdruck liegen.
+    vec2 rsJ = vec2(0.0);
+    bool detailJ = false;
+    if (uDetailP.w > 0.0 && uDetailR.x + uDetailR.y > 0.0) {
+        float lod = max(textureQueryLod(uDetail, vWorld.xz / uDetailP.x).y, 0.0);
+        float shown = detailShown * detailShown * exp2(-lod);   // im Kapillarband trägt jede Oktave etwa gleich viel [G]
+        // unter dem Raster erst, wo ein Bildpunkt viele Einschläge deckt (Fußabdruck ab rund 1 cm); näher wäre es Korn [G]
+        float s2 = uDetailP.y * uDetailP.y, hid = uDetailR.y * max(0.0, 1.0 - shown), fSub = smoothstep(0.004, 0.03, length(fwidth(vWorld.xz)));
+        uint hs = uint(gl_FragCoord.x) * 1973u ^ uint(gl_FragCoord.y) * 9277u ^ uint(uDetailN) * 26699u;
+        uvec3 h3;
+        for (int qq = 0; qq < 3; qq++) { hs = (hs ^ (hs >> 16u)) * 0x45d9f3bu; hs = (hs ^ (hs >> 16u)) * 0x45d9f3bu; hs ^= hs >> 16u; h3[qq] = hs; hs += 0x9e3779b9u; }
+        vec2 ua = (vec2(h3.x & 0xffffu, h3.x >> 16u) + 0.5) / 65536.0, ub = (vec2(h3.y & 0xffffu, h3.y >> 16u) + 0.5) / 65536.0;
+        vec2 sel = vec2(h3.z & 0xffffu, h3.z >> 16u) / 65536.0;
+        vec2 g1 = sqrt(-2.0 * log(ua.x)) * vec2(cos(6.2831853 * ua.y), sin(6.2831853 * ua.y));
+        vec2 g2 = sqrt(-2.0 * log(ub.x)) * vec2(cos(6.2831853 * ub.y), sin(6.2831853 * ub.y));
+        float pS = clamp(uDetailR.z, 1e-3, 1.0), pR = clamp(uDetailR.w, 1e-3, 1.0);
+        if (sel.x < pS) rsJ += sqrt(0.5 * fSub * uDetailR.x * s2 / pS) * g1;
+        if (sel.y < pR) rsJ += sqrt(0.5 * hid * s2 / pR) * g2;
+        detailJ = true;
+    }
     // seit Timmendorf Phase 8: Neigung und Schaum des Kielwassers von außen
     float kielFoam = 0.0;
     if (uKielR0.w > 0.0 || uKielR1.w > 0.0) {
@@ -198,6 +241,7 @@ void main() {
         rs += g * amp;
     }
     vec3 n = normalize(vec3(-(sx / max(0.2, 1.0 + jx + 0.5 * sws.z) + rs.x), 1.0, -(sz / max(0.2, 1.0 + jz + 0.5 * sws.z) + rs.y)));
+    if (detailJ) n = normalize(n + vec3(-rsJ.x, 0.0, -rsJ.y));
 
     vec3 V = normalize(uCam - vWorld);
     // seit Rungholt Phase 6: von unten. Im Snellschen Fenster (bis 48,6° vom Lot) der gebrochene Himmel, außerhalb die

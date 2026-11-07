@@ -1,0 +1,51 @@
+// dropenv.comp — was ein Tropfen von seiner Umgebung zeigt: E(V) = ∫ L(ω) p(∠(ω, V)) dΩ für jede Blickrichtung V
+// (64 × 32, abgebildet wie das Rundumbild). p ist die Phasenfunktion aus DropOptics, auf rund 6° geglättet (die
+// Umgebung ist hier 32 × 16 fein; Sonne und Mond mit ihrem scharfen Bogen rechnen die Shader selbst). Oben das
+// Rundumbild der App (oder Himmel oben/Horizont), unten der Grund (Strahldichte).
+#include "precip_common.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba16f) uniform writeonly image2D uOut;
+uniform sampler2D uPPano;
+uniform int uPHasPano;
+uniform vec3 uPSkyTop, uPSkyHorizon, uPGroundL;
+const int SW = 32, SH = 16;
+shared vec3 srcL[SW * SH];
+shared vec3 srcD[SW * SH];
+shared float srcW[SW * SH];
+
+vec3 dirOf(vec2 uv) {
+    float az = (uv.x - 0.5) * 6.28318530718, el = (uv.y - 0.5) * 3.14159265359;
+    return vec3(sin(az) * cos(el), sin(el), -cos(az) * cos(el));
+}
+
+vec3 envAt(vec3 d) {
+    if (d.y < 0.0) return mix(uPGroundL, uPSkyHorizon, exp(d.y * 12.0) * 0.35);
+    if (uPHasPano == 1) return textureLod(uPPano, pPanoUv(d), 4.0).rgb;
+    return mix(uPSkyHorizon, uPSkyTop, sqrt(clamp(d.y, 0.0, 1.0)));
+}
+
+void main() {
+    uint li = gl_LocalInvocationIndex;
+    for (uint k = li; k < uint(SW * SH); k += 64u) {
+        int i = int(k) % SW, j = int(k) / SW;
+        vec2 uv = (vec2(i, j) + 0.5) / vec2(SW, SH);
+        vec3 d = dirOf(uv);
+        srcD[k] = d;
+        srcL[k] = envAt(d);
+        float el0 = (float(j) / float(SH) - 0.5) * 3.14159265359, el1 = (float(j + 1) / float(SH) - 0.5) * 3.14159265359;
+        srcW[k] = (sin(el1) - sin(el0)) * 6.28318530718 / float(SW);
+    }
+    barrier();
+    ivec2 o = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(uOut);
+    if (o.x >= size.x || o.y >= size.y) return;
+    vec3 V = dirOf((vec2(o) + 0.5) / vec2(size));
+    vec3 E = vec3(0.0), W = vec3(0.0);
+    for (int k = 0; k < SW * SH; k++) {
+        vec3 pw = pPhase(dot(srcD[k], V), 1.0) * srcW[k];
+        E += srcL[k] * pw;
+        W += pw;
+    }
+    // auf dem groben Gitter genau so normiert, dass eine gleichmäßige Umgebung ihr eigenes Licht ergibt (∫ p dΩ = 0,997)
+    imageStore(uOut, o, vec4(E / max(W, vec3(1e-6)) * 0.997, 1.0));
+}

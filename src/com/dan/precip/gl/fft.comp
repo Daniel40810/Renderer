@@ -1,0 +1,36 @@
+// fft.comp — FFT einer Zeile (oder Spalte) im geteilten Speicher, Stockham, Radix 2, ohne Normierung (wie
+// com.dan.ocean, hier mit Vorzeichen: uSign −1 vorwärts, +1 zurück). Eine Arbeitsgruppe je Zeile; jedes Texel trägt
+// zwei komplexe Zahlen (vec4), die zusammen gewandelt werden. N und HALF setzt PrecipGl.
+layout(local_size_x = HALF) in;
+layout(binding = 0, rgba32f) uniform image2D uImg;
+uniform int uVertical;
+uniform float uSign;
+shared vec4 buf[2][N];
+
+vec4 cmul2(vec4 a, vec2 w) {
+    return vec4(a.x * w.x - a.y * w.y, a.x * w.y + a.y * w.x, a.z * w.x - a.w * w.y, a.z * w.y + a.w * w.x);
+}
+
+void main() {
+    int j = int(gl_LocalInvocationID.x);
+    int line = int(gl_WorkGroupID.x);
+    ivec2 p0 = uVertical == 1 ? ivec2(line, j) : ivec2(j, line);
+    ivec2 p1 = uVertical == 1 ? ivec2(line, j + HALF) : ivec2(j + HALF, line);
+    buf[0][j] = imageLoad(uImg, p0);
+    buf[0][j + HALF] = imageLoad(uImg, p1);
+    int src = 0;
+    for (int p = 1; p < N; p <<= 1) {
+        barrier();
+        int k = j & (p - 1);
+        vec4 u0 = buf[src][j];
+        float ang = uSign * 3.14159265359 * float(k) / float(p);
+        vec4 u1 = cmul2(buf[src][j + HALF], vec2(cos(ang), sin(ang)));
+        int d = (j << 1) - k;
+        buf[1 - src][d] = u0 + u1;
+        buf[1 - src][d + p] = u0 - u1;
+        src = 1 - src;
+    }
+    barrier();
+    imageStore(uImg, p0, buf[src][j]);
+    imageStore(uImg, p1, buf[src][j + HALF]);
+}

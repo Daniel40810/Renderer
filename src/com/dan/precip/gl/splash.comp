@@ -1,0 +1,113 @@
+// splash.comp — was beim Aufschlag geschieht (Regeln wie Splash.java). uMode 0: aus jedem Einschlag des Buchs Teilchen
+// machen – auf Wasser je nach Größe und Weberzahl nichts (fließt ein), Krater und Worthington-Strahl (mit abgeschnürtem
+// Tröpfchen) oder Krone mit Spitzen, Tröpfchen, spätem Strahl und manchmal Bläschen; auf Grund spritzt er ab
+// K = Oh Re^1,25 > 57,7 in Tröpfchen. uMode 1: Tröpfchen fliegen mit Luftwiderstand, bis sie auf eine Fläche fallen.
+// Ein Teilchen: (x, y, z, D) · (vx, vy, vz, Geburt) · (Art: 1 Tröpfchen, 2 Krone, 3 Strahl, 4 Bläschen; Lebensdauer; Zufall; Größe m)
+#include "precip_common.glsl"
+layout(local_size_x = 64) in;
+struct Part { vec4 p; vec4 v; vec4 m; };
+layout(std430, binding = 0) buffer Parts { Part parts[]; };
+struct Impact { vec4 p; vec4 v; };
+layout(std430, binding = 1) buffer Impacts { uint count[4]; Impact impacts[]; };
+uniform int uMode;
+uniform int uCap;            // Teilchen im Ring
+uniform int uBoxCap, uStatCap;
+uniform uint uFrame;
+
+void put(uint k, vec3 p, float d, vec3 v, float birth, float kind, float life, float size, uint salt) {
+    uint i = k % uint(uCap);
+    parts[i].p = vec4(p, d);
+    parts[i].v = vec4(v, birth);
+    parts[i].m = vec4(kind, life, float(pHash(salt) >> 8u) / 16777216.0, size);
+}
+
+void spawn(Impact im, uint id) {
+    float d = im.p.w, v = length(im.v.xyz);
+    bool water = im.v.w < 0.5;
+    int kind = pKind(d, v, water, true);
+    if (kind == 0 || kind == 3) return;   // fließt ein (nur Wellen) oder haftet (nasser Fleck)
+    uint seed = pHash(id * 2654435761u ^ uFrame * 97u ^ uPSeed);
+    // der Einschlag geschah irgendwann im letzten Schritt (sonst wären alle Kronen im Standbild gerade erst geboren)
+    float now = uPB.y - float(pHash(seed + 99u) >> 8u) / 16777216.0 * uPB.z;
+    vec3 at = im.p.xyz;
+    vec2 hv = im.v.xz;
+    int nd = 0;
+    if (kind == 2) nd = int(round(4.0 + 2.5 * d));
+    else if (kind == 4) nd = int(round(2.0 + 2.0 * d));
+    else if (kind == 1) nd = d > 1.6 ? 1 : 0;
+    int total = nd + (kind == 2 ? 2 : 0) + (kind == 1 ? 1 : 0) + 1;
+    uint k = atomicAdd(count[2], uint(total));
+    float we = pWeber(d, v);
+    float jetH = min(0.04, d * 1e-3 * 4.0 * sqrt(we / 1100.0)), jetLife = 0.03 + 0.01 * d;
+    float crownLife = 0.012 + 0.003 * d;
+    // Krone und Strahl
+    if (kind == 2) {
+        put(k++, at, d, vec3(0.0), now, 2.0, crownLife, d * 1e-3 * 3.0, seed + 1u);
+        put(k++, at, d, vec3(0.0), now + crownLife * 0.8, 3.0, jetLife, jetH, seed + 2u);
+    } else if (kind == 1) {
+        put(k++, at, d, vec3(0.0), now + 0.004, 3.0, jetLife, jetH, seed + 2u);
+    }
+    // Bläschen (große Tropfen schließen Luft ein)
+    float bub = d < 2.8 ? 0.0 : min(0.7, (d - 2.8) * 0.35);
+    if (water && kind == 2 && float(pHash(seed + 3u) >> 8u) / 16777216.0 < bub) {
+        float u = float(pHash(seed + 4u) >> 8u) / 16777216.0;
+        put(k, at + vec3(0.0, 0.0005, 0.0), d, vec3(hv * 0.02, 0.0).xzy, now + crownLife, 4.0, 0.3 + 1.7 * u, d * 1e-3 * (0.35 + 0.3 * u), seed + 5u);
+    }
+    k++;
+    // Tröpfchen: von der Krone schräg nach außen, vom Strahl nach oben
+    for (int q = 0; q < 24; q++) {
+        if (q >= nd) break;
+        uint s = seed + 16u + uint(q) * 5u;
+        float u1 = float(pHash(s) >> 8u) / 16777216.0, u2 = float(pHash(s + 1u) >> 8u) / 16777216.0, u3 = float(pHash(s + 2u) >> 8u) / 16777216.0;
+        float dd = d * (0.1 + 0.15 * u1);
+        float sp = v * (0.15 + 0.3 * u2);
+        vec3 dir;
+        vec3 from = at;
+        float birth = now;
+        if (kind == 1) {
+            dir = vec3(0.0, 1.0, 0.0);
+            sp = sqrt(2.0 * P_G * jetH) * (0.9 + 0.2 * u2);
+            from = at + vec3(0.0, jetH * 0.7, 0.0);
+            birth = now + jetLife * 0.35;
+        } else {
+            float az = 6.2831853 * (float(q) + u3 * 0.6) / float(nd);
+            float el = radians(mix(20.0, 60.0, u3)) ;
+            dir = vec3(cos(az) * cos(el), sin(el), sin(az) * cos(el));
+            from = at + vec3(dir.x, 0.0, dir.z) * d * 1e-3 * 2.5 + vec3(0.0, d * 1e-3 * 2.0, 0.0);
+            birth = now + 0.003;
+        }
+        vec3 vel = dir * sp + vec3(hv.x, 0.0, hv.y) * 0.15;
+        put(k++, from, dd, vel, birth, 1.0, 1.5, 0.0, s + 3u);
+    }
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (uMode == 0) {
+        uint nb = min(count[0], uint(uBoxCap)), ns = min(count[1], uint(uStatCap));
+        if (i < nb) spawn(impacts[i], i);
+        else if (i < nb + ns) spawn(impacts[uBoxCap + int(i - nb)], i);
+        return;
+    }
+    if (i >= uint(uCap)) return;
+    Part q = parts[i];
+    if (q.m.x < 0.5 || q.m.x > 1.5) return;
+    float age = uPB.y - q.v.w;
+    if (age < 0.0 || age > q.m.y) return;
+    float dt = uPB.z;
+    float d = q.p.w, vt = max(0.05, pTerminal(d));
+    vec3 w = vec3(uPC.x + uPC.z, 0.0, uPC.y + uPC.w) * 0.6;   // nah am Boden schwächer [G]
+    vec3 v = q.v.xyz, p = q.p.xyz;
+    int sub = int(clamp(ceil(dt / (0.25 * vt / P_G)), 1.0, 8.0));
+    float h = dt / float(sub);
+    for (int s = 0; s < 8; s++) {
+        if (s >= sub) break;
+        float k = P_G * length(v - w) / (vt * vt);
+        v = (v + h * (vec3(0.0, -P_G, 0.0) + k * w)) / (1.0 + k * h);
+        p += v * h;
+    }
+    if (p.y < pSurface(p.xz) && v.y < 0.0) q.m.y = age;   // gelandet: vorbei
+    q.p.xyz = p;
+    q.v.xyz = v;
+    parts[i] = q;
+}

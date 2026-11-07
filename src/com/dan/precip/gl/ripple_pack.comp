@@ -1,0 +1,13 @@
+// ripple_pack.comp — Festkomma der Quelle in die Fläche der FFT (komplex: I + 0i), Quelle für das nächste Bild leeren.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(std430, binding = 2) buffer Src { int cells[]; };
+layout(binding = 0, rgba32f) uniform writeonly image2D uImg;
+uniform int uN;
+const float SCALE = 4.0e6;
+void main() {
+    ivec2 o = ivec2(gl_GlobalInvocationID.xy);
+    if (o.x >= uN || o.y >= uN) return;
+    int k = o.y * uN + o.x;
+    imageStore(uImg, o, vec4(float(cells[k]) / SCALE, 0.0, 0.0, 0.0));
+    cells[k] = 0;
+}
