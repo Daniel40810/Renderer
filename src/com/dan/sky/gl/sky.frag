@@ -12,6 +12,7 @@ uniform mat4 uInvVP;
 uniform int uReversed;
 uniform float uPre, uEyeR, uNight, uMilkyGain, uVeil, uRainbow, uPixelAngle;
 uniform float uSea;                   // > 0: unter der Kimm eine schlichte Wasserfläche (für Szenen ohne Meer)
+uniform float uDiscs;                 // seit LituyaBay1958 W8a: 0 = ohne Sonnen- und Mondscheibe (Spiegelbild: die See legt den Glanz selbst)
 uniform mat3 uSceneToEq;              // Szene → Äquator J2000
 uniform vec3 uSunApp, uSunTrue, uSunE, uSunEye;
 uniform float uSunRadius;
@@ -153,7 +154,7 @@ void main() {
     }
     col += flashGlow(d);
 #ifndef PANORAMA
-    if (!ground) {
+    if (!ground && uDiscs > 0.5) {
         vec3 tview = transmittance(uEyeR, d.y) * open;
         vec3 dt = trueDir(d);
         col += sunDisc(d, dt, tview);

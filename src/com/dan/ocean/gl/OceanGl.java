@@ -182,6 +182,25 @@ public final class OceanGl {
          */
         public int kielTexture;
         public double[] kielRect0 = {0, 0, 1, 0}, kielRect1 = {0, 0, 1, 0};
+        /**
+         * Seit LituyaBay1958 W8a: planare Spiegelung. Ein Bild der am Wasserspiegel {@code planarLevel} gespiegelten Szene
+         * (Himmel, Wolken, Gelände, Wald, Boote; Alpha 1, wo etwas steht, 0 sonst), gerendert mit der Kamera
+         * {@code planarViewProj} (Projektion · Blick · Spiegelung), dazu seine Tiefe. Die See greift für jeden gespiegelten
+         * Strahl genau dorthin, wohin er im Spiegelbild fällt (zwei Schritte mit der Tiefe), mit ihrer eigenen Normale
+         * (Wellen, Kräusel, Regen): die Berge stehen im Wasser, so wellig wie das Wasser. Mip-Stufen glätten, was die Normale
+         * nicht mehr zeigt. 0 = aus (wie bisher: nur der Himmel aus {@code skyTexture}).
+         */
+        public int planarTexture, planarDepth;
+        /** Kamera beim Spiegelbild (ungespiegelt, Spalten wie OpenGL), ihr Auge und ihre Blickrichtung (normiert). */
+        public float[] planarViewProj;
+        public double[] planarEye = {0, 0, 0}, planarForward = {0, 0, -1};
+        /** Spiegelebene (m), Nahebene, Fernebene (nur ohne umgekehrte Tiefe), tan der halben Höhe des Blickfelds. */
+        public double planarLevel = 0, planarNear = 0.5, planarFar = 100_000, planarTanHalfFov = 0.4;
+        public boolean planarReversed = true;
+        /** Anteil des Spiegelbilds (1 voll; kleiner: es geht im Dunst des Himmels auf, etwa im Regen). */
+        public double planarMix = 1;
+        /** Verborgene Rauigkeit (mittlere Steigung), die die Normale nicht trägt: Grundwert und Zuwachs je m Abstand. */
+        public double planarRough = 0.0025, planarRoughPerM = 6e-6;
     }
 
     /**
@@ -552,6 +571,22 @@ public final class OceanGl {
                 (float) Math.max(1, light.kielRect0[2]), light.kielTexture != 0 && light.kielRect0[3] > 0 ? 1f : 0f);
         gl.glUniform4f(gl.glGetUniformLocation(p, "uKielR1"), (float) light.kielRect1[0], (float) light.kielRect1[1],
                 (float) Math.max(1, light.kielRect1[2]), light.kielTexture != 0 && light.kielRect1[3] > 0 ? 1f : 0f);
+        // seit LituyaBay1958 W8a: planare Spiegelung (Einheiten 16, 17)
+        boolean planar = light.planarTexture != 0 && light.planarDepth != 0 && light.planarViewProj != null;
+        gl.glActiveTexture(GL.GL_TEXTURE0 + 16);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, planar ? light.planarTexture : 0);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uPlanar"), 16);
+        gl.glActiveTexture(GL.GL_TEXTURE0 + 17);
+        gl.glBindTexture(GL.GL_TEXTURE_2D, planar ? light.planarDepth : 0);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uPlanarDepth"), 17);
+        gl.glUniform1i(gl.glGetUniformLocation(p, "uPlanarOn"), planar ? 1 : 0);
+        if (planar) {
+            gl.glUniformMatrix4fv(gl.glGetUniformLocation(p, "uPlanarVP"), 1, false, light.planarViewProj, 0);
+            gl.glUniform4f(gl.glGetUniformLocation(p, "uPlanarP"), (float) light.planarLevel, (float) light.planarNear, (float) light.planarFar, (float) light.planarTanHalfFov);
+            gl.glUniform4f(gl.glGetUniformLocation(p, "uPlanarE"), (float) light.planarEye[0], (float) light.planarEye[1], (float) light.planarEye[2], light.planarReversed ? 1f : 0f);
+            gl.glUniform3f(gl.glGetUniformLocation(p, "uPlanarF"), (float) light.planarForward[0], (float) light.planarForward[1], (float) light.planarForward[2]);
+            gl.glUniform3f(gl.glGetUniformLocation(p, "uPlanarR"), (float) Math.max(0, Math.min(1, light.planarMix)), (float) Math.max(0, light.planarRough), (float) Math.max(0, light.planarRoughPerM));
+        }
         gl.glUniform4f(gl.glGetUniformLocation(p, "uHoleA"), (float) light.holeCenter[0], (float) light.holeCenter[1], (float) light.holeAxis[0], (float) light.holeAxis[1]);
         gl.glUniform4f(gl.glGetUniformLocation(p, "uHoleB"), (float) light.holeHalf[0], (float) light.holeHalf[1], (float) light.holeHalf[2], light.holeHalf[0] > 0 ? 1f : 0f);
         gl.glActiveTexture(GL.GL_TEXTURE0);

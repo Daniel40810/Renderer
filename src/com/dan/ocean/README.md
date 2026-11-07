@@ -152,3 +152,7 @@ light.kielRect1 = wakeGl.rect(1);
 ```
 
 **Grenzen.** Einheit 15; die Höhe hebt nur Ecken mit weniger als 3 m Abstand (weiter draußen nur die Neigung).
+
+## Planare Spiegelung (seit LituyaBay1958 W8a)
+
+`Light.planarTexture`, `planarDepth`, `planarViewProj` (Kamera beim Spiegelbild, ungespiegelt), `planarEye`, `planarForward`, `planarLevel`, `planarNear`/`planarFar`, `planarReversed`, `planarTanHalfFovY`, `planarMix`, `planarRough`/`planarRoughPerM`. Ein Bild der am Wasserspiegel gespiegelten Szene samt Himmel (Alpha 1, wo etwas steht) ersetzt die Spiegelung des Rundumbilds. Für jeden gespiegelten Strahl r von P aus greift die See genau dorthin, wo die Kamera den gespiegelten Punkt P′ + d′·D sieht (d′ = r mit umgekehrtem y, D aus der Tiefe des Spiegelbilds in zwei Schritten; ohne Tiefe die Richtung): mit der eigenen Normale der See (Wellen, Kräusel, Regen), so wellig wie das Wasser. Mip-Stufe nach der verborgenen Rauigkeit (2σ in Bildhöhen). Am Rand des Bilds und wo das Bild nichts trägt, bleibt das Rundumbild. Ein Spiegelbild aus einem früheren Bild gilt weiter, weil die Kamera beim Spiegelbild mitgegeben wird. Vorgabe aus: die anderen Szenen bleiben, wie sie sind.
