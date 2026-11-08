@@ -1,7 +1,11 @@
 package com.dan.gertsch.demo;
 
 import com.dan.gertsch.Bild;
+import com.dan.gertsch.Dickicht;
+import com.dan.gertsch.Kamera;
 import com.dan.gertsch.Lab;
+import com.dan.gertsch.Licht;
+import com.dan.gertsch.Malweise;
 import com.dan.gertsch.Messung;
 import com.dan.gertsch.Morphologie;
 import com.dan.gertsch.Palette;
@@ -174,6 +178,88 @@ public final class GertschCheck {
         check(herbst.hellD50 < graeser.hellD50 / 3 && sommer.hellD50 < graeser.hellD50 / 3,
                 "Laub fein, Halme breit: Herbst %.2f %%, Sommer %.2f %%, Gräser %.2f %% der Breite", 100 * herbst.hellD50, 100 * sommer.hellD50,
                 100 * graeser.hellD50);
+
+        // ------------------------------------------------------------------ Phase 2: Dickicht und Malweise
+
+        // Kamera: Mitte des Bilds auf der Achse, 1 m rechts in 10 m Tiefe um f/10 Bildpunkte daneben
+        Kamera kam = new Kamera();
+        kam.neigung = 0;
+        kam.stellen();
+        double[] pr = new double[3];
+        kam.projizieren(0, kam.auge[1], 10, pr);
+        boolean mitte = Math.abs(pr[0] - kam.breite / 2.0) < 1e-6 && Math.abs(pr[1] - kam.hoehe / 2.0) < 1e-6 && Math.abs(pr[2] - 10) < 1e-9;
+        kam.projizieren(1, kam.auge[1], 10, pr);
+        check(mitte && Math.abs(pr[0] - (kam.breite / 2.0 + kam.brennweite() / 10)) < 1e-6, "Kamera: Achse in der Bildmitte, 1 m in 10 m Tiefe = f/10 daneben");
+
+        // Schatten: ein Stamm (Radius 0,5 m) bei x = 0, z = 10; Sonne von links (−90°), 20° hoch
+        Dickicht leer = new Dickicht();
+        Dickicht.Glied stamm = new Dickicht.Glied();
+        stamm.x0 = 0; stamm.y0 = 0; stamm.z0 = 10; stamm.x1 = 0; stamm.y1 = 10; stamm.z1 = 10; stamm.r0 = 0.5f; stamm.r1 = 0.5f;
+        stamm.stamm = true;
+        leer.glieder.add(stamm);
+        Licht li = new Licht();
+        li.sonneRichtung = -90;
+        li.sonneHoehe = 20;
+        li.schattenKante = 1024;
+        li.vorbereiten(leer);
+        double hinten = li.sonne(1.5, 1, 10), vorne = li.sonne(-1.5, 1, 10);
+        check(hinten < 0.2 && vorne > 0.8 && li.himmel(3, 1, 10) == 1, "Schatten: hinter dem Stamm %.2f, auf der Sonnenseite %.2f, Himmel ohne Laub 1", hinten, vorne);
+
+        // Blätter aus dem seed des Zweigs
+        Dickicht dd = Dickicht.sommer();
+        dd.bauen();
+        Dickicht.Zweig zw = dd.zweige.get(dd.zweige.size() / 2);
+        Dickicht.Blatt b1 = new Dickicht.Blatt(), b2 = new Dickicht.Blatt();
+        zw.blatt(3, b1);
+        zw.blatt(3, b2);
+        double nn = b1.nx * b1.nx + b1.ny * b1.ny + b1.nz * b1.nz, na = b1.nx * b1.ax + b1.ny * b1.ay + b1.nz * b1.az;
+        check(b1.x == b2.x && b1.nz == b2.nz && b1.zufall == zw.zufall(3) && Math.abs(nn - 1) < 1e-5 && Math.abs(na) < 1e-5,
+                "Blätter aus dem seed: gleich oft gleich, Normale Einheit, Längsachse in der Blattebene");
+        Dickicht dd2 = Dickicht.sommer();
+        dd2.bauen();
+        check(dd.zweige.size() == dd2.zweige.size() && dd.blattZahl() == dd2.blattZahl() && dd.glieder.get(100).x1 == dd2.glieder.get(100).x1,
+                "Dickicht aus dem seed: %d Zweige, %,d Blätter, gleich oft gleich", dd.zweige.size(), dd.blattZahl());
+
+        // Größenregel, Flächentreue, gleiches Bild bei gleichem seed (niedrige Qualität)
+        Licht ls = new Licht();
+        ls.schattenKante = 1536;
+        ls.vorbereiten(dd);
+        Malweise mal = new Malweise();
+        mal.quality = Malweise.Quality.LOW;
+        Malweise.Ergebnis e1 = mal.malen(dd, ls, new Kamera()), e2 = mal.malen(dd, ls, new Kamera());
+        double zielPx = mal.fleck * e1.breite, flaeche = e1.flaecheNachher / e1.flaecheVorher;
+        check(e1.kleinsterFleck >= zielPx * 0.999, "Größenregel: kein Blatt kleiner als %.1f px (kleinstes %.2f px)", zielPx, e1.kleinsterFleck);
+        check(flaeche > 0.85 && flaeche < 1.15 && e1.gezeichnet < e1.blaetter,
+                "flächentreu zusammengefasst: %,d von %,d Blättern gezeichnet, Fläche nachher/vorher %.2f", e1.gezeichnet, e1.blaetter, flaeche);
+        int[] px1 = e1.bild.getRGB(0, 0, e1.breite, e1.hoehe, null, 0, e1.breite), px2 = e2.bild.getRGB(0, 0, e2.breite, e2.hoehe, null, 0, e2.breite);
+        check(Arrays.equals(px1, px2), "gleicher seed, gleiches Bild (%d × %d)", e1.breite, e1.hoehe);
+        boolean nurStufen = true;
+        int akz = 0;
+        for (int st : e1.stufe) {
+            if (st < -1 || st >= mal.vorlage.palette.size()) nurStufen = false;
+            if (st == -1) akz++;
+        }
+        check(nurStufen && akz > 0, "jeder Fleck in einer Tonstufe der Vorlage oder Akzent (%d Akzente)", akz);
+
+        // Abnahme: das Dickicht in Qualität HIGH gemalt und gemessen, gegen „Sommer“
+        Licht lh = new Licht().vorbereiten(dd);
+        Malweise malHoch = new Malweise();
+        Malweise.Ergebnis eh = malHoch.malen(dd, lh, new Kamera());
+        Vorlage ist = new Messung().messen(eh.bild), sollS = Vorlagen.sommer();
+        double rel = ist.hellD50 / sollS.hellD50, reld = ist.dunkelD50 / sollS.dunkelD50, haupt = Math.min(ist.hauptrichtung, 180 - ist.hauptrichtung);
+        double abwAnteil = 0;
+        for (int i = 0; i < sollS.palette.size(); i++) abwAnteil = Math.max(abwAnteil, Math.abs(ist.palette.anteil[i] - sollS.palette.anteil[i]));
+        check(Math.abs(ist.l50 - sollS.l50) < 3 && Math.abs(ist.grund - sollS.grund) < 0.08,
+                "Sommer, Helligkeit: Median %.1f (Soll %.1f ± 3), Grund %.1f %% (Soll %.1f %% ± 8)", ist.l50, sollS.l50, 100 * ist.grund, 100 * sollS.grund);
+        check(abwAnteil < 0.05, "Sommer, Tonstufen: Anteile höchstens %.1f Punkte neben dem Soll (± 5)", 100 * abwAnteil);
+        check(rel > 0.75 && rel < 1.3 && reld > 0.75 && reld < 1.35,
+                "Sommer, Flecken: hell %.2f %% (Soll %.2f %%, %+.0f %%), dunkel %.2f %% (Soll %.2f %%, %+.0f %%)", 100 * ist.hellD50, 100 * sollS.hellD50,
+                100 * (rel - 1), 100 * ist.dunkelD50, 100 * sollS.dunkelD50, 100 * (reld - 1));
+        check(haupt < 20 && Math.abs(ist.senkrecht - sollS.senkrecht) < 0.1 && Math.abs(ist.kohaerenz - sollS.kohaerenz) < 0.15,
+                "Sommer, Richtung: waagerecht (%.0f°), senkrecht %.0f %% (Soll %.0f %% ± 10), Kohärenz %.2f (Soll %.2f ± 0,15)", ist.hauptrichtung,
+                100 * ist.senkrecht, 100 * sollS.senkrecht, ist.kohaerenz, sollS.kohaerenz);
+        check(ist.akzent > 0.002 && ist.akzent < 0.015 && Math.abs(ist.farbton - sollS.farbton) < 12,
+                "Sommer, Farbe: Akzente %.2f %% (Soll %.2f %%), Farbton %.0f° (Soll %.0f° ± 12)", 100 * ist.akzent, 100 * sollS.akzent, ist.farbton, sollS.farbton);
 
         // mit den Bildern, wenn sie da sind
         if (!ordner.isDirectory()) System.out.println("  –      " + ordner + " fehlt: Vergleich mit den Bildern übersprungen");

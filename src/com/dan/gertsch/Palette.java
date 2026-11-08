@@ -25,6 +25,20 @@ public final class Palette {
     /** Stufe mit dem kleinsten ΔE*ab zur Farbe. */
     public int naechste(double l, double a, double b) { return naechster(lab, l, a, b); }
 
+    /**
+     * Stufe mit dem kleinsten Abstand ΔL*² + g · (Δa*² + Δb*²): mit g &lt; 1 zählt vor allem die Helligkeit, so dass eine
+     * Szene mit anderer Buntheit trotzdem nach ihrer Helligkeit auf die Stufen fällt.
+     */
+    public int naechste(double l, double a, double b, double g) {
+        int best = 0;
+        double bd = Double.MAX_VALUE;
+        for (int i = 0; i < lab.length; i++) {
+            double dl = l - lab[i][0], da = a - lab[i][1], db = b - lab[i][2], d = dl * dl + g * (da * da + db * db);
+            if (d < bd) { bd = d; best = i; }
+        }
+        return best;
+    }
+
     /** sRGB der Stufe (0xRRGGBB). */
     public int rgb(int i) { return Lab.zuRgb(lab[i][0], lab[i][1], lab[i][2]); }
 
