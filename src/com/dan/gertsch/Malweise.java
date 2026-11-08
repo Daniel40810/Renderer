@@ -183,17 +183,37 @@ public final class Malweise {
         boolean[] hatBoden = new boolean[w * h];
         double[] r = new double[3];
         double lichtBoden = Math.max(0, l.zurSonne[1]);
+        // seit LituyaBay1958 W10: mit Gelände der Schnitt mit dem Gitter, Licht nach seiner Normale, die Tiefe je Bildpunkt
+        // (dort verdeckt der Boden die Flecken dahinter); ohne Gelände wie bisher die Ebene y = 0
+        Gelaende ge = d.gelaende;
+        float[] bodenTiefe = ge == null ? null : new float[w * h];
+        double[] nn = new double[3];
+        double weit = ge == null ? 0 : 2 * Math.hypot(ge.nx * ge.zelle, ge.nz * ge.zelle) + Math.abs(k.auge[1] - ge.min());
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++) {
                 k.strahl(x + 0.5, y + 0.5, r);
-                if (r[1] > -1e-4) continue;
-                double t = -k.auge[1] / r[1], gx = k.auge[0] + r[0] * t, gz = k.auge[2] + r[2] * t;
+                double t;
+                if (ge == null) {
+                    if (r[1] > -1e-4) continue;
+                    t = -k.auge[1] / r[1];
+                } else {
+                    t = ge.strahl(k.auge, r, weit);
+                    if (Double.isNaN(t)) continue;
+                }
+                double gx = k.auge[0] + r[0] * t, gz = k.auge[2] + r[2] * t, gy = ge == null ? 0 : ge.hoehe(gx, gz);
                 float[] bb = d.bodenBereich;
                 if (bb == null ? gz > d.fern * 1.3 : gx < bb[0] || gz < bb[1] || gx > bb[2] || gz > bb[3]) continue;
-                double vis = l.sonne(gx, 0.01, gz), him = l.himmel(gx, 0.05, gz);
+                double lichtN = lichtBoden, himmelN = 1;
+                if (ge != null) {
+                    ge.normale(gx, gz, nn);
+                    lichtN = Math.max(0, nn[0] * l.zurSonne[0] + nn[1] * l.zurSonne[1] + nn[2] * l.zurSonne[2]);
+                    himmelN = 0.55 + 0.45 * nn[1];
+                }
+                double vis = l.sonne(gx, gy + 0.01, gz), him = l.himmel(gx, gy + 0.05, gz) * himmelN;
                 int o = y * w + x;
                 hatBoden[o] = true;
-                for (int i = 0; i < 3; i++) boden[3 * o + i] = (float) (d.boden[i] * (l.sonneFarbe[i] * lichtBoden * vis + l.himmelFarbe[i] * him));
+                if (bodenTiefe != null) bodenTiefe[o] = (float) k.tiefe(gx, gy, gz);
+                for (int i = 0; i < 3; i++) boden[3 * o + i] = (float) (d.boden[i] * (l.sonneFarbe[i] * lichtN * vis + l.himmelFarbe[i] * him));
             }
 
         // 3 von hinten nach vorn ordnen
@@ -215,6 +235,10 @@ public final class Malweise {
         int[] roh = ((DataBufferInt) idBild.getRaster().getDataBuffer()).getData();
         e.id = new int[w * h];
         for (int o = 0; o < w * h; o++) e.id[o] = (roh[o] & 0xFFFFFF) - 1 >= 0 ? (roh[o] & 0xFFFFFF) - 1 : hatBoden[o] ? -1 : -2;
+        // mit Gelände: ein Fleck hinter dem Boden (Tiefe seiner Mitte) ist dort verdeckt
+        if (bodenTiefe != null)
+            for (int o = 0; o < w * h; o++)
+                if (e.id[o] >= 0 && hatBoden[o] && p.tiefe[e.id[o]] > bodenTiefe[o] + 0.05f) e.id[o] = -1;
 
         // 5 Belichtung: Median von Y im Bild auf das Y der Vorlage
         float[] yPix = new float[w * h];

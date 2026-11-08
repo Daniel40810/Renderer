@@ -373,6 +373,16 @@ public final class Dickicht {
     public float[] blattDaten;
     /** Rechteck des Bodens {x0, z0, x1, z1} (m); null: von −breite bis breite, bis zur Tiefe 1,3 · fern. */
     public float[] bodenBereich;
+    /** Das Gelände unter der Szene (seit LituyaBay1958 W10, aus {@link Quelle#gelaende}); null: die Ebene y = 0. */
+    public Gelaende gelaende;
+
+    /** Höhe des Bodens bei (x, z): das Gelände oder 0. */
+    public float bodenHoehe(double x, double z) { return gelaende == null ? 0 : gelaende.hoehe(x, z); }
+
+    /** Tiefste und höchste Stelle des Bodens (0, 0 ohne Gelände). */
+    public float bodenMin() { return gelaende == null ? 0 : gelaende.min(); }
+
+    public float bodenMax() { return gelaende == null ? 0 : gelaende.max(); }
 
     /**
      * Die Szene aus einer {@link Quelle}: Glieder wie sie sind, Halme als Bögen durch fünf Punkte, Blätter in Zweige
@@ -388,6 +398,7 @@ public final class Dickicht {
         Dickicht d = new Dickicht();
         d.baeume = d.jungbaeume = d.straeucher = d.wand = d.kraut = d.dach = d.halme = d.streu = 0;
         if (q.boden() != null) d.boden = q.boden().clone();
+        d.gelaende = q.gelaende();
         float xmin = Float.MAX_VALUE, xmax = -Float.MAX_VALUE, zmin = Float.MAX_VALUE, zmax = -Float.MAX_VALUE;
         // Glieder
         Quelle.Glied qg = new Quelle.Glied();
@@ -601,6 +612,8 @@ public final class Dickicht {
             }
 
             @Override public float[] boden() { return self.boden.clone(); }
+
+            @Override public Gelaende gelaende() { return self.gelaende; }
         };
     }
 

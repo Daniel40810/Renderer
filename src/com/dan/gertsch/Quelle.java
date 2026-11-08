@@ -106,6 +106,51 @@ public interface Quelle {
     default float[] boden() { return null; }
 
     /**
+     * Das Gelände unter der Szene (seit LituyaBay1958 W10); null: die Ebene y = 0 wie bisher. Blätter, Halme und Glieder
+     * stehen dann auf seiner Höhe, das liegt bei der App: die Schnittstelle verschiebt nichts.
+     */
+    default Gelaende gelaende() { return null; }
+
+    /**
+     * Eine Szene, die auf der Ebene y = 0 gebaut ist, auf ein Gelände gestellt (seit LituyaBay1958 W10): jedes Element
+     * wird um die Höhe des Geländes unter sich gehoben. Blätter und Büschel unter ihrer Mitte, Halme unter ihrem Fuß (die
+     * Spitze um dasselbe, die Form bleibt), Glieder je Ende unter sich. Für kleine Pflanzen; ein Baum sollte als Ganzes
+     * auf den Grund unter seinem Fuß gestellt werden, das tut die App selbst.
+     */
+    static Quelle aufGelaende(Quelle q, Gelaende g) {
+        return new Quelle() {
+            @Override public int blaetter() { return q.blaetter(); }
+
+            @Override public void blatt(int i, Blatt o) { q.blatt(i, o); o.y += g.hoehe(o.x, o.z); }
+
+            @Override public int bueschelZahl() { return q.bueschelZahl(); }
+
+            @Override public void bueschel(int i, Bueschel o) { q.bueschel(i, o); o.y += g.hoehe(o.x, o.z); }
+
+            @Override public int halme() { return q.halme(); }
+
+            @Override public void halm(int i, Halm o) {
+                q.halm(i, o);
+                float dy = g.hoehe(o.fx, o.fz);
+                o.fy += dy;
+                o.sy += dy;
+            }
+
+            @Override public int glieder() { return q.glieder(); }
+
+            @Override public void glied(int i, Glied o) {
+                q.glied(i, o);
+                o.y0 += g.hoehe(o.x0, o.z0);
+                o.y1 += g.hoehe(o.x1, o.z1);
+            }
+
+            @Override public float[] boden() { return q.boden(); }
+
+            @Override public Gelaende gelaende() { return g; }
+        };
+    }
+
+    /**
      * Eine Quelle zum Füllen: Listen von Blättern, Halmen und Gliedern. So kann eine App ihre Szene einfach anhängen,
      * statt die Schnittstelle selbst zu schreiben.
      */

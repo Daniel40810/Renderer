@@ -530,6 +530,7 @@ public final class GertschCheck {
         mhuf.seitenverhaeltnis = 1465 / 1000.0;
         Vorlage vh5 = new Messung().messen(mhuf.malen(dhuf, lhuf, huf.kamera()).bild);
         abnahmeHuflattich("Huflattich (Prozessor)", vh5, Vorlagen.blaetter(), ist.hellD50, GertschCheck::check);
+        gelaende(huf, mhuf, vh5);
 
         // mit den Bildern, wenn sie da sind
         if (!ordner.isDirectory()) System.out.println("  –      " + ordner + " fehlt: Vergleich mit den Bildern übersprungen");
@@ -726,6 +727,68 @@ public final class GertschCheck {
         ok &= Math.abs(g.hellD50 - n.hellD50) < 1e-4 && Math.abs(g.dunkelD50 - n.dunkelD50) < 1e-4;
         ok &= Math.abs(g.senkrecht - n.senkrecht) < 1e-3 && Math.abs(g.kohaerenz - n.kohaerenz) < 1e-3;
         return ok;
+    }
+
+    /**
+     * Seit LituyaBay1958 W10: das Gelände. Auf einer schiefen Ebene sind Höhe, Normale und Strahl genau; ein ebenes
+     * Gelände malt wie die Ebene ohne Gelände; {@link Quelle#aufGelaende} hebt jedes Element genau um die Höhe darunter.
+     */
+    static void gelaende(Huflattich huf, Malweise mhuf, Vorlage ohne) {
+        com.dan.gertsch.Gelaende schief = com.dan.gertsch.Gelaende.aus(-10, -5, 10, 20, 0.5, (x, z) -> 0.2 * x + 0.1 * z + 1);
+        double dh = 0, dn = 0, nl = Math.sqrt(0.04 + 1 + 0.01);
+        double[] nn = new double[3];
+        java.util.Random zr = new java.util.Random(7);
+        for (int i = 0; i < 1000; i++) {
+            double x = -9 + 18 * zr.nextDouble(), z = -4 + 23 * zr.nextDouble();
+            dh = Math.max(dh, Math.abs(schief.hoehe(x, z) - (0.2 * x + 0.1 * z + 1)));
+            schief.normale(x, z, nn);
+            dn = Math.max(dn, Math.abs(nn[0] + 0.2 / nl) + Math.abs(nn[1] - 1 / nl) + Math.abs(nn[2] + 0.1 / nl));
+        }
+        double[] auge = {0, 6, -3}, r = {0.3, -1, 0.5};
+        double rl = Math.sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+        for (int i = 0; i < 3; i++) r[i] /= rl;
+        double t = schief.strahl(auge, r, 100), tSoll = (auge[1] - 0.2 * auge[0] - 0.1 * auge[2] - 1) / (0.2 * r[0] + 0.1 * r[2] - r[1]);
+        check(dh < 1e-4 && dn < 1e-4 && Math.abs(t - tSoll) < 1e-3, "Gelände: schiefe Ebene bilinear genau (%.1g m), Normale (%.1g), Strahl trifft auf %.1g m",
+                dh, dn, Math.abs(t - tSoll));
+
+        // ein ebenes Gelände malt wie die Ebene ohne Gelände
+        com.dan.gertsch.Gelaende eben = com.dan.gertsch.Gelaende.aus(-3, -1, 3, 5, 0.25, (x, z) -> 0);
+        Dickicht de = Dickicht.aus(Quelle.aufGelaende(huf.alsQuelle(), eben));
+        Licht le = new Licht();
+        le.sonneHoehe = 45;
+        le.vorbereiten(de);
+        Malweise.Ergebnis ee = mhuf.malen(de, le, huf.kamera());
+        Vorlage ve = new Messung().messen(ee.bild);
+        check(Math.abs(ve.l50 - ohne.l50) < 0.5 && Math.abs(ve.grund - ohne.grund) < 0.005 && Math.abs(ve.hellD50 / ohne.hellD50 - 1) < 0.05,
+                "Gelände eben wie die Ebene (Prozessor): Median %.1f / %.1f, Grund %.1f / %.1f %%, hell %.2f / %.2f %%",
+                ve.l50, ohne.l50, 100 * ve.grund, 100 * ohne.grund, 100 * ve.hellD50, 100 * ohne.hellD50);
+
+        // auf den Hang gestellt: jedes Element genau um die Höhe darunter
+        com.dan.gertsch.Gelaende hang = huf.hang(0.35);
+        Quelle q = huf.alsQuelle(), qa = Quelle.aufGelaende(q, hang);
+        Quelle.Blatt b = new Quelle.Blatt(), ba = new Quelle.Blatt();
+        Quelle.Halm h = new Quelle.Halm(), ha = new Quelle.Halm();
+        double fehler = 0;
+        for (int i = 0; i < q.blaetter(); i++) {
+            q.blatt(i, b);
+            qa.blatt(i, ba);
+            fehler = Math.max(fehler, Math.abs(ba.y - b.y - hang.hoehe(b.x, b.z)) + Math.abs(ba.x - b.x) + Math.abs(ba.z - b.z));
+        }
+        for (int i = 0; i < q.halme(); i++) {
+            q.halm(i, h);
+            qa.halm(i, ha);
+            float dy = hang.hoehe(h.fx, h.fz);
+            fehler = Math.max(fehler, Math.abs(ha.fy - h.fy - dy) + Math.abs(ha.sy - h.sy - dy));
+        }
+        Dickicht dh2 = Dickicht.aus(qa);
+        Licht lh = new Licht();
+        lh.sonneHoehe = 45;
+        lh.vorbereiten(dh2);
+        Malweise.Ergebnis eh = mhuf.malen(dh2, lh, huf.kamera(hang));
+        int boden = 0;
+        for (int id : eh.id) if (id == -1) boden++;
+        check(fehler < 1e-5 && dh2.gelaende == hang && boden > 0, "Gelände am Hang: %,d Blätter und %,d Halme genau gehoben (%.1g m), %.1f %% Boden im Bild",
+                q.blaetter(), q.halme(), fehler, 100.0 * boden / eh.id.length);
     }
 
     static void check(boolean c, String what, Object... args) {

@@ -424,6 +424,33 @@ Für genau dieselben Bäume wie im Wald der App gibt `forest` seine Modelle hera
 
 Toleranz des Rundwegs: Median ± 1, Grund ± 1 Punkt (Büschel ± 1,5), helle und dunkle Flecken ± 10 % (Büschel ± 12 %). Gleich sind die Bilder nur im Mittel. Die Blätter fallen anders aus dem Zufall, weil der seed eines Zweigs von außen die Nummer seines ersten Blatts ist. Den Büscheln fehlen die trockenen Blätter der Kronen.
 
+## Gelände (seit LituyaBay1958 W10)
+
+Bis Phase 5 war der Boden die Ebene y = 0. Eine App mit Gelände musste jeden Baum auf seinen eigenen Grund senken, und ein Hang wurde zur Ebene. Jetzt kann eine `Quelle` ein `Gelaende` mitgeben: Höhen auf einem Gitter, bilinear dazwischen, am Rand gehalten. Ohne Gelände (`null`, die Vorgabe) bleibt alles wie bisher.
+
+![Huflattich am Hang: 35 % nach hinten ansteigend mit flachen Wellen, auf der Grafikkarte nach „Blätter“, rechts das Kennblatt](../../../../docs/img/gertsch_hang.png)
+
+| Wo | Was das Gelände ändert |
+|---|---|
+| `Gelaende` | Höhe (bilinear, in float wie der Shader), Normale aus zentralen Differenzen, Schnitt eines Strahls (Schritte einer halben Zelle, dann Bisektion), `Gelaende.aus(rechteck, zelle, höhe)` |
+| `Quelle.gelaende()`, `Dickicht.gelaende` | das Gelände der Szene; `Dickicht.bodenHoehe(x, z)` |
+| `Quelle.aufGelaende(q, g)` | stellt eine auf der Ebene gebaute Szene auf ein Gelände: jedes Element um die Höhe darunter (Halme unter ihrem Fuß). Für kleine Pflanzen; Bäume stellt die App als Ganzes auf ihren Grund. |
+| `gl/boden.vert`, `boden.frag` | der Boden als Gitter über einer Höhentextur (R32F, `texelFetch`), Licht nach seiner Normale, Himmel mit 0,55 + 0,45 · n.y wie die Stämme |
+| `gl/GertschGl` | Tiefe der Schattenkarten über das Gelände, Rahmen der Empfänger ab dem tiefsten Boden |
+| `Malweise` | Strahl gegen das Gitter, Licht nach der Normale; mit Gelände verdeckt der Boden Flecken dahinter (Tiefe je Bildpunkt gegen die Mitte des Flecks) |
+
+Das Blattflächenfeld des Himmels liegt ab y = 0 nach oben: Die tiefste Stelle des Geländes sollte auf y = 0 liegen (so macht es die Brücke von LituyaBay1958).
+
+**Abnahme**
+
+| Prüfung | Ergebnis |
+|---|---|
+| Schiefe Ebene y = 0,2 x + 0,1 z + 1 als Gitter zu 0,5 m: Höhe, Normale, Strahl | Höhe auf 5 · 10⁻⁷ m, Normale auf 10⁻⁶, Strahl auf 2 · 10⁻⁸ m genau |
+| Ebenes Gelände gegen die Ebene, Prozessor (Huflattich) | Median 39,7 / 39,7, Grund 34,1 / 34,1 %, hell 2,33 / 2,33 % |
+| Ebenes Gelände gegen die Ebene, Grafikkarte | 78 von 1 747 200 Bildpunkten anders |
+| `aufGelaende` am Hang | 5 027 Blätter und 1 500 Halme genau gehoben (10⁻⁷ m) |
+| Am Hang: Grafikkarte gegen Prozessor | Median −7,2 (auf der Ebene −4,5), Grund +3,0 Punkte (auf der Ebene +1,2): so nah wie auf der Ebene, Toleranz 3 und 3 Punkte |
+
 ## Was es kann
 
 - **Lab** (`Lab`): sRGB ↔ CIELAB (D65), ΔE*ab, Buntheit, Farbton (CIE 15:2004, IEC 61966-2-1).
@@ -482,6 +509,10 @@ Quelle.Bueschel bu = q.bueschel();                 // 120 Blätter aus dem Zufal
 bu.x = 1; bu.y = 4; bu.z = 9; bu.radius = 0.3f; bu.blaetter = 120; bu.laenge = 0.08f; bu.r = 0.05f; bu.g = 0.16f; bu.b = 0.03f;
 Dickicht szene = Dickicht.aus(q);                  // für Licht, Malweise, GertschGl, Stich
 
+// seit LituyaBay1958 W10: ein Gelände unter der Szene
+Gelaende g = Gelaende.aus(-20, -5, 20, 40, 0.5, (x, z) -> 0.3 * z);   // Rechteck, Zelle, Höhe
+Dickicht amHang = Dickicht.aus(Quelle.aufGelaende(q, g));             // oder eine eigene Quelle mit gelaende()
+
 // Phase 3: auf der Grafikkarte (im GL-Faden)
 GertschGl gg = new GertschGl();                    // Vorlage Sommer, HIGH, Hysterese 0,3 Blenden
 gg.init(gl);
@@ -523,7 +554,8 @@ BufferedImage druck = sg.lesen(gl);
 | `Druck` | Phase 4: Kennwerte eines Holzschnitts und ihre Messung (Papier, Farbe, Punkte, Ordnung, Ton, Wolken, Korn), `bericht()`, `alsJava(…)` |
 | `Punkte` | Phase 4: Rang je Zelle (Void and Cluster gemischt mit Zufall), Form, Abstand, Einzug der Kante, Eichkurve (in GLSL gleich) |
 | `Stich` | Phase 4: der Holzschnitt aus einem Bild oder einer Helligkeit: Ton, Punkte, Farbe mit Wolken und Korn |
-| `Quelle` | Phase 5: Schnittstelle für Szenen von außen: `Blatt`, `Bueschel`, `Halm`, `Glied`, Boden; `Sammlung` zum Füllen |
+| `Quelle` | Phase 5: Schnittstelle für Szenen von außen: `Blatt`, `Bueschel`, `Halm`, `Glied`, Boden; `Sammlung` zum Füllen; seit W10 `gelaende()` und `aufGelaende` |
+| `Gelaende` | seit LituyaBay1958 W10: Höhen auf einem Gitter, Normale, Strahl |
 | `gl/GertschGl` | Phase 3: Laden, Schattenkarten, Auswahl, Bild, Tonwerte, Zähler, Zeit je Durchgang; Texturen für Phase 4 |
 | `gl/StichGl` | Phase 4: Holzschnitt aus einer Textur, mit Trägheit und Hysterese der Punkte; Zeigen ganz oder mit der Lupe |
 | `gl/stich.glsl`, `stich.vert`, `stich_hell.frag`, `stich_punkte.comp`, `stich.frag`, `stich_zeigen.frag` | Phase 4: die Shader des Holzschnitts (`histogramm.comp` von Phase 3) |
@@ -532,7 +564,7 @@ BufferedImage druck = sg.lesen(gl);
 | `demo/GertschGlDemo` | Phase 3: Fenster im Wind, Standbild, Messung des Flimmerns |
 | `demo/GertschGlCheck` | Phase 3 und 4: Prüfung auf der Grafikkarte |
 | `demo/StichDemo` | Phase 4: Holzschnitt im Fenster (Dickicht im Wind oder ein Bild), Lupe, Standbild, Messung des Flimmerns |
-| `demo/QuelleDemo` | Phase 5: Szenen von außen im Fenster (Huflattich, Dickicht als Büschel, Dickicht aus seed), wahlweise als Holzschnitt; Standbild |
+| `demo/QuelleDemo` | Phase 5: Szenen von außen im Fenster (Huflattich, Dickicht als Büschel, Dickicht aus seed, seit W10 Huflattich am Hang), wahlweise als Holzschnitt; Standbild |
 | `demo/Huflattich` | Phase 5: Testszene mit eigenem Modell und Brücke zur `Quelle` |
 | `demo/Druckblatt` | zeichnet die Kennwerte eines Drucks, wahlweise mit dem Soll |
 | `demo/GertschDemo` | Phase 1: Vorlagen vermessen, Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
@@ -684,13 +716,13 @@ java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.QuelleDemo --bild quelle
 
 Das Fenster der `QuelleDemo` zeigt links die Szene im Wind und rechts das Kennblatt, auf „Messen“ mit dem Bild gegen die Vorlage. Unten wählt man:
 
-- Szene: Huflattich (von außen, Vorlage „Blätter“), Dickicht als Büschel (17 Mio. Blätter durch die Schnittstelle), Dickicht aus seed (zum Vergleich)
+- Szene: Huflattich (von außen, Vorlage „Blätter“), Dickicht als Büschel (17 Mio. Blätter durch die Schnittstelle), Dickicht aus seed (zum Vergleich), Huflattich am Hang (seit W10: auf einem `Gelaende`, 35 % ansteigend mit Wellen)
 - Vorlage
 - Hysterese und Holzschnitt (`StichGl` auf dem Licht der Szene)
 - „Messen“ und „Neu würfeln“
 - Wind, Sonnenhöhe und -richtung
 
-Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte, die Zahl der Flecken und wie viele Blätter von außen kamen. `--bild datei.png [huflattich|bueschel|seed] [vorlage] [Qualität] [Wind]` schreibt ein Standbild mit Kennblatt, mit `--cpu` malt der Prozessor.
+Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte, die Zahl der Flecken und wie viele Blätter von außen kamen. `--bild datei.png [huflattich|bueschel|seed|hang] [vorlage] [Qualität] [Wind]` schreibt ein Standbild mit Kennblatt, mit `--cpu` malt der Prozessor.
 
 `GertschGlCheck` prüft auf der Grafikkarte:
 
@@ -776,7 +808,8 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
   - Im Wind bleiben trotz Ruhe etwa 5 % Wechsel je Bild. Die Trägheit verschmiert schnelle Bewegung (0,15 s).
   - Die Ellipsen der Punkte sind gezeichnet, nicht aus dem Stich des Hohleisens abgeleitet.
 - Phase 5:
-  - Die Szene muss im Bezug des Dickichts liegen: Boden y = 0, Kamera nahe dem Ursprung. Gelände mit Höhen trägt die Schnittstelle nicht; die App schneidet einen ebenen Ausschnitt oder hebt alles auf die Ebene.
+  - Die Szene muss im Bezug des Dickichts liegen: Boden ab y = 0, Kamera nahe dem Ursprung. Seit W10 trägt die Schnittstelle ein Gelände (`Gelaende`); der Boden ist dort ein Gitter in der Auflösung des Geländes, zwischen den Punkten auf der Grafikkarte linear je Dreieck, auf dem Prozessor bilinear.
+  - Mit Gelände verdeckt der Boden im Painter des Prozessors einen Fleck nach der Tiefe seiner Mitte, nicht je Bildpunkt seiner Fläche.
   - Einzelne Blätter kosten 64 Byte, auf Prozessor und Grafikkarte. Für ganze Bäume sind Büschel gedacht.
   - Büschel haben eine Farbe, also keine trockenen Blätter darin, und ihre Blätter liegen in einer flachen Kugel, nicht im Fächer von `forest`.
   - Ein Zweig von außen schwingt als Ganzes. Äste und Stämme stehen still wie im Dickicht.
@@ -788,4 +821,4 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
 3. ~~`gl/`: Flecken und Halme auf der Grafikkarte, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind~~ (Phase 3).
 4. ~~Holzschnitt: Punkte nach Rang, eine Farbe, senkrechte Wolken im Farbauftrag, auf jeder Ausgabe~~ (Phase 4).
 5. ~~Eine Schnittstelle für Blätter und Halme von außen (`Quelle`), damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann~~ (Phase 5).
-6. ~~Einbau in eine App~~ (LituyaBay1958, Werkbuch Welle W10): die Brücke `gl/MalweiseGl` in der App. Sie nimmt dieselben Bäume wie der Wald der App (`ForestGpu.culture()`, `ForestGpu.model`) und den Unterwuchs aus `understory`. Im Bedienfeld MALWEISE ist sie zuschaltbar: der Wald nach Gertsch, als Holzschnitt oder die ganze Szene als Holzschnitt. Dafür neu hier: `Licht.vorbereitenGl(d)` (nur der Himmel, ohne die Schattenkarte des Prozessors) und `GertschGl.sonneGeaendert()` (die Sonne wandert, ohne neu zu laden). Offen: die Heldenbilder gegen die Vorlagen messen.
+6. ~~Einbau in eine App~~ (LituyaBay1958, Werkbuch Welle W10): die Brücke `gl/MalweiseGl` in der App. Sie nimmt dieselben Bäume wie der Wald der App (`ForestGpu.culture()`, `ForestGpu.model`) und den Unterwuchs aus `understory`. Im Bedienfeld MALWEISE ist sie zuschaltbar: der Wald nach Gertsch, als Holzschnitt oder die ganze Szene als Holzschnitt. Dafür neu hier: `Licht.vorbereitenGl(d)` (nur der Himmel, ohne die Schattenkarte des Prozessors) und `GertschGl.sonneGeaendert()` (die Sonne wandert, ohne neu zu laden). In W10a gegen die Vorlagen gemessen und abgestimmt (Werkbuch Welle 5f.3), dafür neu das Gelände (Abschnitt oben).
