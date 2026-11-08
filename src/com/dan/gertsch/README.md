@@ -384,7 +384,7 @@ halme(q, Reed.breeze(), Reed.Kind.GRAS, 0, 6, 7);
 Dickicht d = Dickicht.aus(q);                      // weiter wie mit Dickicht.sommer()
 ```
 
-Welche Modelle die Bäume einer `Forest` haben, hält `forest` intern (`TreeGenerator.grow` mit eigenem seed je Art und Variante). Für genau dieselben Bäume wie im Wald der App bräuchte `forest` einen Zugriff darauf, etwa `Forest.model(TreeInstance)`. Das gehört in den Einbau in die App.
+Für genau dieselben Bäume wie im Wald der App gibt `forest` seine Modelle heraus: `Forest.model(TreeInstance)` für den Wald auf dem Prozessor (seit LituyaBay1958 W10), `ForestGpu.culture().at(i, j, baum)` und `ForestGpu.model(baum.type)` für den Wald auf der Grafikkarte. Die Drehung der Instanz ist dann die von `forest.vert`: `cos yaw · px − sin yaw · pz`, `sin yaw · px + cos yaw · pz`. Die Brücke von LituyaBay1958 (`gl/MalweiseGl`) nimmt so die Bäume um die Kamera aus ihrem Wald.
 
 ### Die Testszene: Huflattich
 
@@ -488,6 +488,8 @@ gg.init(gl);
 gg.laden(gl, d, licht);
 gg.wind.staerke = 6;                               // m/s; Richtung und Böigkeit ebenso offen
 gg.zeichnen(gl, kamera, zeit, zielFbo, 0, 0, breite, hoehe);   // je Bild
+licht.sonneHoehe = 12; licht.richten(); gg.sonneGeaendert();   // die Sonne wandert, ohne neu zu laden
+// nur für die Grafikkarte: licht.vorbereitenGl(d) statt vorbereiten(d) (ohne Schattenkarte des Prozessors)
 BufferedImage bild = gg.lesen(gl);                 // das letzte Bild, etwa zum Messen
 
 // Phase 4: Holzschnitt auf der Grafikkarte (im GL-Faden), aus jeder Textur
@@ -786,4 +788,4 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
 3. ~~`gl/`: Flecken und Halme auf der Grafikkarte, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind~~ (Phase 3).
 4. ~~Holzschnitt: Punkte nach Rang, eine Farbe, senkrechte Wolken im Farbauftrag, auf jeder Ausgabe~~ (Phase 4).
 5. ~~Eine Schnittstelle für Blätter und Halme von außen (`Quelle`), damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann~~ (Phase 5).
-6. Einbau in eine App (LituyaBay1958): die Brücke oben, dieselben Baummodelle wie im Wald der App (`forest` bräuchte dafür einen Zugriff), Heldenbilder gegen die Vorlagen messen.
+6. ~~Einbau in eine App~~ (LituyaBay1958, Werkbuch Welle W10): die Brücke `gl/MalweiseGl` in der App. Sie nimmt dieselben Bäume wie der Wald der App (`ForestGpu.culture()`, `ForestGpu.model`) und den Unterwuchs aus `understory`. Im Bedienfeld MALWEISE ist sie zuschaltbar: der Wald nach Gertsch, als Holzschnitt oder die ganze Szene als Holzschnitt. Dafür neu hier: `Licht.vorbereitenGl(d)` (nur der Himmel, ohne die Schattenkarte des Prozessors) und `GertschGl.sonneGeaendert()` (die Sonne wandert, ohne neu zu laden). Offen: die Heldenbilder gegen die Vorlagen messen.

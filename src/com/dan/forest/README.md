@@ -230,6 +230,8 @@ wald.draw(gl4, view, licht, t);
 
 `wald.culture()` beantwortet Fragen der App ohne Grafikkarte, etwa „steht auf Platz (i, j) ein Baum, welcher, wie hoch“. `readStats` gibt Zähler, `info()` eine Zeile für das HUD.
 
+**Dieselben Bäume anders malen (seit LituyaBay1958 W10).** `wald.culture().at(i, j, baum)` würfelt den Baum eines Platzes wie die Grafikkarte, `wald.model(baum.type)` gibt sein Skelett (Äste, Blattstellen). Für den Wald auf dem Prozessor gibt es dasselbe als `forest.model(tree)`. Ein Punkt p des Skeletts liegt in der Welt bei `x + scale · (cos yaw · px − sin yaw · pz)`, `y + scale · py`, `z + scale · (sin yaw · px + cos yaw · pz)`, wie in `forest.vert`. So malt LituyaBay1958 den Wald um die Kamera nach Franz Gertsch (`com.dan.gertsch`, Brücke in der App).
+
 **Aufbau.**
 
 | Klasse | Aufgabe |

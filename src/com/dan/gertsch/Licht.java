@@ -62,6 +62,19 @@ public final class Licht {
         return this;
     }
 
+    /**
+     * Richtet das Licht und rechnet nur den Himmel (Blattfläche über jeder Zelle), ohne die Schattenkarte des Prozessors
+     * (seit LituyaBay1958 W10). Das genügt für {@link com.dan.gertsch.gl.GertschGl}, das seine Schattenkarten selbst
+     * zeichnet; die Karte von {@link #schattenKante}² Texeln kostet bei einer Million Büscheln Sekunden und 36 MB.
+     * {@link #sonne} gibt danach überall 1.
+     */
+    public Licht vorbereitenGl(Dickicht d) {
+        richten();
+        karte = null;
+        himmel(d);
+        return this;
+    }
+
     // ------------------------------------------------------------------ Schatten
 
     void schatten(Dickicht d) {
