@@ -48,7 +48,7 @@ Blatt blatt(Zweig z, uint i) {
     b.zufall = zug(s, i, 0u);
     float cz = 2.0 * zug(s, i, 1u) - 1.0, sxy = sqrt(max(0.0, 1.0 - cz * cz));
     float ph = 6.2831853 * zug(s, i, 2u), rr = pow(max(zug(s, i, 3u), 1e-12), 1.0 / 3.0);
-    b.p = z.mr.xyz + z.mr.w * rr * vec3(sxy * cos(ph), 0.75 * cz, sxy * sin(ph));
+    b.p = z.mr.xyz + z.mr.w * rr * vec3(sxy * cos(ph), (bo ? 0.03 : 0.75) * cz, sxy * sin(ph));   // liegend flach (Dickicht.LIEGEND_FLACH)
     float gauss = sqrt(-2.0 * log(max(zug(s, i, 4u), 1e-7))) * cos(6.2831853 * zug(s, i, 5u));
     float th = radians(min(85.0, abs(gauss) * neig)), phn = 6.2831853 * zug(s, i, 6u);
     b.n = vec3(sin(th) * cos(phn), cos(th), sin(th) * sin(phn));

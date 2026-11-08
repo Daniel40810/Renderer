@@ -56,17 +56,18 @@ import java.util.concurrent.atomic.AtomicReference;
  * <li><b>Dickicht aus seed</b>: dasselbe Dickicht ohne die Schnittstelle, zum Vergleich.</li>
  * <li><b>Huflattich am Hang</b> (seit LituyaBay1958 W10): derselbe Huflattich auf einem {@link com.dan.gertsch.Gelaende},
  * 35 % nach hinten ansteigend mit Wellen ({@link Quelle#aufGelaende}); die Kamera steht 1,5 m über ihrem Grund.</li>
+ * <li><b>Huflattich am Wasser</b> (seit W10b): derselbe Hang, vorn bis 0,45 m unter einem Wasserspiegel.</li>
  * </ul>
- * Ohne Fenster: {@code --bild datei.png [huflattich|bueschel|seed|hang] [vorlage] [LOW|MEDIUM|HIGH|ULTRA] [wind m/s]}; mit
+ * Ohne Fenster: {@code --bild datei.png [huflattich|bueschel|seed|hang|wasser] [vorlage] [LOW|MEDIUM|HIGH|ULTRA] [wind m/s]}; mit
  * {@code --cpu} malt der Prozessor ({@link Malweise}).
  */
 public final class QuelleDemo implements GLEventListener {
     static final Color BG = new Color(11, 17, 24);
-    static final String[] SZENEN = {"Huflattich (von außen)", "Dickicht als Büschel", "Dickicht aus seed", "Huflattich am Hang (Gelände)"};
-    static final String[] KURZ = {"huflattich", "bueschel", "seed", "hang"};
+    static final String[] SZENEN = {"Huflattich (von außen)", "Dickicht als Büschel", "Dickicht aus seed", "Huflattich am Hang (Gelände)", "Huflattich am Wasser"};
+    static final String[] KURZ = {"huflattich", "bueschel", "seed", "hang", "wasser"};
 
     /** Szenen mit dem Huflattich (Vorlage „Blätter“, Sonne 45°). */
-    static boolean huflattich(int i) { return i == 0 || i == 3; }
+    static boolean huflattich(int i) { return i == 0 || i == 3 || i == 4; }
 
     final GertschGl gg = new GertschGl();
     final StichGl sg = new StichGl();
@@ -106,8 +107,8 @@ public final class QuelleDemo implements GLEventListener {
             Huflattich h = new Huflattich();
             h.seed = seed;
             h.bauen();
-            if (i == 3) {   // seit LituyaBay1958 W10: derselbe Huflattich auf einem Hang (35 % nach hinten, Wellen)
-                com.dan.gertsch.Gelaende g = h.hang(0.35);
+            if (i >= 3) {   // seit LituyaBay1958 W10: derselbe Huflattich auf einem Hang (35 % nach hinten, Wellen); W10b mit Wasser vorn
+                com.dan.gertsch.Gelaende g = i == 3 ? h.hang(0.35) : h.hang(0.35).mitWasser(0.45f);
                 d = Dickicht.aus(Quelle.aufGelaende(h.alsQuelle(), g));
                 k = h.kamera(g);
             } else {
@@ -231,7 +232,7 @@ public final class QuelleDemo implements GLEventListener {
         ist.name = KURZ[si];
         ist.titel = SZENEN[si];
         ImageIO.write(tafel(im, ist, soll, String.format(Locale.GERMAN, "%s · %s · %,d Blätter%s · Vorlage „%s“", SZENEN[si], wie, d.blattZahl(),
-                si == 0 ? " von außen" : si == 3 ? " von außen, am Hang" : si == 1 ? " in Büscheln von außen" : " aus seed", soll.titel)), "png", new File(datei));
+                si == 0 ? " von außen" : si == 3 ? " von außen, am Hang" : si == 4 ? " von außen, am Wasser" : si == 1 ? " in Büscheln von außen" : " aus seed", soll.titel)), "png", new File(datei));
         System.out.print(ist.bericht());
         System.out.print(soll.bericht());
         System.out.printf(Locale.GERMAN, "zusammen %.1f s · Bild: %s%n", (System.nanoTime() - t0) / 1e9, datei);

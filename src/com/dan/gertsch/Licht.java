@@ -191,33 +191,43 @@ public final class Licht {
             double a = z.blaetter * 0.7 * z.laenge * z.laenge * z.schmal / flaeche;
             dichte[(k * gx + i) * gy + j] += (float) a;
         }
-        // weich in x und z (Licht kommt aus dem ganzen oberen Halbraum), dann von oben aufsummieren
-        float[] weich = new float[dichte.length];
-        int r = 3;
-        for (int k = 0; k < gz; k++)
-            for (int i = 0; i < gx; i++)
-                for (int j = 0; j < gy; j++) {
+        // weich in x und z (Licht kommt aus dem ganzen oberen Halbraum), dann von oben aufsummieren. Das Mittel über das
+        // Quadrat von (2r + 1)² Zellen, am Rand beschnitten, in zwei Durchgängen (erst x, dann z) und parallel über die
+        // Zeilen (seit LituyaBay1958 W10b: bei einer Million Büscheln und 100 m Gelände 1 s statt weniger als 0,1 s).
+        // Das beschnittene Quadrat ist ein Produkt, also teilt das Mittel durch (Zellen in x) · (Zellen in z) wie vorher.
+        final int r = 3, nx = gx, nz = gz, ny = gy;
+        double[] zeile = new double[dichte.length];
+        java.util.stream.IntStream.range(0, nz).parallel().forEach(k -> {
+            for (int i = 0; i < nx; i++)
+                for (int j = 0; j < ny; j++) {
                     double s = 0;
-                    int c = 0;
-                    for (int dk = -r; dk <= r; dk++)
-                        for (int di = -r; di <= r; di++) {
-                            int ii = i + di, kk = k + dk;
-                            if (ii < 0 || kk < 0 || ii >= gx || kk >= gz) continue;
-                            s += dichte[(kk * gx + ii) * gy + j];
-                            c++;
-                        }
-                    weich[(k * gx + i) * gy + j] = (float) (s / Math.max(1, c));
+                    for (int ii = Math.max(0, i - r); ii <= Math.min(nx - 1, i + r); ii++) s += dichte[(k * nx + ii) * ny + j];
+                    zeile[(k * nx + i) * ny + j] = s;
                 }
+        });
+        float[] weich = new float[dichte.length];
+        java.util.stream.IntStream.range(0, nz).parallel().forEach(k -> {
+            int k0 = Math.max(0, k - r), k1 = Math.min(nz - 1, k + r);
+            for (int i = 0; i < nx; i++) {
+                int c = (Math.min(nx - 1, i + r) - Math.max(0, i - r) + 1) * (k1 - k0 + 1);
+                for (int j = 0; j < ny; j++) {
+                    double s = 0;
+                    for (int kk = k0; kk <= k1; kk++) s += zeile[(kk * nx + i) * ny + j];
+                    weich[(k * nx + i) * ny + j] = (float) (s / c);
+                }
+            }
+        });
         lai = new float[weich.length];
-        for (int k = 0; k < gz; k++)
-            for (int i = 0; i < gx; i++) {
+        java.util.stream.IntStream.range(0, nz).parallel().forEach(k -> {
+            for (int i = 0; i < nx; i++) {
                 float s = 0;
-                for (int j = gy - 1; j >= 0; j--) {
-                    int o = (k * gx + i) * gy + j;
+                for (int j = ny - 1; j >= 0; j--) {
+                    int o = (k * nx + i) * ny + j;
                     lai[o] = s;   // Blattfläche über dieser Schicht
                     s += weich[o];
                 }
             }
+        });
     }
 
     /** Anteil des Himmelslichts am Punkt, 0..1 (Blattfläche darüber trilinear zwischen den Zellmitten). */

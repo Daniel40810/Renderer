@@ -197,12 +197,14 @@ public final class Malweise {
                     if (r[1] > -1e-4) continue;
                     t = -k.auge[1] / r[1];
                 } else {
-                    t = ge.strahl(k.auge, r, weit);
+                    t = ge.strahlOberflaeche(k.auge, r, weit);
                     if (Double.isNaN(t)) continue;
                 }
-                double gx = k.auge[0] + r[0] * t, gz = k.auge[2] + r[2] * t, gy = ge == null ? 0 : ge.hoehe(gx, gz);
+                double gx = k.auge[0] + r[0] * t, gz = k.auge[2] + r[2] * t, gy = ge == null ? 0 : ge.oberflaeche(gx, gz);
+                boolean nass = ge != null && ge.nass(gx, gz);
                 float[] bb = d.bodenBereich;
-                if (bb == null ? gz > d.fern * 1.3 : gx < bb[0] || gz < bb[1] || gx > bb[2] || gz > bb[3]) continue;
+                // Land nur im Bereich der Szene, das Wasser auf dem ganzen Gelände (seit W10b, wie boden.frag)
+                if (!nass && (bb == null ? gz > d.fern * 1.3 : gx < bb[0] || gz < bb[1] || gx > bb[2] || gz > bb[3])) continue;
                 double lichtN = lichtBoden, himmelN = 1;
                 if (ge != null) {
                     ge.normale(gx, gz, nn);
@@ -213,7 +215,12 @@ public final class Malweise {
                 int o = y * w + x;
                 hatBoden[o] = true;
                 if (bodenTiefe != null) bodenTiefe[o] = (float) k.tiefe(gx, gy, gz);
-                for (int i = 0; i < 3; i++) boden[3 * o + i] = (float) (d.boden[i] * (l.sonneFarbe[i] * lichtN * vis + l.himmelFarbe[i] * him));
+                if (nass) {   // seit W10b das Wasser: Himmel nach Fresnel gespiegelt, darunter sein Körper (wie boden.frag)
+                    double fr = Gelaende.fresnel(-r[1]), himW = l.himmel(gx, gy + 0.05, gz), visW = l.sonne(gx, gy + 0.01, gz);
+                    for (int i = 0; i < 3; i++)
+                        boden[3 * o + i] = (float) ((1 - fr) * ge.wasserFarbe[i] * (l.sonneFarbe[i] * lichtBoden * visW + l.himmelFarbe[i] * himW) + fr * l.himmelFarbe[i] * himW);
+                } else
+                    for (int i = 0; i < 3; i++) boden[3 * o + i] = (float) (d.boden[i] * (l.sonneFarbe[i] * lichtN * vis + l.himmelFarbe[i] * him));
             }
 
         // 3 von hinten nach vorn ordnen

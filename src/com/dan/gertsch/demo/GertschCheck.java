@@ -751,6 +751,16 @@ public final class GertschCheck {
         check(dh < 1e-4 && dn < 1e-4 && Math.abs(t - tSoll) < 1e-3, "Gelände: schiefe Ebene bilinear genau (%.1g m), Normale (%.1g), Strahl trifft auf %.1g m",
                 dh, dn, Math.abs(t - tSoll));
 
+        // seit W10b: Wasserspiegel über dem Gelände (Strahl trifft zuerst das Wasser, Fresnel nach Schlick)
+        com.dan.gertsch.Gelaende see = com.dan.gertsch.Gelaende.aus(-10, -5, 10, 20, 0.5, (x, z) -> 0.2 * z - 2).mitWasser(0);
+        double tw = see.strahlOberflaeche(auge, r, 100), twSoll = auge[1] / -r[1];
+        double xs = auge[0] + r[0] * tw, zs = auge[2] + r[2] * tw;
+        boolean nass = see.nass(xs, zs), trocken = !see.nass(0, 15);
+        double f0 = com.dan.gertsch.Gelaende.fresnel(1), f90 = com.dan.gertsch.Gelaende.fresnel(0);
+        check(Math.abs(tw - twSoll) < 1e-6 && nass && trocken && Math.abs(see.oberflaeche(xs, zs)) < 1e-6 && Math.abs(f0 - 0.02) < 1e-9 && Math.abs(f90 - 1) < 1e-9,
+                "Wasser: Strahl trifft den Spiegel auf %.1g m genau, nass unter dem Spiegel, trocken darüber, Fresnel senkrecht %.2f, streifend %.2f",
+                Math.abs(tw - twSoll), f0, f90);
+
         // ein ebenes Gelände malt wie die Ebene ohne Gelände
         com.dan.gertsch.Gelaende eben = com.dan.gertsch.Gelaende.aus(-3, -1, 3, 5, 0.25, (x, z) -> 0);
         Dickicht de = Dickicht.aus(Quelle.aufGelaende(huf.alsQuelle(), eben));
