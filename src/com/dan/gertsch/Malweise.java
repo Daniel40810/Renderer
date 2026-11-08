@@ -188,7 +188,8 @@ public final class Malweise {
                 k.strahl(x + 0.5, y + 0.5, r);
                 if (r[1] > -1e-4) continue;
                 double t = -k.auge[1] / r[1], gx = k.auge[0] + r[0] * t, gz = k.auge[2] + r[2] * t;
-                if (gz > d.fern * 1.3) continue;
+                float[] bb = d.bodenBereich;
+                if (bb == null ? gz > d.fern * 1.3 : gx < bb[0] || gz < bb[1] || gx > bb[2] || gz > bb[3]) continue;
                 double vis = l.sonne(gx, 0.01, gz), him = l.himmel(gx, 0.05, gz);
                 int o = y * w + x;
                 hatBoden[o] = true;
