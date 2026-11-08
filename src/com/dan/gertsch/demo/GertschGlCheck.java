@@ -339,7 +339,56 @@ public final class GertschGlCheck implements GLEventListener {
         dr.display();
         check(c.gg.gewollt == c.gg.instanzen && c.gg.instanzen > 0, "Huflattich (OpenGL): %,d Flecken aus %,d Blättern von außen, keine Liste zu klein",
                 c.gg.instanzen, dhuf.blattZahl());
-        GertschCheck.abnahmeHuflattich("Huflattich (OpenGL)", new Messung().messen(hb[0]), Vorlagen.blaetter(), Vorlagen.sommer().hellD50, GertschGlCheck::check);
+        Vorlage vGpuEben = new Messung().messen(hb[0]);
+        GertschCheck.abnahmeHuflattich("Huflattich (OpenGL)", vGpuEben, Vorlagen.blaetter(), Vorlagen.sommer().hellD50, GertschGlCheck::check);
+
+        // 11 seit LituyaBay1958 W10: das Gelände. Eben wie die Ebene (Bildpunkt für Bildpunkt), am Hang Grafikkarte und
+        // Prozessor so nah beieinander wie auf der Ebene
+        com.dan.gertsch.Gelaende eben = com.dan.gertsch.Gelaende.aus(-3, -1, 3, 5, 0.25, (x, z) -> 0);
+        Dickicht de = Dickicht.aus(com.dan.gertsch.Quelle.aufGelaende(huf.alsQuelle(), eben));
+        Licht le = new Licht();
+        le.sonneHoehe = 45;
+        c.dickicht = de;
+        c.licht = le.vorbereiten(de);
+        c.geladen = false;
+        c.nachher = null;
+        for (int i = 0; i < 6; i++) dr.display();
+        java.awt.image.BufferedImage[] eb = new java.awt.image.BufferedImage[1];
+        c.nachher = gl -> eb[0] = c.gg.lesen(gl);
+        dr.display();
+        int anders = 0, nPix = hb[0].getWidth() * hb[0].getHeight();
+        for (int y = 0; y < hb[0].getHeight(); y++)
+            for (int x = 0; x < hb[0].getWidth(); x++) if (hb[0].getRGB(x, y) != eb[0].getRGB(x, y)) anders++;
+        check(anders <= nPix / 200, "Gelände eben wie die Ebene (OpenGL): %d von %,d Bildpunkten anders", anders, nPix);
+
+        com.dan.gertsch.Gelaende hang = huf.hang(0.35);
+        Dickicht dh = Dickicht.aus(com.dan.gertsch.Quelle.aufGelaende(huf.alsQuelle(), hang));
+        Licht lh = new Licht();
+        lh.sonneHoehe = 45;
+        lh.vorbereiten(dh);
+        Kamera kHang = huf.kamera(hang);
+        c.dickicht = dh;
+        c.licht = lh;
+        c.geladen = false;
+        c.kamera.auge = kHang.auge;
+        c.nachher = null;
+        for (int i = 0; i < 6; i++) dr.display();
+        java.awt.image.BufferedImage[] gh = new java.awt.image.BufferedImage[1];
+        c.nachher = gl -> gh[0] = c.gg.lesen(gl);
+        dr.display();
+        Vorlage vGpuHang = new Messung().messen(gh[0]);
+        com.dan.gertsch.Malweise mh = new com.dan.gertsch.Malweise();
+        mh.vorlage = Vorlagen.blaetter();
+        mh.seitenverhaeltnis = 1465 / 1000.0;
+        Vorlage vCpuHang = new Messung().messen(mh.malen(dh, lh, kHang).bild);
+        Licht lf = new Licht();
+        lf.sonneHoehe = 45;
+        Dickicht df = Dickicht.aus(huf.alsQuelle());
+        Vorlage vCpuEben = new Messung().messen(mh.malen(df, lf.vorbereiten(df), huf.kamera()).bild);
+        double dlHang = (vGpuHang.l50 - vCpuHang.l50) - (vGpuEben.l50 - vCpuEben.l50), dgHang = (vGpuHang.grund - vCpuHang.grund) - (vGpuEben.grund - vCpuEben.grund);
+        check(Math.abs(dlHang) < 3 && Math.abs(dgHang) < 0.03 && Math.abs(vGpuHang.l50 - vGpuEben.l50) > 0.1,
+                "Gelände am Hang: Grafikkarte − Prozessor wie auf der Ebene (Median %+.1f statt %+.1f, Grund %+.1f statt %+.1f Punkte)",
+                vGpuHang.l50 - vCpuHang.l50, vGpuEben.l50 - vCpuEben.l50, 100 * (vGpuHang.grund - vCpuHang.grund), 100 * (vGpuEben.grund - vCpuEben.grund));
 
         dr.destroy();
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");

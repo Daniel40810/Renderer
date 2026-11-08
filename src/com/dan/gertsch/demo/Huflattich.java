@@ -65,6 +65,23 @@ public final class Huflattich {
         return k;
     }
 
+    /**
+     * Ein Hang unter der Szene (seit LituyaBay1958 W10): steigt nach hinten (+z) mit {@code steigung}, dazu flache
+     * Wellen von 12 cm quer und längs; Gitter zu 10 cm über den Bereich mit 1 m Rand.
+     */
+    public com.dan.gertsch.Gelaende hang(double steigung) {
+        double hb = breite / 2 + 1;
+        return com.dan.gertsch.Gelaende.aus(-hb, nah - 1, hb, fern + 1, 0.1,
+                (x, z) -> steigung * z + 0.12 * Math.sin(2.1 * x + 0.4) * Math.cos(1.7 * z));
+    }
+
+    /** Die Kamera der Szene auf dem Hang: 1,5 m über dem Grund unter dem Auge. */
+    public com.dan.gertsch.Kamera kamera(com.dan.gertsch.Gelaende g) {
+        com.dan.gertsch.Kamera k = kamera();
+        k.auge[1] += g.hoehe(k.auge[0], k.auge[2]);
+        return k;
+    }
+
     public Huflattich bauen() {
         blaetter.clear();
         halmListe.clear();

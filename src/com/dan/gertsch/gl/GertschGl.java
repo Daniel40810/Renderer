@@ -1,6 +1,7 @@
 package com.dan.gertsch.gl;
 
 import com.dan.gertsch.Dickicht;
+import com.dan.gertsch.Gelaende;
 import com.dan.gertsch.Kamera;
 import com.dan.gertsch.Lab;
 import com.dan.gertsch.Licht;
@@ -67,6 +68,8 @@ public final class GertschGl {
     static final double LO = -24, HI = 4;
     /** Stufen der Schattenkarten: fern und nah. */
     static final int FERN = 0, NAH = 1;
+    /** Texturstelle der Höhen des Geländes (0, 1, 2, 3 sind belegt). */
+    static final int EINHEIT_HOEHE = 5;
 
     public int breite() { return switch (quality) { case LOW -> 640; case MEDIUM -> 1000; case HIGH -> 1600; case ULTRA -> 2400; }; }
     public int hoehe() { return (int) Math.round(breite() / seitenverhaeltnis); }
@@ -97,6 +100,8 @@ public final class GertschGl {
     private final int[] bListeS = new int[2], bBefehlS = new int[2], bHisto = new int[3];
     // Ziele
     private int tLai, fMsaa, rbFarbe, rbY, rbTiefe, fAufl, tFarbe, tY;
+    /** Seit LituyaBay1958 W10: Höhen des Geländes (R32F, nx × nz) oder 0 für die Ebene. */
+    private int tHoehe;
     private final int[] tSchatten = new int[2], fSchatten = new int[2], schattenN = new int[2], kapS = new int[2];
     private int w, h, abt, kapA;
     private Quality geladen;
@@ -210,6 +215,23 @@ public final class GertschGl {
             gl.glTexParameteri(GL4.GL_TEXTURE_3D, p, GL.GL_CLAMP_TO_EDGE);
         gl.glBindTexture(GL4.GL_TEXTURE_3D, 0);
         laiUrsprung = new float[]{(float) u0[0], 0, (float) u0[2]};
+        // Gelände (seit LituyaBay1958 W10): Höhen als Textur, der Boden wird ein Gitter darüber
+        Gelaende ge = d.gelaende;
+        if (ge != null) {
+            if (tHoehe == 0) {
+                int[] t = new int[1];
+                gl.glGenTextures(1, t, 0);
+                tHoehe = t[0];
+            }
+            gl.glBindTexture(GL.GL_TEXTURE_2D, tHoehe);
+            gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 4);
+            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL4.GL_R32F, ge.nx, ge.nz, 0, GL4.GL_RED, GL.GL_FLOAT, Buffers.newDirectFloatBuffer(ge.h));
+            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST);
+            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST);
+            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE);
+            gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE);
+            gl.glBindTexture(GL.GL_TEXTURE_2D, 0);
+        }
         laiZahl = new float[]{n[0], n[1], n[2]};
         sonneAchsen();
         bodenRect = d.bodenBereich != null ? d.bodenBereich.clone() : new float[]{(float) (-d.breite), 0.3f, (float) d.breite, (float) (d.fern * 1.3)};
@@ -248,6 +270,13 @@ public final class GertschGl {
             mw = Math.min(mw, Math.min(g.x0 * w0[0] + g.y0 * w0[1] + g.z0 * w0[2], g.x1 * w0[0] + g.y1 * w0[1] + g.z1 * w0[2]));
             xw = Math.max(xw, Math.max(g.x0 * w0[0] + g.y0 * w0[1] + g.z0 * w0[2], g.x1 * w0[0] + g.y1 * w0[1] + g.z1 * w0[2]));
         }
+        Gelaende ge = dickicht.gelaende;
+        if (ge != null)   // seit W10: das Gelände (Empfänger) liegt auch darunter und darüber
+            for (int j = 0; j < ge.nz; j++)
+                for (int i = 0; i < ge.nx; i++) {
+                    double ww = (ge.x0 + i * ge.zelle) * w0[0] + ge.h[j * ge.nx + i] * w0[1] + (ge.z0 + j * ge.zelle) * w0[2];
+                    mw = Math.min(mw, ww); xw = Math.max(xw, ww);
+                }
         wMin = Math.min(mw, 0) - 2;   // der Boden (Empfänger) liegt auch darunter
         wMax = xw + 2;
         schattenTiefe = wMax - wMin;
@@ -273,7 +302,7 @@ public final class GertschGl {
                 for (int c = 0; c < 4; c++) {
                     k.strahl((c & 1) == 0 ? 0 : w, (c & 2) == 0 ? 0 : h, r);
                     double d = t / Math.max(1e-6, r[0] * vorn[0] + r[1] * vorn[1] + r[2] * vorn[2]);
-                    double x = auge[0] + r[0] * d, y = Math.max(0, auge[1] + r[1] * d), z = auge[2] + r[2] * d;
+                    double x = auge[0] + r[0] * d, y = Math.max(dickicht.bodenMin(), auge[1] + r[1] * d), z = auge[2] + r[2] * d;
                     double u = x * bu[0] + y * bu[1] + z * bu[2], v = x * bv[0] + y * bv[1] + z * bv[2];
                     mu = Math.min(mu, u); xu = Math.max(xu, u); mv = Math.min(mv, v); xv = Math.max(xv, v);
                 }
@@ -425,7 +454,17 @@ public final class GertschGl {
         gl.glUniformMatrix4fv(ort(gl, pBoden, "uVP"), 1, false, vp, 0);
         gl.glUniform4fv(ort(gl, pBoden, "uBodenRect"), 1, bodenRect, 0);
         gl.glUniform3f(ort(gl, pBoden, "uBoden"), dickicht.boden[0], dickicht.boden[1], dickicht.boden[2]);
-        gl.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4);
+        Gelaende ge = dickicht.gelaende;
+        setI(gl, pBoden, "uGelaende", ge != null ? 1 : 0);
+        if (ge != null) {
+            gl.glActiveTexture(GL.GL_TEXTURE0 + EINHEIT_HOEHE);
+            gl.glBindTexture(GL.GL_TEXTURE_2D, tHoehe);
+            gl.glActiveTexture(GL.GL_TEXTURE0);
+            setI(gl, pBoden, "uHoehe", EINHEIT_HOEHE);
+            gl.glUniform3f(ort(gl, pBoden, "uGelaendeUrsprung"), (float) ge.x0, (float) ge.z0, (float) ge.zelle);
+            gl.glUniform2i(ort(gl, pBoden, "uGelaendeN"), ge.nx, ge.nz);
+            gl.glDrawArrays(GL.GL_TRIANGLES, 0, 6 * (ge.nx - 1) * (ge.nz - 1));
+        } else gl.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4);
         // Stämme und Äste
         gl.glUseProgram(pGlied);
         gemeinsam(gl, pGlied, zeit, k.auge, false);
@@ -877,6 +916,8 @@ public final class GertschGl {
         gl.glDeleteBuffers(14, new int[]{bZweige, bGlieder, bHalme, bListeA, bListeS[0], bListeS[1], bBefehlA, bBefehlS[0], bBefehlS[1], bHyst,
                 bHisto[0], bHisto[1], bHisto[2], bBlattDaten}, 0);
         if (tLai != 0) gl.glDeleteTextures(1, new int[]{tLai}, 0);
+        if (tHoehe != 0) gl.glDeleteTextures(1, new int[]{tHoehe}, 0);
+        tHoehe = 0;
         if (vao != 0) gl.glDeleteVertexArrays(1, new int[]{vao}, 0);
         pAuswahl = pFleck = pGlied = pHalm = pBoden = pHisto = pPruefen = vao = tLai = 0;
         orte.clear();
