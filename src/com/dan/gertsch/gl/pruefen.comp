@@ -1,0 +1,18 @@
+// pruefen.comp — für GertschGlCheck: baut Blätter aus dem seed ihres Zweigs wie die anderen Shader (gertsch.glsl, blatt)
+// und schreibt sie heraus, damit der Prozessor sie mit Dickicht.Zweig.blatt vergleichen kann.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Zweige { Zweig zweig[]; };
+layout(std430, binding = 8) readonly buffer Fragen { uvec2 frage[]; };     // Zweig, Blatt
+layout(std430, binding = 9) writeonly buffer Antworten { float antwort[]; };   // je Blatt 12 Werte
+uniform uint uZahl;
+
+void main() {
+    uint k = gl_GlobalInvocationID.x;
+    if (k >= uZahl) return;
+    Blatt b = blatt(zweig[frage[k].x], frage[k].y);
+    uint o = 12u * k;
+    antwort[o] = b.p.x; antwort[o + 1u] = b.p.y; antwort[o + 2u] = b.p.z;
+    antwort[o + 3u] = b.n.x; antwort[o + 4u] = b.n.y; antwort[o + 5u] = b.n.z;
+    antwort[o + 6u] = b.a.x; antwort[o + 7u] = b.a.y; antwort[o + 8u] = b.a.z;
+    antwort[o + 9u] = b.laenge; antwort[o + 10u] = b.breite; antwort[o + 11u] = b.zufall;
+}

@@ -173,13 +173,6 @@ public final class Malweise {
                 blatt(b, kf, ziel, e);
             }
         }
-        for (Dickicht.Blatt sb : d.streuListe) {
-            if (!k.projizieren(sb.x, sb.y, sb.z, c)) continue;
-            double blattPx = f * Math.sqrt(sb.laenge * sb.breite) / c[2];
-            int kf = blattPx >= ziel ? 1 : (int) Math.ceil(Math.pow(ziel / blattPx, 2));
-            if (kf > 1 && sb.zufall * kf >= 1) continue;
-            blatt(sb, kf, ziel, null);
-        }
         for (Dickicht.Glied g : d.glieder) glied(g);
         for (Dickicht.Halm hm : d.halmListe) halm(hm);
         int n = p.n;
@@ -323,14 +316,10 @@ public final class Malweise {
         int lo = lower(ySortiert, (float) y), hi = upper(ySortiert, (float) y);
         double q = (lo + hi) / 2.0 / ySortiert.length;
         Palette pal = vorlage.palette;
-        // Stufe 0 bekommt den Anteil des dunklen Grunds der Vorlage, wenn sie als einzige unter L* 20 liegt (gemalt ist
-        // jede Stufe flach; bei Gertsch reicht auch ein Teil der zweiten Stufe unter 20), die übrigen teilen den Rest
-        double erste = pal.anteil[0], rest = 1 - erste;
-        if (pal.size() > 1 && pal.lab[0][0] < 20 && pal.lab[1][0] >= 20 && vorlage.grund > erste) { erste = vorlage.grund; }
-        double skala = (1 - erste) / Math.max(1e-9, rest), c = erste;
-        if (q <= c) return pal.lab[0][0];
-        for (int j = 1; j < pal.size(); j++) {
-            c += pal.anteil[j] * skala;
+        double[] an = Stufen.anteile(vorlage);   // Stufe 0 mit dem Anteil des dunklen Grunds (siehe dort)
+        double c = 0;
+        for (int j = 0; j < pal.size(); j++) {
+            c += an[j];
             if (q <= c) return pal.lab[j][0];
         }
         return pal.lab[pal.size() - 1][0];

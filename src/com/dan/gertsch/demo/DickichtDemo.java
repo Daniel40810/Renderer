@@ -217,7 +217,7 @@ public final class DickichtDemo {
                 g.drawImage(bild[0], (getWidth() - w) / 2, (getHeight() - h) / 2, w, h, null);
             }
         };
-        view.setPreferredSize(new Dimension(960, 640));
+        view.setPreferredSize(new Dimension(880, 560));
         JPanel blatt = new JPanel() {
             @Override protected void paintComponent(Graphics g0) {
                 g0.setColor(BG);
@@ -326,7 +326,7 @@ public final class DickichtDemo {
         root.add(view, BorderLayout.CENTER);
         root.add(east, BorderLayout.EAST);
         root.add(south, BorderLayout.SOUTH);
-        f.setPreferredFrameSize(new Dimension(1500, 920));
+        f.setPreferredFrameSize(new Dimension(1440, 810));
         f.setVisible(true);
         malen.run();
     }

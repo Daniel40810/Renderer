@@ -1,0 +1,21 @@
+// histogramm.comp — Histogramm der Helligkeit Y des Bilds (aus dem aufgelösten Ziel Y): Fach 0 = ohne Licht (Grund),
+// dann 256 Fächer gleich breit in log2 Y von uLo bis uHi. Erst im geteilten Speicher je Gruppe, dann in den Puffer.
+layout(local_size_x = 16, local_size_y = 16) in;
+uniform sampler2D uY;
+uniform float uLo, uHi;
+layout(std430, binding = 5) buffer Histogramm { uint fach[257]; };
+shared uint lokal[257];
+
+void main() {
+    uint li = gl_LocalInvocationIndex;
+    for (uint k = li; k < 257u; k += 256u) lokal[k] = 0u;
+    barrier();
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy), gr = textureSize(uY, 0);
+    if (p.x < gr.x && p.y < gr.y) {
+        float y = texelFetch(uY, p, 0).r;
+        uint k = y <= 0.0 ? 0u : 1u + uint(clamp((log2(y) - uLo) / (uHi - uLo) * 256.0, 0.0, 255.0));
+        atomicAdd(lokal[k], 1u);
+    }
+    barrier();
+    for (uint k = li; k < 257u; k += 256u) if (lokal[k] != 0u) atomicAdd(fach[k], lokal[k]);
+}
