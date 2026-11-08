@@ -2,6 +2,7 @@ package com.dan.gertsch.demo;
 
 import com.dan.gertsch.Bild;
 import com.dan.gertsch.Dickicht;
+import com.dan.gertsch.Druck;
 import com.dan.gertsch.Kamera;
 import com.dan.gertsch.Lab;
 import com.dan.gertsch.Licht;
@@ -9,6 +10,8 @@ import com.dan.gertsch.Malweise;
 import com.dan.gertsch.Messung;
 import com.dan.gertsch.Morphologie;
 import com.dan.gertsch.Palette;
+import com.dan.gertsch.Punkte;
+import com.dan.gertsch.Stich;
 import com.dan.gertsch.Struktur;
 import com.dan.gertsch.Stufen;
 import com.dan.gertsch.Vorlage;
@@ -16,13 +19,14 @@ import com.dan.gertsch.Vorlagen;
 import com.dan.gertsch.Wind;
 import com.dan.gertsch.Zufall;
 
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.SplittableRandom;
 
 /**
- * Prüfung von com.dan.gertsch ohne Fenster und ohne Grafikkarte. Endet mit „Alles in Ordnung.“ oder mit der Zahl der
+ * Prüfung von com.dan.gertsch ohne Fenster und ohne Grafikkarte (Phasen 1 bis 4). Endet mit „Alles in Ordnung.“ oder mit der Zahl der
  * Verstöße (Rückgabewert 1). Rechnet die Messung an künstlichen Bildern mit bekannten Antworten nach (Scheiben
  * bekannter Größe, Streifen bekannter Richtung, Farben bekannter Anteile) und prüft die gespeicherten Vorlagen. Liegen
  * die Bilder in {@code templates/} (oder im Ordner aus dem ersten Argument), misst sie sie neu und vergleicht.
@@ -247,6 +251,7 @@ public final class GertschCheck {
         // Abnahme: das Dickicht in Qualität HIGH gemalt und gemessen, gegen „Sommer“
         Licht lh = new Licht().vorbereiten(dd);
         Malweise malHoch = new Malweise();
+        malHoch.mitLicht = true;   // das Licht ohne Stufen braucht Phase 4
         Malweise.Ergebnis eh = malHoch.malen(dd, lh, new Kamera());
         Vorlage ist = new Messung().messen(eh.bild), sollS = Vorlagen.sommer();
         double rel = ist.hellD50 / sollS.hellD50, reld = ist.dunkelD50 / sollS.dunkelD50, haupt = Math.min(ist.hauptrichtung, 180 - ist.hauptrichtung);
@@ -332,6 +337,96 @@ public final class GertschCheck {
         }
         check(fehlerPx < 0.02, "Kamera: Matrix für OpenGL (float) und projizieren treffen dieselben Bildpunkte (höchstens %.3f px daneben)", fehlerPx);
 
+
+        // ------------------------------------------------------------------ Phase 4: Holzschnitt
+
+        // Void and Cluster: jeder Rang einmal; die kleinsten 10 % gleichmäßig (Clark–Evans auf dem Torus)
+        float[] kachel = Punkte.kachel();
+        int nk = Punkte.N * Punkte.N;
+        boolean[] gesehen = new boolean[nk];
+        boolean permutation = true;
+        for (float r : kachel) {
+            int k = (int) Math.floor(r * nk);
+            permutation &= k >= 0 && k < nk && !gesehen[k];
+            if (k >= 0 && k < nk) gesehen[k] = true;
+        }
+        double rBlau = ordnungTorus(kachel, 0.1);
+        Punkte zufall = new Punkte();
+        zufall.ordnung = 0;
+        float[] weiss = new float[nk];
+        for (int j = 0; j < Punkte.N; j++) for (int i = 0; i < Punkte.N; i++) weiss[j * Punkte.N + i] = zufall.rang(i, j);
+        double rWeiss = ordnungTorus(weiss, 0.1);
+        check(permutation && rBlau > 1.5 && rWeiss > 0.9 && rWeiss < 1.12,
+                "Ränge: Void and Cluster vergibt jeden Rang einmal; die kleinsten 10 %% gleichmäßig (R %.2f), mit weißem Rang zufällig (R %.2f)", rBlau, rWeiss);
+
+        // Mischen bleibt gleichverteilt
+        int[] mf = new int[10];
+        for (int i = 0; i < 200_000; i++) mf[Math.min(9, (int) (10 * Punkte.mischen((float) rnd.nextDouble(), (float) rnd.nextDouble(), 0.75f)))]++;
+        int mfMin = Arrays.stream(mf).min().getAsInt(), mfMax = Arrays.stream(mf).max().getAsInt();
+        check(mfMin > 19_400 && mfMax < 20_600, "Rang gemischt aus Blue Noise und Zufall (0,75): gleichverteilt (Fächer %d bis %d von 20 000)", mfMin, mfMax);
+
+        // Eichkurve und Anteil Papier auf flachen Tönen (ohne Wolken und Korn)
+        Stich flachStich = new Stich();
+        flachStich.wolken = 0;
+        flachStich.korn = 0;
+        float[] kurve = flachStich.punkte.kurve();
+        boolean kurveSteigt = kurve[0] == 0 && kurve[Punkte.KURVE] > 0.95;
+        for (int k = 1; k <= Punkte.KURVE; k++) kurveSteigt &= kurve[k] >= kurve[k - 1];
+        double schlimmstTon = 0;
+        StringBuilder toene = new StringBuilder();
+        float[] hellFlach = new float[960 * 640];
+        Arrays.fill(hellFlach, 0.5f);
+        for (double t : new double[]{0.03, 0.1, 0.3, 0.6}) {
+            float[] tk = new float[Stich.FAECHER + 2];
+            Arrays.fill(tk, (float) t);
+            double p = papierAnteil(flachStich, flachStich.stechen(hellFlach, 960, 640, 960, tk).bild);
+            schlimmstTon = Math.max(schlimmstTon, Math.abs(p / t - 1));
+            toene.append(String.format(Locale.GERMAN, " %.0f→%.1f", 100 * t, 100 * p));
+        }
+        check(kurveSteigt && schlimmstTon < 0.12, "Eichkurve steigt bis %.2f; Ton → Anteil Papier (%%):%s, höchstens %.0f %% daneben", kurve[Punkte.KURVE], toene, 100 * schlimmstTon);
+
+        // Wolken: senkrecht länger als waagerecht; die Farbe bleibt im Mittel die des Drucks; gleicher seed, gleicher Druck
+        Stich wst = new Stich();
+        double[] aw = wolkenKorrelation(wst, 0.08);
+        float[] dunkel = new float[960 * 640];
+        float[] tk0 = new float[Stich.FAECHER + 2];
+        BufferedImage nurFarbe = wst.stechen(dunkel, 960, 640, 960, tk0).bild;
+        double[] mittel = mittelLab(nurFarbe);
+        Stich.Ergebnis s1 = wst.stechen(hellFlach, 960, 640, 960), s2 = wst.stechen(hellFlach, 960, 640, 960);
+        check(aw[1] > aw[0] + 0.3 && Lab.deltaE(mittel, wst.druck.farbe) < 0.6
+                        && Arrays.equals(s1.bild.getRGB(0, 0, 960, s1.hoehe, null, 0, 960), s2.bild.getRGB(0, 0, 960, s2.hoehe, null, 0, 960)),
+                "Wolken: Autokorrelation bei 8 %% der Breite waagerecht %.2f, senkrecht %.2f; Farbe im Mittel ΔE %.2f vom Druck; gleicher seed, gleicher Druck",
+                aw[0], aw[1], Lab.deltaE(mittel, wst.druck.farbe));
+
+        // Messung des Drucks an einem Druck bekannter Größe: flacher Ton 4 %, Punkte 2 px (ohne Wolken und Korn)
+        Stich bekannt = new Stich();
+        bekannt.wolken = 0;
+        bekannt.korn = 0;
+        bekannt.punkt = 2.0 / Druck.BREITE;
+        float[] tk4 = new float[Stich.FAECHER + 2];
+        Arrays.fill(tk4, 0.04f);
+        Druck dk = Druck.messen(bekannt.stechen(new float[Druck.BREITE * 900], Druck.BREITE, 900, Druck.BREITE, tk4).bild);
+        check(Math.abs(dk.punkt * Druck.BREITE / 2 - 1) < 0.1 && Math.abs(dk.tonMittel - 0.04) < 0.006 && Lab.deltaE(dk.papier, bekannt.druck.papier) < 1
+                        && Lab.deltaE(dk.farbe, bekannt.druck.farbe) < 0.5 && dk.ordnung > 0.95 && dk.ordnung < 1.3,
+                "Messung des Drucks: Punkte 2 px → %.2f px, Ton 4 %% → %.1f %%, Papier ΔE %.1f, Farbe ΔE %.1f, Ordnung R %.2f", dk.punkt * Druck.BREITE,
+                100 * dk.tonMittel, Lab.deltaE(dk.papier, bekannt.druck.papier), Lab.deltaE(dk.farbe, bekannt.druck.farbe), dk.ordnung);
+
+        // das Preset
+        Druck sollD = Vorlagen.druck();
+        boolean dform = sollD.ton.length == Druck.TON && sollD.wolkenX.length == Druck.LAG.length && sollD.punkt > 0 && sollD.punkt < 0.01;
+        for (int q = 1; q < Druck.TON; q++) dform &= sollD.ton[q] >= sollD.ton[q - 1];
+        check(dform && sollD.wolkenY[3] > sollD.wolkenX[3] + 0.3 && sollD.ordnung < 1.2 && Lab.farbton(sollD.farbe[1], sollD.farbe[2]) > 180,
+                "Holzschnitt als Druck: Ton steigend, Wolken senkrecht länger (16 %%: %.2f gegen %.2f), Punkte fast zufällig (R %.2f), Farbe blau (%.0f°)",
+                sollD.wolkenY[3], sollD.wolkenX[3], sollD.ordnung, Lab.farbton(sollD.farbe[1], sollD.farbe[2]));
+
+        // Abnahme: das Licht des Dickichts (Prozessor, HIGH) als Holzschnitt, gemessen gegen den Holzschnitt
+        Stich.Ergebnis se = new Stich().stechen(eh.licht, Druck.BREITE);
+        Druck dist = Druck.messen(se.bild);
+        abnahmeDruck("Holzschnitt (Prozessor)", dist, sollD, 0.15);
+        Vorlage vh = new Messung().messen(se.bild), sollH = Vorlagen.holzschnitt();
+        check(Math.abs(vh.l50 - sollH.l50) < 3 && Math.abs(vh.farbton - sollH.farbton) < 10,
+                "Holzschnitt (Prozessor), Messung wie Phase 1: Median L* %.1f (Soll %.1f ± 3), Farbton %.0f° (Soll %.0f° ± 10)", vh.l50, sollH.l50, vh.farbton, sollH.farbton);
+
         // mit den Bildern, wenn sie da sind
         if (!ordner.isDirectory()) System.out.println("  –      " + ordner + " fehlt: Vergleich mit den Bildern übersprungen");
         else for (Vorlage g : alle) {
@@ -346,6 +441,10 @@ public final class GertschCheck {
             mm.seed = g.seed;
             Vorlage n = mm.messen(datei);
             check(passt(g, n), "%s: gespeicherte Kennwerte gleich der neuen Messung von %s", g.titel, g.quelle);
+            if (g.name.equals("holzschnitt")) {
+                Druck dn = Druck.messen(javax.imageio.ImageIO.read(datei));
+                check(passt(Vorlagen.druck(), dn), "Holzschnitt als Druck: gespeicherte Kennwerte gleich der neuen Messung von %s in voller Auflösung", g.quelle);
+            }
         }
 
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");
@@ -391,6 +490,112 @@ public final class GertschCheck {
         ok &= Math.abs(r - 1) < 0.002 && Math.abs(hl - 1) < 0.002;
         ok &= v.hellD50 > 0 && v.hellD50 < 0.1 && v.dunkelD50 > 0 && v.dunkelD50 < 0.1;
         ok &= v.senkrecht >= 0 && v.senkrecht <= 1 && v.kohaerenz >= 0 && v.kohaerenz <= 1 && v.grund >= 0 && v.grund <= 1;
+        return ok;
+    }
+
+    /**
+     * Abnahme eines Drucks gegen den Holzschnitt (Toleranzen siehe README, Phase 4). {@code lag}: Toleranz der
+     * Autokorrelation bei 2 und 4 % der Breite.
+     */
+    static void abnahmeDruck(String name, Druck ist, Druck soll, double lag) { abnahmeDruck(name, ist, soll, lag, GertschCheck::check); }
+
+    /** Eine Prüfung: Bedingung, Text mit Werten (für GertschGlCheck). */
+    interface Pruefer { void check(boolean c, String what, Object... args); }
+
+    static void abnahmeDruck(String name, Druck ist, Druck soll, double lag, Pruefer p) {
+        double rp = ist.punkt / soll.punkt, ra = ist.abstand / soll.abstand;
+        p.check(Lab.deltaE(ist.papier, soll.papier) < 2 && Lab.deltaE(ist.farbe, soll.farbe) < 2, "%s: Papier ΔE %.1f, Farbe ΔE %.1f (höchstens 2)", name,
+                Lab.deltaE(ist.papier, soll.papier), Lab.deltaE(ist.farbe, soll.farbe));
+        p.check(rp > 0.88 && rp < 1.12 && ra > 0.8 && ra < 1.2 && Math.abs(ist.ordnung - soll.ordnung) < 0.15,
+                "%s, Punkte: %.2f px (Soll %.2f ± 12 %%), nächster %.1f px (Soll %.1f ± 20 %%), Ordnung R %.2f (Soll %.2f ± 0,15)", name,
+                ist.punkt * Druck.BREITE, soll.punkt * Druck.BREITE, ist.abstand * Druck.BREITE, soll.abstand * Druck.BREITE, ist.ordnung, soll.ordnung);
+        p.check(Math.abs(ist.tonMittel - soll.tonMittel) < 0.015 && Math.abs(ist.ton[10] - soll.ton[10]) < 0.02 && Math.abs(ist.ton[19] - soll.ton[19]) < 0.05,
+                "%s, Ton: Mittel %.1f %% (Soll %.1f ± 1,5), Median %.1f %% (Soll %.1f ± 2), 95 %% %.1f %% (Soll %.1f ± 5)", name,
+                100 * ist.tonMittel, 100 * soll.tonMittel, 100 * ist.ton[10], 100 * soll.ton[10], 100 * ist.ton[19], 100 * soll.ton[19]);
+        boolean nah = Math.abs(ist.wolken - soll.wolken) < 0.6;
+        for (int l = 0; l < 2; l++) nah &= Math.abs(ist.wolkenX[l] - soll.wolkenX[l]) < lag && Math.abs(ist.wolkenY[l] - soll.wolkenY[l]) < lag;
+        double quer = ist.wolkenY[2] + ist.wolkenY[3] - ist.wolkenX[2] - ist.wolkenX[3];
+        p.check(nah && quer > 0.5, "%s, Wolken: Streuung L* %.2f (Soll %.2f ± 0,6); bei 2 und 4 %%: waagerecht %.2f/%.2f (Soll %.2f/%.2f), senkrecht %.2f/%.2f (Soll %.2f/%.2f); "
+                        + "senkrecht länger (8 und 16 %%: %+.2f, Soll %+.2f)", name, ist.wolken, soll.wolken, ist.wolkenX[0], ist.wolkenX[1], soll.wolkenX[0], soll.wolkenX[1],
+                ist.wolkenY[0], ist.wolkenY[1], soll.wolkenY[0], soll.wolkenY[1], quer, soll.wolkenY[2] + soll.wolkenY[3] - soll.wolkenX[2] - soll.wolkenX[3]);
+        p.check(Math.abs(ist.korn - soll.korn) < 0.25, "%s, Korn: L* %.2f (Soll %.2f ± 0,25)", name, ist.korn, soll.korn);
+    }
+
+    /** Clark–Evans auf dem Torus für die Zellen mit Rang unter f (Mitten der Zellen). */
+    static double ordnungTorus(float[] rang, double f) {
+        int n = Punkte.N;
+        java.util.List<int[]> p = new java.util.ArrayList<>();
+        for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) if (rang[j * n + i] < f) p.add(new int[]{i, j});
+        double summe = 0;
+        int reich = 8;
+        boolean[] belegt = new boolean[n * n];
+        for (int[] q : p) belegt[q[1] * n + q[0]] = true;
+        for (int[] q : p) {
+            double best = Double.MAX_VALUE;
+            for (int dy = -reich; dy <= reich; dy++)
+                for (int dx = -reich; dx <= reich; dx++) {
+                    if ((dx == 0 && dy == 0) || !belegt[Math.floorMod(q[1] + dy, n) * n + Math.floorMod(q[0] + dx, n)]) continue;
+                    best = Math.min(best, Math.hypot(dx, dy));
+                }
+            summe += best;
+        }
+        double dichte = p.size() / (double) (n * n);
+        return summe / p.size() / (0.5 / Math.sqrt(dichte));
+    }
+
+    /** Anteil Papier eines Drucks aus der Helligkeit (Farbe ohne Wolken und Korn, also überall gleich). */
+    static double papierAnteil(Stich st, BufferedImage b) {
+        double yp = yVon(st.druck.papier), yf = yVon(st.druck.farbe), s = 0;
+        int w = b.getWidth(), h = b.getHeight();
+        int[] px = b.getRGB(0, 0, w, h, null, 0, w);
+        for (int c : px) s += (0.2126 * Lab.linear(c >> 16) + 0.7152 * Lab.linear(c >> 8) + 0.0722 * Lab.linear(c) - yf) / (yp - yf);
+        return s / px.length;
+    }
+
+    static double yVon(double[] lab) {
+        double[] o = new double[3];
+        Lab.zuLinear(lab[0], lab[1], lab[2], o);
+        return 0.2126 * o[0] + 0.7152 * o[1] + 0.0722 * o[2];
+    }
+
+    /** Mittlere Farbe (im linearen Licht) eines Bilds in Lab. */
+    static double[] mittelLab(BufferedImage b) {
+        double r = 0, g = 0, bl = 0;
+        int w = b.getWidth(), h = b.getHeight();
+        int[] px = b.getRGB(0, 0, w, h, null, 0, w);
+        for (int c : px) { r += Lab.linear(c >> 16); g += Lab.linear(c >> 8); bl += Lab.linear(c); }
+        double[] o = new double[3];
+        Lab.vonLinear(r / px.length, g / px.length, bl / px.length, o);
+        return o;
+    }
+
+    /** Autokorrelation der Wolken (das Rauschen selbst) waagerecht und senkrecht beim Abstand lag (Anteil der Breite). */
+    static double[] wolkenKorrelation(Stich st, double lag) {
+        int n = 400;
+        double[] v = new double[n * n];
+        double mu = 0;
+        for (int j = 0; j < n; j++) for (int i = 0; i < n; i++) mu += v[j * n + i] = st.wolken((float) (i / (double) n), (float) (j / (double) n));
+        mu /= v.length;
+        double var = 0, sx = 0, sy = 0;
+        int l = (int) Math.round(lag * n), nx = 0, ny = 0;
+        for (double x : v) var += (x - mu) * (x - mu);
+        var /= v.length;
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < n; i++) {
+                double d = v[j * n + i] - mu;
+                if (i + l < n) { sx += d * (v[j * n + i + l] - mu); nx++; }
+                if (j + l < n) { sy += d * (v[(j + l) * n + i] - mu); ny++; }
+            }
+        return new double[]{sx / nx / var, sy / ny / var};
+    }
+
+    /** Druck: gespeichert und neu gemessen gleich bis auf die Rundung im Quelltext. */
+    static boolean passt(Druck g, Druck n) {
+        boolean ok = Lab.deltaE(g.papier, n.papier) < 0.02 && Lab.deltaE(g.farbe, n.farbe) < 0.02 && Math.abs(g.punkt - n.punkt) < 1e-6
+                && Math.abs(g.abstand - n.abstand) < 1e-6 && Math.abs(g.ordnung - n.ordnung) < 1e-4 && g.punkte == n.punkte
+                && Math.abs(g.tonMittel - n.tonMittel) < 1e-4 && Math.abs(g.wolken - n.wolken) < 1e-3 && Math.abs(g.korn - n.korn) < 1e-3;
+        for (int q = 0; q < Druck.TON; q++) ok &= Math.abs(g.ton[q] - n.ton[q]) < 1e-4;
+        for (int l = 0; l < Druck.LAG.length; l++) ok &= Math.abs(g.wolkenX[l] - n.wolkenX[l]) < 1e-3 && Math.abs(g.wolkenY[l] - n.wolkenY[l]) < 1e-3;
         return ok;
     }
 
