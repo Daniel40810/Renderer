@@ -1,6 +1,6 @@
 # com.dan.gertsch – Bäume und Gras nach Franz Gertsch (Probe)
 
-**Stand: Phase 1 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
+**Stand: Phase 2 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
 
 - jedes Blatt ein flacher Fleck mit harter Kante
 - wenige Tonstufen
@@ -10,9 +10,12 @@
 
 Bei Gertsch entsteht das Abstrakte aus der Treue zum Foto, nicht aus einem Filter. Darum rechnet das Paket zuerst nach, was die Bilder ausmacht, und vergleicht später jedes gerenderte Bild mit diesen Zahlen.
 
-Phase 1 vermisst die Vorlagen und legt die Ergebnisse als Presets ab (`Vorlagen`). Gezeichnet wird ab Phase 2.
+- **Phase 1** vermisst die Vorlagen und legt die Ergebnisse als Presets ab (`Vorlagen`).
+- **Phase 2** malt ein Dickicht auf dem Prozessor nach diesen Regeln und misst das Bild gegen „Sommer“ (Abschnitt [Phase 2](#phase-2-das-dickicht-gemalt)).
 
 Der Kern braucht nur Java 21, `demo/` zusätzlich FStyle. Zum Herauskopieren reicht `src/com/dan/gertsch/`.
+
+![Das Dickicht nach der Malweise, rechts das Kennblatt des Bilds mit dem Soll aus „Sommer“](../../../../docs/img/gertsch_dickicht.png)
 
 ![Kennblätter der sechs Vorlagen](../../../../docs/img/gertsch.png)
 
@@ -42,6 +45,62 @@ Fleckgrößen sind Durchmesser als Anteil der Bildbreite (Median nach Fleckmasse
   - Die Laubflecken liegen eher **waagerecht** (Hauptrichtung 179°, nur 24 % senkrecht). Das war nicht zu erwarten und wird ein Ziel für die Form der Flecken.
 - **Gräser:** fast nur Linien (Kohärenz 0,95), Halme rund fünfmal so breit wie Laubflecken, 40 % Schwarz.
 - **Herbst:** kaum dunkler Grund, dafür feine Flecken in hellem Ocker und senkrechte Zweige.
+
+## Phase 2: das Dickicht gemalt
+
+`Dickicht` erzeugt aus einem `seed` einen Waldrand im Sommer. `Licht` rechnet Sonne, Schatten und Himmel dazu, und `Malweise` malt alles mit der `Kamera`. Ein Bild in 1600 × 1062 braucht etwa 6 s, die Schattenkarte etwa 3 s.
+
+**Das Dickicht** (`Dickicht.sommer()`):
+
+- Gehölze in fünf Lagen:
+  - ein Kronendach über der Kamera, das selbst kaum im Bild ist, aber den Vordergrund beschattet
+  - Bäume
+  - Jungbäume
+  - Sträucher
+  - eine dichte Wand hinten, damit kein Himmel durchscheint
+- vorn eine Krautschicht mit größeren Blättern, Halme und Laubstreu
+- Jedes Gehölz hat Stamm, Äste und Zweige. Die Blätter eines Zweigs entstehen erst beim Zeichnen aus seinem seed. Ihre Zahl folgt aus der **Blattflächendichte** der Krone (1,2 m²/m³ [G]); das sind rund 17 Mio. Blätter.
+- Blätter stehen eher waagerecht (planophil, Streuung 20° [G]) und werden von der Seite gesehen zu waagerecht gestreckten Flecken, wie bei Gertsch gemessen.
+
+**Das Licht** (`Licht`):
+
+- **Sonne:** Farbe aus der Luftmasse nach Kasten und Young. Vorgabe 28° hoch, von links hinten.
+- **Schattenkarte entlang der Sonne:** Jedes Blatt und jeder Stamm trägt ein, wie weit er zur Sonne hin liegt. Abgetastet wird 3 × 3, jede Abtastung bilinear. Aus den Lücken im Laub entstehen die Lichtflecken auf Blättern, Stämmen und Boden.
+- **Himmel:** gedämpft nach Beer–Lambert mit der Blattfläche darüber, trilinear zwischen Zellen von 0,5 m.
+
+**Die Regeln der Malweise** (`Malweise`):
+
+| Regel | Wie |
+|---|---|
+| Fleck statt Blatt | Jedes Blatt ist ein flacher Fleck mit harter Kante (spitz an beiden Enden), in seiner Lage im Raum projiziert. Das Licht wird einmal in der Mitte gerechnet. |
+| Größenregel | Kein Fleck ist kleiner als `fleck` der Bildbreite (0,3 % [G]). Kleinere Blätter werden **flächentreu zusammengefasst**: Von k Blättern bleibt eines (nach seinem Zufall), √k-mal so groß. Das Korn bleibt bis in die Tiefe gleich, die Fläche bleibt erhalten (nachher/vorher 0,96). |
+| Tonwerte nach der Vorlage | Eine steigende Kurve legt die Helligkeiten so, dass jede Tonstufe so viel Fläche bekommt wie bei Gertsch. Stufe 0 bekommt den Anteil des dunklen Grunds [G]. Hell bleibt hell; nur die Abstände folgen der Vorlage. Gemessenes Licht zerfällt nämlich in Sonne und Schatten, über vier Blenden auseinander; Gertsch verteilt seine Töne gleichmäßiger. `Tonwerte.MEDIAN` malt linear mit der Belichtung nach dem Median, zum Vergleich. |
+| Tonstufen | Jeder Fleck bekommt die Farbe seiner Stufe. Gewählt wird nach ΔL*² + 0,12 · (Δa*² + Δb*²), also vor allem nach der Helligkeit. |
+| Akzente | Bunte Flecken (C* ≥ 12), deren Farbton mehr als 40° vom herrschenden abweicht, etwa besonnte Streu oder trockenes Laub, bekommen die Farbe der Akzente der Vorlage. Diese Farbe liegt mindestens 68° vom herrschenden Farbton des gemalten Bilds entfernt. |
+| Stämme | Stücke von etwa 9 px, Stämme in Streifen von etwa 3 px mit der Normale des Zylinders. Der Streifen liegt im Schatten, das Sonnenlicht kommt als runder, überlappender Fleck darüber. So entstehen Gertschs Lichtflecken auf den Stämmen statt Kästchen. |
+| Boden | Je Bildpunkt gerechnet, damit Lichtflecken am Boden die Form der Lücken im Laub haben. Wo nichts steht, liegt der dunkle Grund (Stufe 0). |
+| Saum | Wahlweise ein heller Rand an den Blättern, in der nächsthöheren Stufe (für „Blätter“). |
+
+**Abnahme gegen „Sommer“:** Das Dickicht in Qualität HIGH, gemessen mit derselben `Messung` wie die Vorlage. `GertschCheck` prüft mit den Toleranzen in der letzten Spalte.
+
+| Kennwert | Dickicht | Sommer (Soll) | Toleranz |
+|---|---|---|---|
+| Median L* | 32,9 | 31,9 | ± 3 |
+| dunkler Grund (L* < 20) | 24,3 % | 29,2 % | ± 8 Punkte |
+| Anteile der Tonstufen | 22/23/20/16/11/7 % | 24/22/18/15/12/8 % | ± 5 Punkte je Stufe |
+| Fleck hell (Median) | 0,73 % | 0,64 % | −25 % bis +30 % |
+| Lücke dunkel (Median) | 1,37 % | 1,17 % | −25 % bis +35 % |
+| Hauptrichtung | 4° (waagerecht) | 179° (waagerecht) | waagerecht ± 20° |
+| senkrecht | 20 % | 24 % | ± 10 Punkte |
+| Kohärenz | 0,59 | 0,50 | ± 0,15 |
+| Akzente | 0,50 % | 0,52 % | 0,2 bis 1,5 % |
+| Farbton | 123° | 125° | ± 12° |
+
+**Was noch abweicht:**
+
+- **Dunkler Grund:** Gemalt ist jede Stufe flach, und an den Kanten der feinen Flecken frisst die Glättung das Dunkle auf. Bei Gertsch ist das Dunkle die zusammenhängende Tiefe ins Dickicht.
+- **Dunkle Lücken** sind 17 % zu groß.
+- **Kohärenz:** Dünne Äste und Halme machen das Bild etwas linienhafter als die Vorlage.
 
 ## Was es kann
 
@@ -76,6 +135,16 @@ Vorlage ziel = Vorlagen.sommer();                  // gespeichert, ohne Bild
 double fleckPx = ziel.hellD50 * 1920;              // ≈ 12 px bei 1920 px Breite
 int stufe = ziel.palette.naechste(L, a, b);        // Tonstufe für eine Farbe
 float[] flecken = Messung.lichtflecken(v.bild, 6); // helle Flecken bis Radius 6 (Zylinderhut)
+
+// Phase 2: malen
+Dickicht d = Dickicht.sommer();                    // seed, Dichte, Lagen, Farben: offene Felder
+d.bauen();
+Licht licht = new Licht();                         // Sonne 28° hoch, von links hinten
+licht.vorbereiten(d);                              // Schattenkarte und Himmel
+Malweise m = new Malweise();                       // Vorlage Sommer, HIGH (1600 px), Fleck 0,3 %
+Malweise.Ergebnis e = m.malen(d, licht, new Kamera());
+ImageIO.write(e.bild, "png", new File("dickicht.png"));
+Vorlage ist = new Messung().messen(e.bild);        // gegen Vorlagen.sommer() vergleichen
 ```
 
 ## Aufbau
@@ -90,8 +159,13 @@ float[] flecken = Messung.lichtflecken(v.bild, 6); // helle Flecken bis Radius 6
 | `Messung` | Einstellungen, Qualitätsstufen, Leiter; `messen(…)` liefert eine `Vorlage`; Zylinderhut für Lichtflecken und Lücken |
 | `Vorlage` | Kennwerte (offene Felder), `bericht()`, `alsJava(…)` |
 | `Vorlagen` | die sechs gemessenen Vorlagen als Presets (erzeugt) |
-| `demo/GertschDemo` | Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
-| `demo/Kennblatt` | zeichnet die Kennwerte einer Vorlage |
+| `Dickicht` | Phase 2: die Szene aus seed (`Glied`, `Zweig`, `Blatt`, `Halm`), Blätter je Zweig bei Bedarf |
+| `Licht` | Phase 2: Sonne, Schattenkarte, Himmel nach der Blattfläche |
+| `Kamera` | Phase 2: Lochkamera, Projektion, Strahl |
+| `Malweise` | Phase 2: die Regeln und das Malen; `Ergebnis` mit Bild, Licht ohne Stufen, Nummer je Bildpunkt, Stufe und Faktor je Fleck |
+| `demo/GertschDemo` | Phase 1: Vorlagen vermessen, Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
+| `demo/DickichtDemo` | Phase 2: das Dickicht malen und messen, Fenster und Standbilder |
+| `demo/Kennblatt` | zeichnet die Kennwerte einer Vorlage, wahlweise mit einem Soll |
 | `demo/GertschCheck` | Prüfung ohne Fenster |
 
 ## Demo und Selbsttest
@@ -133,6 +207,34 @@ java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.GertschCheck
 - `--quelltext` misst alle Vorlagen und schreibt `Vorlagen.java` neu.
 - `--vorlagen ordner` gibt an, wo die Bilder liegen (Standard `templates`).
 
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.DickichtDemo
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.DickichtDemo --bild dickicht.png sommer HIGH 1
+```
+
+Das Fenster der `DickichtDemo` zeigt links das gemalte Dickicht in vier Ansichten:
+
+- gemalt
+- Licht ohne Stufen, wie ein Foto mit derselben Belichtung
+- Tonstufen in Falschfarben, Akzente in Magenta
+- zusammengefasst: wie viele Blätter jeder Fleck vertritt, grün = eines, gelb bis rot = viele
+
+Rechts steht das Kennblatt des Bilds mit dem Soll der Vorlage: Anteile als zweiter Balken, Verteilungen gestrichelt, Zahlen in Klammern. Unten wählt man:
+
+- Vorlage
+- Ansicht
+- Qualität
+- Tonwerte (nach der Vorlage oder linear)
+- Saum
+- „Neu würfeln“ (seed)
+- Sonnenhöhe und -richtung
+- Fleckgröße
+
+Dickicht und Schattenkarte bleiben erhalten, solange seed und Sonne gleich sind. `--bild` schreibt das gemalte Bild mit dem Kennblatt und gibt Ist und Soll als Text aus. Das Bild enthält keine Bildpunkte der Werke.
+
 `GertschCheck` prüft:
 
 - Lab an festen Punkten und im Hin und Zurück
@@ -143,8 +245,16 @@ java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.GertschCheck
 - k-means auf vier bekannten Farben
 - Akzente und Grund mit bekannten Anteilen
 - die Form der Presets und ihre Kennzeichen, etwa „Gräser sind Linien“ oder „Sommer hat orange Akzente“
+- Phase 2:
+  - Kamera (Achse in der Mitte, f/10 bei 1 m in 10 m)
+  - Schatten hinter einem Stamm, besonnt davor
+  - Blätter und Dickicht gleich oft gleich aus dem seed
+  - Größenregel und Flächentreue
+  - gleiches Bild bei gleichem seed
+  - jeder Fleck in einer Stufe oder Akzent
+  - die Abnahme gegen „Sommer“ aus der Tabelle oben
 
-Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit den Presets. Sie endet mit „Alles in Ordnung.“
+Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit den Presets. Sie braucht etwa 30 s und endet mit „Alles in Ordnung.“
 
 ## Grenzen
 
@@ -153,15 +263,16 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
 - k-means teilt nach Flächen, nicht nach Gertschs Mischungen. Seltene Farben bekommen keine eigene Stufe; dafür gibt es die Akzente.
 - Akzente werden nur über den Farbton erkannt.
 - Holzschnitt: Die gestochenen Punkte sind in der Vorlage 1–2 px groß und liegen damit unter der Arbeitsbreite. Die Punktdichte über dem Tonwert misst erst Phase 4.
+- Phase 2:
+  - Nur ein Standbild, ohne Wind und ohne Hysterese der Stufen.
+  - Der Maleralgorithmus ordnet nach der Mitte jedes Flecks: Wo sich lange Stücke kreuzen, kann die Reihenfolge falsch sein.
+  - Der Halbschatten der Sonnenscheibe fehlt (keine Sonnentaler), die Schattenkarte ist nur leicht weich.
+  - Das Dickicht ist ein Sommerwald; andere Vorlagen im Fenster geben nur Tonstufen und Akzente vor, nicht die Szene (Herbst-Farben auf einem Sommerwald).
 
 ## Weiter
 
-1. ~~Vorlagen vermessen~~ (diese Phase).
-2. Standbild „Sommer“ auf der CPU:
-   - ein Testdickicht aus `seed`, ein Fleck je Blatt
-   - die Fleckgröße im Bild als Regel, in der Ferne zusammengefasst
-   - Tonstufen aus `Vorlagen.sommer().palette`, heller Saum
-   - die Messung des Ergebnisses gegen das Preset als Prüfung
+1. ~~Vorlagen vermessen~~ (Phase 1).
+2. ~~Standbild „Sommer“ auf der CPU~~ (Phase 2).
 3. `gl/`: Flecken und Halme instanziert, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind.
 4. Holzschnitt: Punkte nach Blue-Noise-Rang, eine Farbe, senkrechte Wolken im Farbauftrag.
 5. Eine Schnittstelle für Blätter und Halme von außen, damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann. Das Paket kennt sie selbst nicht.

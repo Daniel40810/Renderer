@@ -159,7 +159,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 | [`reed`](src/com/dan/reed/README.md) | Schilf, Binsen und Gras im Wind |
 | [`tree`](src/com/dan/tree/README.md) | Bäume, Sträucher und Gräser aus Unreal-Assets, mit Detailstufen |
 | [`forest`](src/com/dan/forest/README.md) | Prozedurale Bäume und Wälder mit Wind, Jahreszeit und Laubfall; kein Baum im Wasser (`minGround`), Erdkrümmung, Teil des Bodengitters neu (`terrainChanged(x0, z0, x1, z1)`) |
-| [`gertsch`](src/com/dan/gertsch/README.md) | Probe: Bäume und Gras nach der Malweise von Franz Gertsch. Phase 1 vermisst die Vorlagen: Tonstufen, dunkler Grund, Fleckgrößen, Richtung der Linien, Akzente |
+| [`gertsch`](src/com/dan/gertsch/README.md) | Probe: Bäume und Gras nach der Malweise von Franz Gertsch. Phase 1 vermisst die Vorlagen (Tonstufen, dunkler Grund, Fleckgrößen, Richtung, Akzente), Phase 2 malt ein Dickicht danach: ein Fleck je Blatt, flächentreu zusammengefasst, Lichtflecken aus der Schattenkarte, Tonwerte nach der Vorlage |
 | [`road`](src/com/dan/road/README.md) | Pfad, Feldweg, Straße, Autobahn – Trasse, Fahrbahn, Verkehr |
 | [`route`](src/com/dan/route/README.md) | Wegenetze, kürzeste Wege, Ströme von Fußgängern und Fahrzeugen |
 | [`rail`](src/com/dan/rail/README.md) | Gleise und Züge |
