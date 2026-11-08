@@ -1,0 +1,71 @@
+// auswahl.comp — je Zweig ein Faden: welche Blätter gezeichnet werden (Größenregel, flächentreu zusammengefasst wie
+// Malweise), und für die Ansicht: Licht, Band mit Hysterese, Stufe, Akzent. Hängt jeden Fleck an die Liste und zählt
+// im Befehl für glDrawArraysIndirect mit. Modus 0 = Ansicht, Modus 1 = Sonne (Schattenkarte).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Zweige { Zweig zweig[]; };
+layout(std430, binding = 1) writeonly buffer Liste { uvec4 eintrag[]; };              // Ansicht: Zweig, Blatt|k|Band|Stufe|Akzent, Y
+layout(std430, binding = 7) writeonly buffer ListeSonne { uvec2 sonnenEintrag[]; };   // Sonne: Zweig, Blatt|k
+// Befehl: Ecken, Instanzen, erste, Basis (für glDrawArraysIndirect); danach Wechsel der Bänder, Kapazität der Liste,
+// gewollte Einträge (mehr als die Kapazität: die Liste ist zu klein), frei
+layout(std430, binding = 2) buffer Befehl { uint ecken; uint instanzen; uint erste; uint basis; uint wechsel; uint kapazitaet; uint gewollt; uint frei; };
+layout(std430, binding = 3) buffer Hysterese { uint gemerkt[]; };   // je Blatt ein Byte (0xFF = noch keins)
+
+uniform int uModus;
+uniform uint uZweigZahl;
+uniform mat4 uVP;              // Ansicht: Projektion·Blick; Sonne: uSonneM
+uniform vec3 uVorn;            // Ansicht: Blickrichtung (Tiefe)
+uniform float uFokus;          // Ansicht: Brennweite in Bildpunkten; Sonne: Texel je m
+uniform float uZiel;           // kleinste Fleckgröße (Bildpunkte oder Texel)
+uniform float uHysterese;      // Blenden (0 = aus)
+uniform vec2 uBild;            // Bildgröße (Ansicht)
+
+void main() {
+    uint zi = gl_GlobalInvocationID.x;
+    if (zi >= uZweigZahl) return;
+    Zweig z = zweig[zi];
+    vec3 c = z.mr.xyz;
+    float groesse = unpackHalf2x16(z.a.w).x * sqrt(unpackHalf2x16(z.a.w).y), blattPx;
+    if (uModus == 0) {
+        float t = dot(c - uAuge, uVorn);
+        if (t < 0.3) return;
+        vec4 q = uVP * vec4(c, 1.0);
+        vec2 s = (q.xy / q.w * 0.5 + 0.5) * uBild;
+        float rand = uFokus * z.mr.w / t + 40.0;
+        if (s.x < -rand || s.x > uBild.x + rand || s.y < -rand || s.y > uBild.y + rand) return;
+        blattPx = uFokus * groesse / t;
+    } else {
+        vec4 q = uVP * vec4(c, 1.0);
+        if (any(greaterThan(abs(q.xy), vec2(1.05)))) return;
+        blattPx = uFokus * groesse;
+    }
+    uint kf = blattPx >= uZiel ? 1u : uint(ceil((uZiel / blattPx) * (uZiel / blattPx)));
+    kf = min(kf, 4095u);
+    uint n = blaetter(z);
+    for (uint i = 0u; i < n; i++) {
+        if (kf > 1u && zug(z.a.y, i, 0u) * float(kf) >= 1.0) continue;
+        if (uModus == 1) {
+            uint k = atomicAdd(gewollt, 1u);
+            if (k < kapazitaet) { sonnenEintrag[k] = uvec2(zi, i | (kf << 8u)); atomicAdd(instanzen, 1u); }
+            continue;
+        }
+        Blatt b = blatt(z, i);
+        imWind(b, z);
+        vec3 rgb = licht(b.p, b.n, b.albedo, true, -1.0);
+        float y = lum(rgb), x = log2(max(y, 1e-12));
+        // Hysterese: ein Byte je Blatt am Platz des Zweigs (Plätze je Zweig auf 4 aufgerundet: kein Wort wird geteilt)
+        uint platz = z.a.z + i, wort = platz >> 2u, schieb = (platz & 3u) * 8u;
+        uint alt = (gemerkt[wort] >> schieb) & 0xFFu;
+        int vorher = alt == 0xFFu ? -1 : int(alt);
+        int band = bandMit(x, vorher, uHysterese);
+        if (vorher >= 0 && band != vorher) atomicAdd(wechsel, 1u);
+        gemerkt[wort] = (gemerkt[wort] & ~(0xFFu << schieb)) | (uint(band) << schieb);
+        int st = stufeZu(rgb, band, true);
+        uint k = atomicAdd(gewollt, 1u);
+        if (k < kapazitaet) {
+            eintrag[k] = uvec4(zi, i | (kf << 8u) | (uint(band) << 20u) | (uint(st < 0 ? 7 : st) << 23u) | (st < 0 ? 1u << 26u : 0u),
+                               floatBitsToUint(y), 0u);
+            atomicAdd(instanzen, 1u);
+        }
+    }
+}

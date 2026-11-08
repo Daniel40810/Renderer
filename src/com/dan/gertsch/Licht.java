@@ -36,7 +36,7 @@ public final class Licht {
     private float[] lai;
     private int gx, gz, gy;
     private double x0, z0;
-    static final double ZELLE = 0.5, SCHICHT = 0.5;
+    public static final double ZELLE = 0.5, SCHICHT = 0.5;
 
     /** Richtung und Farben aus Höhe und Richtung. */
     public Licht richten() {
@@ -226,4 +226,22 @@ public final class Licht {
 
     /** Größe eines Texels der Schattenkarte (m). */
     public double texel() { return texel; }
+
+    /**
+     * Blattfläche über jeder Zelle als Feld für eine 3D-Textur (x am schnellsten, dann die Schicht y, dann z), Zellmitte
+     * bei (Ursprung + (i + ½) · Zelle); null ohne Laub. Größe {@link #laiZahl}, Ursprung {@link #laiUrsprung}, Zelle
+     * {@link #ZELLE} in x und z, {@link #SCHICHT} in y.
+     */
+    public float[] laiFeld() {
+        if (lai == null) return null;
+        float[] o = new float[gx * gy * gz];
+        for (int k = 0; k < gz; k++)
+            for (int j = 0; j < gy; j++)
+                for (int i = 0; i < gx; i++) o[(k * gy + j) * gx + i] = lai[(k * gx + i) * gy + j];
+        return o;
+    }
+
+    public int[] laiZahl() { return new int[]{gx, gy, gz}; }
+
+    public double[] laiUrsprung() { return new double[]{x0, 0, z0}; }
 }

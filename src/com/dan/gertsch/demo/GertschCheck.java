@@ -10,8 +10,11 @@ import com.dan.gertsch.Messung;
 import com.dan.gertsch.Morphologie;
 import com.dan.gertsch.Palette;
 import com.dan.gertsch.Struktur;
+import com.dan.gertsch.Stufen;
 import com.dan.gertsch.Vorlage;
 import com.dan.gertsch.Vorlagen;
+import com.dan.gertsch.Wind;
+import com.dan.gertsch.Zufall;
 
 import java.io.File;
 import java.util.Arrays;
@@ -260,6 +263,74 @@ public final class GertschCheck {
                 100 * ist.senkrecht, 100 * sollS.senkrecht, ist.kohaerenz, sollS.kohaerenz);
         check(ist.akzent > 0.002 && ist.akzent < 0.015 && Math.abs(ist.farbton - sollS.farbton) < 12,
                 "Sommer, Farbe: Akzente %.2f %% (Soll %.2f %%), Farbton %.0f° (Soll %.0f° ± 12)", 100 * ist.akzent, 100 * sollS.akzent, ist.farbton, sollS.farbton);
+
+        // ------------------------------------------------------------------ Phase 3: was Prozessor und Grafikkarte teilen
+
+        // Zufall: feste Werte (gertsch.glsl rechnet dieselbe Formel; GertschGlCheck vergleicht dort) und gleichverteilt
+        boolean fest = Zufall.pcg(0) == 129708002 && Zufall.pcg(1) == -1463883204 && Zufall.pcg(0x12345678) == -1722608927;
+        int[] fach = new int[10];
+        for (int i = 0; i < 200_000; i++) fach[(int) (Zufall.zug(77, i, 3) * 10)]++;
+        int fachMin = Arrays.stream(fach).min().getAsInt(), fachMax = Arrays.stream(fach).max().getAsInt();
+        check(fest && fachMin > 19_400 && fachMax < 20_600, "Zufall (PCG): feste Werte stimmen, gleichverteilt (Fächer %d bis %d von 20 000)", fachMin, fachMax);
+
+        // Wind: still ohne Wind, Auslenkung ∝ U², Flattern höchstens 0,45 rad
+        Wind wi = new Wind();
+        wi.boeen = 0;
+        double[] v5 = new double[2], v10 = new double[2], v0 = new double[2];
+        wi.staerke = 0;
+        wi.versatz(3, 5, 8, 0.3, 1.7, v0);
+        boolean still = v0[0] == 0 && v0[1] == 0 && wi.flattern(0.4, 2.1) == 0;
+        wi.staerke = 5;
+        wi.versatz(3, 5, 8, 0.3, 1.7, v5);
+        wi.staerke = 10;
+        wi.versatz(3, 5, 8, 0.3, 1.7, v10);
+        double flMax = 0;
+        for (int i = 0; i < 1000; i++) flMax = Math.max(flMax, Math.abs(wi.flattern(i / 1000.0, i * 0.013)));
+        check(still && Math.abs(Math.hypot(v10[0], v10[1]) / Math.hypot(v5[0], v5[1]) - 4) < 1e-9 && flMax <= Wind.FLATTERN + 1e-12 && flMax > 0.4,
+                "Wind: still bei 0 m/s, Auslenkung bei 10 m/s viermal die bei 5 m/s, Flattern bis %.2f rad", flMax);
+
+        // Stufen: Anteile mit dem Grund, Grenzen aus einem Histogramm, Hysterese
+        double[] anS = Stufen.anteile(Vorlagen.sommer());
+        double summeAn = 0;
+        for (double a : anS) summeAn += a;
+        long[] flachHist = new long[256];
+        Arrays.fill(flachHist, 9000 / 256);
+        long nullen = 1000, alleBp = nullen + 256 * (9000 / 256);
+        double[] gr = Stufen.grenzen(flachHist, nullen, -24, 4, new double[]{0.25, 0.25, 0.25, 0.25});
+        double erwartet = -24 + 28 * (0.25 * alleBp - nullen) / (alleBp - nullen);
+        check(Math.abs(summeAn - 1) < 1e-9 && Math.abs(anS[0] - Vorlagen.sommer().grund) < 1e-9 && Math.abs(gr[0] - erwartet) < 0.15,
+                "Stufen: Anteile mit Summe 1, Stufe 0 = Grund der Vorlage, erste Grenze %.2f (erwartet %.2f)", gr[0], erwartet);
+        double[] g2 = {0, 1};
+        check(Stufen.band(0.05, g2, 0, 0.3) == 0 && Stufen.band(0.35, g2, 0, 0.3) == 1 && Stufen.band(-0.2, g2, 1, 0.3) == 1
+                        && Stufen.band(-0.4, g2, 1, 0.3) == 0 && Stufen.band(0.5, g2, -1, 0.3) == 1,
+                "Hysterese: das alte Band hält bis 0,3 Blenden über seine Grenzen, danach das neue");
+
+        // Plätze der Hysterese auf der Grafikkarte: durch 4 teilbar, steigend, höchstens 255 Blätter je Zweig
+        boolean plaetzeOk = true;
+        int maxBl = 0, vorherPl = -1;
+        for (Dickicht.Zweig z : dd.zweige) {
+            plaetzeOk &= z.platz % 4 == 0 && z.platz > vorherPl;
+            vorherPl = z.platz;
+            maxBl = Math.max(maxBl, z.blaetter);
+        }
+        check(plaetzeOk && maxBl <= 255 && dd.plaetze >= dd.blattZahl(), "Plätze: je Zweig durch 4 teilbar, %,d Plätze für %,d Blätter, höchstens %d Blätter je Zweig",
+                dd.plaetze, dd.blattZahl(), maxBl);
+
+        // Kamera: die Matrix für OpenGL trifft dieselben Bildpunkte wie projizieren
+        Kamera km = new Kamera();
+        km.gier = 12;
+        km.neigung = -5;
+        km.stellen();
+        float[] mvp = km.blickProjektion(0.3, 250);
+        double fehlerPx = 0;
+        for (int i = 0; i < 1000; i++) {
+            double x = rnd.nextDouble(-20, 20), y = rnd.nextDouble(0, 15), z = rnd.nextDouble(2, 60);
+            if (!km.projizieren(x, y, z, pr)) continue;
+            double cx = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12], cy = mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13], cw = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
+            double sx = (cx / cw + 1) / 2 * km.breite, sy = (1 - cy / cw) / 2 * km.hoehe;
+            fehlerPx = Math.max(fehlerPx, Math.hypot(sx - pr[0], sy - pr[1]));
+        }
+        check(fehlerPx < 0.02, "Kamera: Matrix für OpenGL (float) und projizieren treffen dieselben Bildpunkte (höchstens %.3f px daneben)", fehlerPx);
 
         // mit den Bildern, wenn sie da sind
         if (!ordner.isDirectory()) System.out.println("  –      " + ordner + " fehlt: Vergleich mit den Bildern übersprungen");

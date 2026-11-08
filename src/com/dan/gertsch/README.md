@@ -1,6 +1,6 @@
 # com.dan.gertsch – Bäume und Gras nach Franz Gertsch (Probe)
 
-**Stand: Phase 2 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
+**Stand: Phase 3 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
 
 - jedes Blatt ein flacher Fleck mit harter Kante
 - wenige Tonstufen
@@ -12,10 +12,13 @@ Bei Gertsch entsteht das Abstrakte aus der Treue zum Foto, nicht aus einem Filte
 
 - **Phase 1** vermisst die Vorlagen und legt die Ergebnisse als Presets ab (`Vorlagen`).
 - **Phase 2** malt ein Dickicht auf dem Prozessor nach diesen Regeln und misst das Bild gegen „Sommer“ (Abschnitt [Phase 2](#phase-2-das-dickicht-gemalt)).
+- **Phase 3** malt dasselbe Dickicht auf der Grafikkarte, jedes Bild neu und im Wind, mit Hysterese der Tonstufen (Abschnitt [Phase 3](#phase-3-auf-der-grafikkarte-im-wind)).
 
-Der Kern braucht nur Java 21, `demo/` zusätzlich FStyle. Zum Herauskopieren reicht `src/com/dan/gertsch/`.
+Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL (OpenGL 4.3), `demo/` zusätzlich FStyle. Zum Herauskopieren reicht `src/com/dan/gertsch/`.
 
-![Das Dickicht nach der Malweise, rechts das Kennblatt des Bilds mit dem Soll aus „Sommer“](../../../../docs/img/gertsch_dickicht.png)
+![Das Dickicht auf der Grafikkarte, rechts das Kennblatt des Bilds mit dem Soll aus „Sommer“](../../../../docs/img/gertsch_gl.png)
+
+![Das Dickicht nach der Malweise auf dem Prozessor, rechts das Kennblatt des Bilds mit dem Soll aus „Sommer“](../../../../docs/img/gertsch_dickicht.png)
 
 ![Kennblätter der sechs Vorlagen](../../../../docs/img/gertsch.png)
 
@@ -102,6 +105,83 @@ Fleckgrößen sind Durchmesser als Anteil der Bildbreite (Median nach Fleckmasse
 - **Dunkle Lücken** sind 17 % zu groß.
 - **Kohärenz:** Dünne Äste und Halme machen das Bild etwas linienhafter als die Vorlage.
 
+## Phase 3: auf der Grafikkarte, im Wind
+
+`gl/GertschGl` malt dasselbe `Dickicht` mit OpenGL 4.3. Im Wind braucht ein Bild auf der Grafikkarte etwa 34 ms in MEDIUM (1000 px) und etwa 58 ms in HIGH (1600 px), gemessen auf einer AMD Radeon 680M. Im Fenster sind das 26 Bilder/s in MEDIUM bei 4 m/s.
+
+**Dieselben Blätter auf Prozessor und Grafikkarte.**
+
+- `Zufall` ist ein PCG-Hash (Jarzynski und Olano 2020) in 32 Bit, in Java und GLSL gleich (`gertsch.glsl`).
+- Die Blätter eines Zweigs entstehen auf beiden Seiten aus seinem seed. Auf die Grafikkarte gehen nur die Zweige (32 Byte je Zweig), nicht die 17 Mio. Blätter.
+- Länge und Schmalheit der Blätter sind schon beim Bauen auf halbe Genauigkeit gerundet, so wie sie in den Puffer kommen.
+- `GertschGlCheck` vergleicht 4.000 Blätter: Lage höchstens 4 µm daneben, Länge und Zufall gleich.
+
+**Ein Bild:**
+
+1. **Schattenkarten in zwei Stufen** entlang der Sonne: nah für die Empfänger bis 22 m vor der Kamera (fein), fern für alle im Bild.
+   - Ein Werfer liegt entlang der Sonne über seinem Empfänger. Darum reicht das Rechteck der Empfänger im Bildkegel, und die Karte wird fein.
+   - Die Blätter werden in ihrer Blattform eingetragen und flächentreu nach Texeln zusammengefasst.
+   - Im Wind wird die Karte jedes Bild neu gezeichnet, sonst nur, wenn sich die Kamera bewegt.
+   - Aus den Lücken im Laub entstehen die Lichtflecken auf Stämmen, Kraut und Boden.
+2. **Auswahl** (`auswahl.comp`, je Zweig ein Faden):
+   - Größenregel wie in `Malweise`
+   - Blatt aus dem seed, im Wind
+   - Licht in der Mitte des Blatts: Schattenkarten, Himmel aus der Blattfläche als 3D-Textur
+   - Band der Tonwerte mit Hysterese, Stufe, Akzent
+   - Jeder Fleck kommt an eine Liste für `glDrawArraysIndirect`.
+3. **Bild** mit Mehrfachabtastung:
+   - Boden, Stämme und Halme mit Licht je Bildpunkt; gerundet auf die Stufen haben die Lichtflecken scharfe, unregelmäßige Kanten.
+   - Flecken flach in ihrer Stufe, die Kante über die Abdeckung (Alpha → Abtastungen).
+   - Ein zweites Ziel hält die Helligkeit Y.
+4. **Tonwerte nach der Vorlage** (`Stufen`):
+   - `histogramm.comp` zählt Y.
+   - Aus dem Histogramm von vor zwei Bildern (Ring aus drei Puffern, ohne auf die Grafikkarte zu warten) kommen die Grenzen der Bänder, so dass jede Stufe ihren Anteil der Fläche bekommt.
+   - Springen die Grenzen um mehr als eine halbe Blende, fängt die Hysterese neu an.
+
+**Wind** (`Wind`, in Java und GLSL gleich):
+
+- Zweige neigen sich mit dem Staudruck (4 cm bei 5 m/s, 16 cm bei 10 m/s [G]), schwingen mit 0,6 bis 1 Hz, und Böen laufen als Wellen über das Dickicht.
+- Blätter flattern um ihre Längsachse: bis 26° bei 6 m/s, mit 2,5 bis 4 Hz [G].
+- Halme biegen sich mit dem Quadrat der Höhe.
+
+**Hysterese:** Ein Blatt merkt sich sein Band (ein Byte je Blatt, `Dickicht.Zweig.platz`). Es wechselt erst, wenn seine Helligkeit mehr als `hysterese` Blenden über die Grenzen dieses Bands geht. Gemessen mit `GertschGlDemo --flimmern` (MEDIUM, 24 B/s, Anteil der Flecken, die je Bild ihr Band wechseln):
+
+| Wind | ohne | 0,15 Blenden | 0,30 Blenden (Vorgabe) |
+|---|---|---|---|
+| 3 m/s | 3,9 % | 2,3 % | 1,1 % |
+| 6 m/s | 6,6 % | 3,9 % | 1,7 % |
+| 12 m/s | 6,7 % | 4,1 % | 1,9 % |
+
+Was mit 0,3 Blenden noch wechselt, sind echte Sprünge: Ein Sonnenfleck kommt oder geht.
+
+**Zeit der Grafikkarte je Durchgang** (ms, Wind 6 m/s, AMD Radeon 680M, `GertschGl.zeiten()`):
+
+| Qualität | Schatten | Auswahl | Boden, Stämme, Halme | Flecken | Auflösen, Histogramm | Werfer im Schatten | Flecken |
+|---|---|---|---|---|---|---|---|
+| MEDIUM (1000 px, 4×) | 15,4 | 3,4 | 2,6 | 11,7 | 0,5 | 1,9 Mio. | 1,6 Mio. |
+| HIGH (1600 px, 4×) | 25,1 | 3,3 | 4,7 | 23,4 | 1,7 | 4,7 Mio. | 1,5 Mio. |
+
+Ohne Wind fallen die Schattenkarten weg, solange die Kamera steht. Die Zahl der Flecken hängt kaum von der Auflösung ab, denn die Größenregel wächst mit.
+
+**Abnahme gegen „Sommer“** (Standbild HIGH ohne Wind, `GertschGlCheck`):
+
+| Kennwert | OpenGL | Prozessor | Sommer (Soll) | Toleranz OpenGL |
+|---|---|---|---|---|
+| Median L* | 28,2 | 32,8 | 31,9 | ± 5 |
+| dunkler Grund | 31,2 % | 24,7 % | 29,2 % | ± 8 Punkte |
+| Fleck hell | 0,64 % | 0,75 % | 0,64 % | −30 % bis +35 % |
+| Lücke dunkel | 1,31 % | 1,44 % | 1,17 % | −30 % bis +40 % |
+| Hauptrichtung | 0° | 4° | 179° | waagerecht ± 25° |
+| senkrecht | 18 % | 19 % | 24 % | – |
+| Akzente | 0,41 % | 0,52 % | 0,52 % | 0,1 bis 1,5 % |
+
+**Wie sich OpenGL vom Prozessor unterscheidet:**
+
+- Auf der Grafikkarte entscheidet die Tiefe je Bildpunkt, nicht die Reihenfolge der Flecken.
+- Stämme, Boden und Halme bekommen Licht je Bildpunkt statt je Stück. Ihre Lichtflecken folgen deshalb genau den Lücken im Laub, statt aus runden Flecken zusammengesetzt zu sein.
+- Die Schattenkarte zeichnet Blätter in ihrer Form statt als Scheiben.
+- Der dunkle Grund trifft so besser (31 statt 25 %), der Median liegt etwas tiefer.
+
 ## Was es kann
 
 - **Lab** (`Lab`): sRGB ↔ CIELAB (D65), ΔE*ab, Buntheit, Farbton (CIE 15:2004, IEC 61966-2-1).
@@ -145,6 +225,14 @@ Malweise m = new Malweise();                       // Vorlage Sommer, HIGH (1600
 Malweise.Ergebnis e = m.malen(d, licht, new Kamera());
 ImageIO.write(e.bild, "png", new File("dickicht.png"));
 Vorlage ist = new Messung().messen(e.bild);        // gegen Vorlagen.sommer() vergleichen
+
+// Phase 3: auf der Grafikkarte (im GL-Faden)
+GertschGl gg = new GertschGl();                    // Vorlage Sommer, HIGH, Hysterese 0,3 Blenden
+gg.init(gl);
+gg.laden(gl, d, licht);
+gg.wind.staerke = 6;                               // m/s; Richtung und Böigkeit ebenso offen
+gg.zeichnen(gl, kamera, zeit, zielFbo, 0, 0, breite, hoehe);   // je Bild
+BufferedImage bild = gg.lesen(gl);                 // das letzte Bild, etwa zum Messen
 ```
 
 ## Aufbau
@@ -163,6 +251,14 @@ Vorlage ist = new Messung().messen(e.bild);        // gegen Vorlagen.sommer() ve
 | `Licht` | Phase 2: Sonne, Schattenkarte, Himmel nach der Blattfläche |
 | `Kamera` | Phase 2: Lochkamera, Projektion, Strahl |
 | `Malweise` | Phase 2: die Regeln und das Malen; `Ergebnis` mit Bild, Licht ohne Stufen, Nummer je Bildpunkt, Stufe und Faktor je Fleck |
+| `Zufall` | Phase 3: PCG-Hash, in Java und GLSL gleich |
+| `Wind` | Phase 3: Auslenkung der Zweige, Flattern der Blätter (in GLSL gleich) |
+| `Stufen` | Phase 3: Anteile der Tonstufen, Grenzen der Bänder aus einem Histogramm, Band mit Hysterese (in GLSL gleich) |
+| `gl/GertschGl` | Phase 3: Laden, Schattenkarten, Auswahl, Bild, Tonwerte, Zähler, Zeit je Durchgang |
+| `gl/gertsch.glsl` | vor jedem Shader: Zufall, Blatt, Wind, Licht, Lab, Tonstufen |
+| `gl/auswahl.comp`, `fleck.*`, `glied.*`, `halm.*`, `boden.*`, `histogramm.comp`, `pruefen.comp` | die Shader |
+| `demo/GertschGlDemo` | Phase 3: Fenster im Wind, Standbild, Messung des Flimmerns |
+| `demo/GertschGlCheck` | Phase 3: Prüfung auf der Grafikkarte |
 | `demo/GertschDemo` | Phase 1: Vorlagen vermessen, Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
 | `demo/DickichtDemo` | Phase 2: das Dickicht malen und messen, Fenster und Standbilder |
 | `demo/Kennblatt` | zeichnet die Kennwerte einer Vorlage, wahlweise mit einem Soll |
@@ -235,6 +331,47 @@ Rechts steht das Kennblatt des Bilds mit dem Soll der Vorlage: Anteile als zweit
 
 Dickicht und Schattenkarte bleiben erhalten, solange seed und Sonne gleich sind. `--bild` schreibt das gemalte Bild mit dem Kennblatt und gibt Ist und Soll als Text aus. Das Bild enthält keine Bildpunkte der Werke.
 
+Die OpenGL-Demo braucht unter Windows mit JDK 21 die Freigaben für AWT, wie die App LituyaBay1958. Ohne sie meldet JOGL „Unable to determine GraphicsConfiguration“, das gilt für jedes `GLCanvas` im Projekt:
+
+```bash
+java --enable-native-access=ALL-UNNAMED --add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.awt.windows=ALL-UNNAMED --add-opens java.desktop/sun.java2d=ALL-UNNAMED -cp "build/classes:lib/*:src" com.dan.gertsch.demo.GertschGlDemo
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.GertschGlDemo --bild gl.png sommer HIGH 0
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.GertschGlDemo --flimmern 6 MEDIUM
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.GertschGlCheck
+```
+
+Das Fenster der `GertschGlDemo` zeigt links das Dickicht im Wind und rechts das Kennblatt, auf „Messen“ mit dem aktuellen Bild gegen die Vorlage. Unten wählt man:
+
+- Vorlage
+- Qualität
+- Hysterese an oder aus
+- „Neu würfeln“
+- Wind (0–15 m/s)
+- Sonnenhöhe und -richtung
+
+Dazu stehen Bilder je Sekunde, Zeit der Grafikkarte und Anteil der wechselnden Flecken da; die Zeit je Durchgang zeigt der Tooltip.
+
+- `--bild datei.png [vorlage] [Qualität] [Wind] [Zeit]` schreibt ein Standbild ohne Fenster.
+- `--flimmern [Wind] [Qualität]` misst 40 Bilder je Hysterese 0, 0,15 und 0,3.
+
+`GertschGlCheck` prüft auf der Grafikkarte:
+
+- dieselben Blätter wie der Prozessor
+- keine Liste zu klein in LOW bis ULTRA
+- die Hysterese mindestens halbiert die Wechsel bei 6 m/s
+- die Abnahme gegen „Sommer“ aus der Tabelle oben
+
+Sie endet mit „Alles in Ordnung.“ Die Zähler der Grafikkarte werden im `display()` desselben Bilds gelesen, nicht über `invoke`: Ohne Animator zeichnet JOGL dabei noch ein Bild zur selben Zeit, und gezählt würden dessen Wechsel (keine).
+
 `GertschCheck` prüft:
 
 - Lab an festen Punkten und im Hin und Zurück
@@ -253,6 +390,12 @@ Dickicht und Schattenkarte bleiben erhalten, solange seed und Sonne gleich sind.
   - gleiches Bild bei gleichem seed
   - jeder Fleck in einer Stufe oder Akzent
   - die Abnahme gegen „Sommer“ aus der Tabelle oben
+- Phase 3 ohne Grafikkarte:
+  - feste Werte und Gleichverteilung des Hashs
+  - Wind: still ohne Wind, Auslenkung ∝ U², Flattern begrenzt
+  - Anteile und Grenzen der Bänder, Hysterese
+  - Plätze je Zweig durch 4 teilbar, höchstens 255 Blätter je Zweig
+  - die Matrix der Kamera für OpenGL gegen `projizieren`
 
 Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit den Presets. Sie braucht etwa 30 s und endet mit „Alles in Ordnung.“
 
@@ -268,11 +411,17 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
   - Der Maleralgorithmus ordnet nach der Mitte jedes Flecks: Wo sich lange Stücke kreuzen, kann die Reihenfolge falsch sein.
   - Der Halbschatten der Sonnenscheibe fehlt (keine Sonnentaler), die Schattenkarte ist nur leicht weich.
   - Das Dickicht ist ein Sommerwald; andere Vorlagen im Fenster geben nur Tonstufen und Akzente vor, nicht die Szene (Herbst-Farben auf einem Sommerwald).
+- Phase 3:
+  - Im Wind wandert ein Zweig als Ganzes; Äste und Stämme bleiben stehen, so dass Blätter bis zu 16 cm (bei 10 m/s) von ihrem Ast abrücken.
+  - Hysterese gibt es nur für die Flecken, nicht für Stämme, Halme und Boden (die Licht je Bildpunkt bekommen). Dort wandern die Lichtflecken mit den Schatten.
+  - Die Grenzen der Bänder folgen dem Histogramm von vor zwei Bildern.
+  - Speicher in HIGH rund 400 MB auf der Grafikkarte: Listen der Schattenkarten (170 MB), Mehrfachabtastung (80 MB), Liste der Flecken (64 MB), Zweige (45 MB).
+  - Die Kamera steht im Fenster fest; bewegt sie sich, werden beide Schattenkarten jedes Bild neu gezeichnet.
 
 ## Weiter
 
 1. ~~Vorlagen vermessen~~ (Phase 1).
 2. ~~Standbild „Sommer“ auf der CPU~~ (Phase 2).
-3. `gl/`: Flecken und Halme instanziert, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind.
+3. ~~`gl/`: Flecken und Halme auf der Grafikkarte, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind~~ (Phase 3).
 4. Holzschnitt: Punkte nach Blue-Noise-Rang, eine Farbe, senkrechte Wolken im Farbauftrag.
 5. Eine Schnittstelle für Blätter und Halme von außen, damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann. Das Paket kennt sie selbst nicht.

@@ -54,7 +54,6 @@ public final class Dickicht {
     public final List<Glied> glieder = new ArrayList<>();
     public final List<Zweig> zweige = new ArrayList<>();
     public final List<Halm> halmListe = new ArrayList<>();
-    public final List<Blatt> streuListe = new ArrayList<>();
 
     /** Waldrand im Sommer (Vorbild: Gertschs „Sommer“). */
     public static Dickicht sommer() { return new Dickicht(); }
@@ -66,9 +65,9 @@ public final class Dickicht {
         public boolean stamm;
     }
 
-    /** Ein Blatt: Mitte, Normale, Richtung der Längsachse, Länge, Breite, Albedo, Zufall 0..1, trocken. */
+    /** Ein Blatt: Mitte, Normale, Richtung der Längsachse, Länge, Breite, Albedo, Zufall 0..1, Phase des Flatterns, trocken. */
     public static final class Blatt {
-        public float x, y, z, nx, ny, nz, ax, ay, az, laenge, breite, r, g, b, zufall;
+        public float x, y, z, nx, ny, nz, ax, ay, az, laenge, breite, r, g, b, zufall, phase;
         public boolean trocken;
     }
 
@@ -78,55 +77,70 @@ public final class Dickicht {
         public float breite, r, g, b;
     }
 
-    /** Eine Wolke von Blättern an einem Zweig. Die Blätter entstehen aus dem seed, gleich oft gleich. */
+    /**
+     * Eine Wolke von Blättern an einem Zweig. Die Blätter entstehen aus dem seed über {@link Zufall}, in Java und GLSL
+     * gleich ({@code gl/gertsch.glsl}, {@code blatt}); gerechnet wird in float wie auf der Grafikkarte.
+     */
     public static final class Zweig {
         public float x, y, z, radius;
         public int blaetter;
         public float laenge, schmal, neigung, trocken;
         public float[] farbe, farbeTrocken;
-        public long seed;
+        /** seed (32 Bit, für Prozessor und Grafikkarte gleich). */
+        public int seed;
+        /** Am Boden (Laubstreu): ein liegendes Blatt, das sich im Wind nicht bewegt. */
+        public boolean boden;
+        /** Erster Platz des Zweigs in der Reihe aller Blätter (durch 4 teilbar): für die Hysterese auf der Grafikkarte. */
+        public int platz;
 
         /** Zufall 0..1 des Blatts i, ohne das Blatt zu bauen (für die flächentreue Auswahl). */
-        public float zufall(int i) { return (float) ((mix(seed + 0x9E3779B97F4A7C15L * (i + 1)) >>> 11) * 0x1.0p-53); }
+        public float zufall(int i) { return Zufall.zug(seed, i, 0); }
+
+        /** Phase 0..1 des Zweigs im Wind. */
+        public float phase() { return Zufall.eins(seed ^ 0x5BD1E995); }
 
         /** Baut Blatt i (0 ≤ i < {@link #blaetter}) in {@code o}. */
         public void blatt(int i, Blatt o) {
-            SplittableRandom r = new SplittableRandom(mix(seed + 0x9E3779B97F4A7C15L * (i + 1)) ^ 0x5DEECE66DL);
             o.zufall = zufall(i);
-            double u, v, w, q;
-            do {   // gleichverteilt in der Kugel, unten abgeflacht
-                u = r.nextDouble(-1, 1);
-                v = r.nextDouble(-1, 1);
-                w = r.nextDouble(-1, 1);
-                q = u * u + v * v + w * w;
-            } while (q > 1);
-            o.x = (float) (x + radius * u);
-            o.y = (float) (y + radius * 0.75 * v);
-            o.z = (float) (z + radius * w);
-            double th = Math.toRadians(Math.min(85, Math.abs(r.nextGaussian()) * neigung)), ph = r.nextDouble(2 * Math.PI);
-            o.nx = (float) (Math.sin(th) * Math.cos(ph));
+            // gleichverteilt in der Kugel (Richtung, Radius ∝ ∛u), unten abgeflacht
+            float cz = 2 * Zufall.zug(seed, i, 1) - 1, sxy = (float) Math.sqrt(Math.max(0, 1 - cz * cz));
+            float ph = (float) (2 * Math.PI) * Zufall.zug(seed, i, 2), rr = (float) Math.cbrt(Zufall.zug(seed, i, 3));
+            o.x = x + radius * rr * sxy * (float) Math.cos(ph);
+            o.y = y + radius * 0.75f * rr * cz;
+            o.z = z + radius * rr * sxy * (float) Math.sin(ph);
+            // Neigung: |Gauß| · neigung (Box–Muller), höchstens 85°
+            float gauss = (float) (Math.sqrt(-2 * Math.log(Math.max(Zufall.zug(seed, i, 4), 1e-7f))) * Math.cos(2 * Math.PI * Zufall.zug(seed, i, 5)));
+            float th = (float) Math.toRadians(Math.min(85f, Math.abs(gauss) * neigung)), phn = (float) (2 * Math.PI) * Zufall.zug(seed, i, 6);
+            o.nx = (float) (Math.sin(th) * Math.cos(phn));
             o.ny = (float) Math.cos(th);
-            o.nz = (float) (Math.sin(th) * Math.sin(ph));
-            double tx = r.nextDouble(-1, 1), ty = r.nextDouble(-0.3, 0.3), tz = r.nextDouble(-1, 1);
-            double d = tx * o.nx + ty * o.ny + tz * o.nz;
+            o.nz = (float) (Math.sin(th) * Math.sin(phn));
+            float tx = 2 * Zufall.zug(seed, i, 7) - 1, ty = 0.6f * Zufall.zug(seed, i, 8) - 0.3f, tz = 2 * Zufall.zug(seed, i, 9) - 1;
+            float d = tx * o.nx + ty * o.ny + tz * o.nz;
             tx -= d * o.nx;
             ty -= d * o.ny;
             tz -= d * o.nz;
-            double l = Math.sqrt(tx * tx + ty * ty + tz * tz);
-            if (l < 1e-6) { tx = o.ny; ty = -o.nx; tz = 0; l = Math.hypot(tx, ty); }
-            o.ax = (float) (tx / l);
-            o.ay = (float) (ty / l);
-            o.az = (float) (tz / l);
-            o.laenge = (float) (laenge * (0.75 + 0.5 * r.nextDouble()));
-            o.breite = (float) (o.laenge * schmal * (0.85 + 0.3 * r.nextDouble()));
-            o.trocken = r.nextDouble() < trocken;
+            float l = (float) Math.sqrt(tx * tx + ty * ty + tz * tz);
+            if (l < 1e-4f) { tx = o.ny; ty = -o.nx; tz = 0; l = (float) Math.sqrt(tx * tx + ty * ty); }
+            o.ax = tx / l;
+            o.ay = ty / l;
+            o.az = tz / l;
+            o.laenge = laenge * (0.75f + 0.5f * Zufall.zug(seed, i, 10));
+            o.breite = o.laenge * schmal * (0.85f + 0.3f * Zufall.zug(seed, i, 11));
+            o.trocken = Zufall.zug(seed, i, 12) < trocken;
             float[] f = o.trocken ? farbeTrocken : farbe;
-            double hellig = 0.75 + 0.5 * r.nextDouble(), gelb = r.nextDouble(-0.15, 0.15);
-            o.r = (float) (f[0] * hellig * (1 + gelb));
-            o.g = (float) (f[1] * hellig);
-            o.b = (float) (f[2] * hellig * (1 - gelb));
+            float hellig = 0.75f + 0.5f * Zufall.zug(seed, i, 13), gelb = 0.3f * Zufall.zug(seed, i, 14) - 0.15f;
+            o.r = f[0] * hellig * (1 + gelb);
+            o.g = f[1] * hellig;
+            o.b = f[2] * hellig * (1 - gelb);
+            o.phase = Zufall.zug(seed, i, 15);
         }
     }
+
+    /**
+     * Auf halbe Genauigkeit (16 Bit) gerundet: So kommen Länge und Schmalheit der Blätter auf die Grafikkarte (zwei in
+     * einem Wort), und Prozessor und Grafikkarte rechnen mit denselben Zahlen (Abweichung höchstens 0,05 %).
+     */
+    static float halb(double v) { return Float.float16ToFloat(Float.floatToFloat16((float) v)); }
 
     static long mix(long h) {
         h ^= h >>> 33;
@@ -149,7 +163,6 @@ public final class Dickicht {
         glieder.clear();
         zweige.clear();
         halmListe.clear();
-        streuListe.clear();
         SplittableRandom r = new SplittableRandom(seed);
         double halbe = breite / 2;
         // Bäume: hoch, Krone ab der Hälfte; einige weiter vorn
@@ -190,33 +203,38 @@ public final class Dickicht {
             int bueschel = 3 + r.nextInt(8);
             for (int j = 0; j < bueschel && i < halme; j++, i++) halm(r, xb + r.nextGaussian() * 0.06, z + r.nextGaussian() * 0.06);
         }
-        // Streu am Boden
+        // Streu am Boden: je ein liegendes, trockenes Blatt als Zweig ohne Ausdehnung (so behandeln Malweise und
+        // Grafikkarte sie wie jedes Blatt)
         for (int i = 0; i < streu; i++) {
             double z = nah + Math.pow(r.nextDouble(), 0.7) * (streuBis - nah), x = r.nextDouble(-1, 1) * (z * tan + 1);
-            Blatt b = new Blatt();
-            b.x = (float) x;
-            b.y = 0.004f;
-            b.z = (float) z;
-            double th = Math.toRadians(r.nextDouble(0, 15)), ph = r.nextDouble(2 * Math.PI);
-            b.nx = (float) (Math.sin(th) * Math.cos(ph));
-            b.ny = (float) Math.cos(th);
-            b.nz = (float) (Math.sin(th) * Math.sin(ph));
-            double a = r.nextDouble(2 * Math.PI);
-            b.ax = (float) Math.cos(a);
-            b.ay = 0;
-            b.az = (float) Math.sin(a);
-            b.laenge = (float) (blattLaenge * (0.8 + 0.5 * r.nextDouble()));
-            b.breite = (float) (b.laenge * blattSchmal * (0.85 + 0.3 * r.nextDouble()));
-            double hg = 0.7 + 0.6 * r.nextDouble();
-            b.r = (float) (streuFarbe[0] * hg);
-            b.g = (float) (streuFarbe[1] * hg);
-            b.b = (float) (streuFarbe[2] * hg);
-            b.zufall = (float) r.nextDouble();
-            b.trocken = true;
-            streuListe.add(b);
+            Zweig zw = new Zweig();
+            zw.x = (float) x;
+            zw.y = 0.004f;
+            zw.z = (float) z;
+            zw.radius = 0;
+            zw.blaetter = 1;
+            zw.laenge = halb(blattLaenge * 1.05);
+            zw.schmal = halb(blattSchmal);
+            zw.neigung = 8;
+            zw.trocken = 1;
+            zw.farbe = streuFarbe;
+            zw.farbeTrocken = streuFarbe;
+            zw.seed = r.nextInt();
+            zw.boden = true;
+            zweige.add(zw);
         }
+        // Plätze der Blätter (je Zweig auf 4 aufgerundet, damit sich auf der Grafikkarte keine zwei Zweige ein Wort teilen)
+        int platz = 0;
+        for (Zweig zw : zweige) {
+            zw.platz = platz;
+            platz += (zw.blaetter + 3) & ~3;
+        }
+        plaetze = platz;
         return this;
     }
+
+    /** Zahl der Plätze aller Blätter (Summe der auf 4 aufgerundeten Zahlen je Zweig). */
+    public int plaetze;
 
     /**
      * Ein Gehölz: {@code triebe} Stämme ab (x, 0, z), Höhe h, Stammradius rs, Krone ab dem Anteil {@code kroneAb} der
@@ -289,13 +307,13 @@ public final class Dickicht {
                 zw.y = Math.max(zw.y, 0.08f);
                 zw.radius = (float) (0.12 + 0.1 * r.nextDouble());
                 zw.blaetter = (int) Math.max(3, Math.round(blaetter / (double) (aeste * zweigeJeAst) * (0.7 + 0.6 * r.nextDouble())));
-                zw.laenge = (float) blattLaenge;
-                zw.schmal = (float) blattSchmal;
+                zw.laenge = halb(blattLaenge);
+                zw.schmal = halb(blattSchmal);
                 zw.neigung = (float) neigung;
                 zw.trocken = (float) trocken;
                 zw.farbe = laub;
                 zw.farbeTrocken = laubTrocken;
-                zw.seed = r.nextLong();
+                zw.seed = r.nextInt();
                 zweige.add(zw);
             }
         }

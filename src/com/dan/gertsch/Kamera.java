@@ -41,6 +41,30 @@ public final class Kamera {
     /** Brennweite in Bildpunkten (nach {@link #stellen}). */
     public double brennweite() { return brennweite; }
 
+    /** Blickrichtung (Einheitsvektor, nach {@link #stellen}). */
+    public double[] vorn() { return vorn.clone(); }
+
+    /**
+     * Projektion · Blick für OpenGL (Spalten hintereinander, Tiefe −1..1 von {@code nah} bis {@code fern}), passend zu
+     * {@link #projizieren}: Bild x = (x_ndc + 1)/2 · Breite, Bild y = (1 − y_ndc)/2 · Höhe.
+     */
+    public float[] blickProjektion(double nah, double fern) {
+        double fx = 2 * brennweite / breite, fy = 2 * brennweite / hoehe;
+        double a = (fern + nah) / (nah - fern), b = 2 * fern * nah / (nah - fern);
+        double tr = -(rechts[0] * auge[0] + rechts[1] * auge[1] + rechts[2] * auge[2]);
+        double tu = -(oben[0] * auge[0] + oben[1] * auge[1] + oben[2] * auge[2]);
+        double tf = vorn[0] * auge[0] + vorn[1] * auge[1] + vorn[2] * auge[2];
+        double[][] z = {
+                {fx * rechts[0], fx * rechts[1], fx * rechts[2], fx * tr},
+                {fy * oben[0], fy * oben[1], fy * oben[2], fy * tu},
+                {-a * vorn[0], -a * vorn[1], -a * vorn[2], a * tf + b},
+                {vorn[0], vorn[1], vorn[2], -tf}};
+        float[] m = new float[16];
+        for (int r = 0; r < 4; r++)
+            for (int c = 0; c < 4; c++) m[c * 4 + r] = (float) z[r][c];
+        return m;
+    }
+
     /** Tiefe eines Punkts entlang des Blicks (m). */
     public double tiefe(double x, double y, double z) {
         return (x - auge[0]) * vorn[0] + (y - auge[1]) * vorn[1] + (z - auge[2]) * vorn[2];
