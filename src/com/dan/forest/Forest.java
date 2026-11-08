@@ -77,6 +77,16 @@ public final class Forest {
 
     public TreeMesh mesh(TreeInstance t, int lod) { prepare(); return meshes[t.speciesIndex][t.variant][lod]; }
 
+    /**
+     * Das Skelett, aus dem dieser Baum gezeichnet wird (seit LituyaBay1958 W10): Äste und Blattstellen in Metern, Fuß bei
+     * (0, 0, 0), vor Drehung und Größe der Instanz. In die Welt: {@code x + scale · (cos yaw · px − sin yaw · pz)},
+     * {@code y + scale · py}, {@code z + scale · (sin yaw · px + cos yaw · pz)} wie {@code forest.vert}. Für Zeichner, die
+     * dieselben Bäume anders malen (etwa {@code com.dan.gertsch} über eine Brücke in der App). Nicht verändern: alle
+     * Instanzen derselben Art und Variante teilen es. {@link com.dan.forest.gl.ForestGpu#model(int)} ist dasselbe für den Wald
+     * auf der Grafikkarte (Typ aus {@link ForestCulture#at}).
+     */
+    public TreeModel model(TreeInstance t) { prepare(); return models[t.speciesIndex][t.variant]; }
+
     /** Jahreszeit setzen (Tag 1..365, Schnee 0..1); die Farben werden beim nächsten Bild neu gerechnet. */
     public void setSeason(int day, float snow) {
         if (day != this.day || Math.abs(snow - this.snow) > 0.02f) colorsDirty = true;

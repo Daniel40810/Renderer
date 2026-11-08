@@ -219,6 +219,17 @@ public final class GertschGl {
         bild = 0;
     }
 
+    /**
+     * Die Sonne ist gewandert ({@code licht.richten()} lief mit neuer Höhe oder Richtung, seit LituyaBay1958 W10): Achsen
+     * und Schattenkarten neu, ohne das Dickicht neu zu laden.
+     */
+    public void sonneGeaendert() {
+        if (dickicht == null) return;
+        sonneAchsen();
+        kastenKamera = null;
+        schattenFertig = false;
+    }
+
     /** Achsen entlang der Sonne (wie Licht.schatten) und die Tiefe w der ganzen Szene (alle Werfer). */
     private void sonneAchsen() {
         double[] w0 = licht.zurSonne;
