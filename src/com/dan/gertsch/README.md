@@ -451,6 +451,20 @@ Das Blattflächenfeld des Himmels liegt ab y = 0 nach oben: Die tiefste Stelle d
 | `aufGelaende` am Hang | 5 027 Blätter und 1 500 Halme genau gehoben (10⁻⁷ m) |
 | Am Hang: Grafikkarte gegen Prozessor | Median −7,2 (auf der Ebene −4,5), Grund +3,0 Punkte (auf der Ebene +1,2): so nah wie auf der Ebene, Toleranz 3 und 3 Punkte |
 
+### Wasser und schnelleres Laden (seit LituyaBay1958 W10b)
+
+![Huflattich am Wasser: derselbe Hang, vorn bis 0,45 m unter dem Wasserspiegel, auf der Grafikkarte nach „Blätter“](../../../../docs/img/gertsch_wasser.png)
+
+- **Wasserspiegel** (`Gelaende.mitWasser(h)`): Wo der Grund tiefer liegt, ist der Boden die Wasserfläche in dieser Höhe. Sie spiegelt den Himmel nach Fresnel (Schlick, R₀ = 0,02; `Gelaende.fresnel`), unter Bäumen nach der Blattfläche darüber, und zeigt darunter `wasserFarbe`. Bäume spiegelt sie nicht. Grafikkarte (`boden.vert`, `boden.frag`) und Prozessor (`Malweise`, `Gelaende.strahlOberflaeche`) rechnen gleich; ohne Wasserspiegel bleibt alles wie vorher.
+- **Liegende Büschel flach:** Ein liegendes Büschel von außen verteilte seine Blätter wie ein stehendes in einer Kugel, senkrecht bis ±0,75 · Radius, bei 0,5 m also bis 0,4 m über dem Boden, wo sie sich gegenseitig beschatteten. Liegend sind es jetzt ±0,03 · Radius (`Dickicht.LIEGEND_FLACH`, gleich in `gertsch.glsl`). Die Streu aus seed hat Radius 0 und bleibt gleich.
+- **Himmelsfeld** (`Licht.himmel`): Die Glättung über 7 × 7 Zellen läuft in zwei Durchgängen und parallel über die Zeilen, mit demselben Mittel über das am Rand beschnittene Quadrat. Bei einer Million Büscheln und 100 m Gelände sind das statt 1 s weniger als 0,1 s für die Glättung.
+- **Packen und Laden getrennt** (`GertschGl.packen(d, l)` ohne GL, dann `laden(gl, paket)`): Eine App füllt die Puffer im Hintergrund; im Bildfaden bleibt nur das Hochladen (bei LituyaBay1958 rund 55 statt 190 ms). `laden(gl, d, l)` tut beides wie bisher.
+
+| Prüfung | Ergebnis |
+|---|---|
+| Wasser über einem Hang: Strahl, nass und trocken, Fresnel | Strahl auf 10⁻⁶ m genau, senkrecht 0,02, streifend 1,00 |
+| `GertschGlCheck` nach dem Umbau (Packen, Himmelsfeld) | alle Zahlen wie vorher, Gelände eben 76 von 1 747 200 Bildpunkten anders |
+
 ## Was es kann
 
 - **Lab** (`Lab`): sRGB ↔ CIELAB (D65), ΔE*ab, Buntheit, Farbton (CIE 15:2004, IEC 61966-2-1).
@@ -555,7 +569,7 @@ BufferedImage druck = sg.lesen(gl);
 | `Punkte` | Phase 4: Rang je Zelle (Void and Cluster gemischt mit Zufall), Form, Abstand, Einzug der Kante, Eichkurve (in GLSL gleich) |
 | `Stich` | Phase 4: der Holzschnitt aus einem Bild oder einer Helligkeit: Ton, Punkte, Farbe mit Wolken und Korn |
 | `Quelle` | Phase 5: Schnittstelle für Szenen von außen: `Blatt`, `Bueschel`, `Halm`, `Glied`, Boden; `Sammlung` zum Füllen; seit W10 `gelaende()` und `aufGelaende` |
-| `Gelaende` | seit LituyaBay1958 W10: Höhen auf einem Gitter, Normale, Strahl |
+| `Gelaende` | seit LituyaBay1958 W10: Höhen auf einem Gitter, Normale, Strahl; seit W10b Wasserspiegel, Fresnel, Strahl gegen die Oberfläche |
 | `gl/GertschGl` | Phase 3: Laden, Schattenkarten, Auswahl, Bild, Tonwerte, Zähler, Zeit je Durchgang; Texturen für Phase 4 |
 | `gl/StichGl` | Phase 4: Holzschnitt aus einer Textur, mit Trägheit und Hysterese der Punkte; Zeigen ganz oder mit der Lupe |
 | `gl/stich.glsl`, `stich.vert`, `stich_hell.frag`, `stich_punkte.comp`, `stich.frag`, `stich_zeigen.frag` | Phase 4: die Shader des Holzschnitts (`histogramm.comp` von Phase 3) |
@@ -564,7 +578,7 @@ BufferedImage druck = sg.lesen(gl);
 | `demo/GertschGlDemo` | Phase 3: Fenster im Wind, Standbild, Messung des Flimmerns |
 | `demo/GertschGlCheck` | Phase 3 und 4: Prüfung auf der Grafikkarte |
 | `demo/StichDemo` | Phase 4: Holzschnitt im Fenster (Dickicht im Wind oder ein Bild), Lupe, Standbild, Messung des Flimmerns |
-| `demo/QuelleDemo` | Phase 5: Szenen von außen im Fenster (Huflattich, Dickicht als Büschel, Dickicht aus seed, seit W10 Huflattich am Hang), wahlweise als Holzschnitt; Standbild |
+| `demo/QuelleDemo` | Phase 5: Szenen von außen im Fenster (Huflattich, Dickicht als Büschel, Dickicht aus seed, seit W10 Huflattich am Hang, seit W10b am Wasser), wahlweise als Holzschnitt; Standbild |
 | `demo/Huflattich` | Phase 5: Testszene mit eigenem Modell und Brücke zur `Quelle` |
 | `demo/Druckblatt` | zeichnet die Kennwerte eines Drucks, wahlweise mit dem Soll |
 | `demo/GertschDemo` | Phase 1: Vorlagen vermessen, Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
@@ -716,13 +730,13 @@ java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.QuelleDemo --bild quelle
 
 Das Fenster der `QuelleDemo` zeigt links die Szene im Wind und rechts das Kennblatt, auf „Messen“ mit dem Bild gegen die Vorlage. Unten wählt man:
 
-- Szene: Huflattich (von außen, Vorlage „Blätter“), Dickicht als Büschel (17 Mio. Blätter durch die Schnittstelle), Dickicht aus seed (zum Vergleich), Huflattich am Hang (seit W10: auf einem `Gelaende`, 35 % ansteigend mit Wellen)
+- Szene: Huflattich (von außen, Vorlage „Blätter“), Dickicht als Büschel (17 Mio. Blätter durch die Schnittstelle), Dickicht aus seed (zum Vergleich), Huflattich am Hang (seit W10: auf einem `Gelaende`, 35 % ansteigend mit Wellen), Huflattich am Wasser (seit W10b: derselbe Hang mit Wasserspiegel)
 - Vorlage
 - Hysterese und Holzschnitt (`StichGl` auf dem Licht der Szene)
 - „Messen“ und „Neu würfeln“
 - Wind, Sonnenhöhe und -richtung
 
-Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte, die Zahl der Flecken und wie viele Blätter von außen kamen. `--bild datei.png [huflattich|bueschel|seed|hang] [vorlage] [Qualität] [Wind]` schreibt ein Standbild mit Kennblatt, mit `--cpu` malt der Prozessor.
+Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte, die Zahl der Flecken und wie viele Blätter von außen kamen. `--bild datei.png [huflattich|bueschel|seed|hang|wasser] [vorlage] [Qualität] [Wind]` schreibt ein Standbild mit Kennblatt, mit `--cpu` malt der Prozessor.
 
 `GertschGlCheck` prüft auf der Grafikkarte:
 

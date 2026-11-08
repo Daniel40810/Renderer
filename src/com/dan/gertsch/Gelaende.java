@@ -13,6 +13,32 @@ public final class Gelaende {
     public final int nx, nz;
     public final float[] h;
     private final float min, max;
+    /**
+     * Wasserspiegel (seit LituyaBay1958 W10b, m; NaN = kein Wasser): wo der Grund tiefer liegt, ist der Boden die
+     * Wasserfläche in dieser Höhe. Sie spiegelt den Himmel nach Fresnel (unter Bäumen nach der Blattfläche darüber) und
+     * zeigt darunter {@link #wasserFarbe}; Bäume spiegelt sie nicht.
+     */
+    public float wasser = Float.NaN;
+    /** Albedo des Wassers mit dem, was darunter liegt (linear) [G: Gletschermilch dunkel graugrün]. */
+    public float[] wasserFarbe = {0.018f, 0.030f, 0.030f};
+
+    /** Mit Wasserspiegel in dieser Höhe (gibt sich selbst zurück). */
+    public Gelaende mitWasser(float hoehe) { wasser = hoehe; return this; }
+
+    /** Steht bei (x, z) Wasser über dem Grund? */
+    public boolean nass(double x, double z) { return !Float.isNaN(wasser) && hoehe(x, z) < wasser; }
+
+    /** Höhe der Oberfläche: der Grund oder darüber das Wasser. */
+    public float oberflaeche(double x, double z) { float g = hoehe(x, z); return !Float.isNaN(wasser) && g < wasser ? wasser : g; }
+
+    /**
+     * Anteil des Himmelslichts, den das Wasser zum Auge spiegelt: Fresnel nach Schlick (n = 1,33, R₀ = 0,02) aus dem
+     * Kosinus zwischen Blick und Senkrechter. Gleich in {@code boden.frag}.
+     */
+    public static double fresnel(double cosBlick) {
+        double c = Math.max(0, Math.min(1, cosBlick)), m = 1 - c;
+        return 0.02 + 0.98 * m * m * m * m * m;
+    }
 
     public Gelaende(double x0, double z0, double zelle, int nx, int nz, float[] h) {
         if (nx < 2 || nz < 2) throw new IllegalArgumentException("gertsch: Gelände braucht mindestens 2 × 2 Punkte");
@@ -86,6 +112,17 @@ public final class Gelaende {
             vorher = d;
         }
         return Double.NaN;
+    }
+
+    /** Wie {@link #strahl}, aber gegen die Oberfläche: das Wasser, wenn der Strahl es vor dem Grund trifft (seit W10b). */
+    public double strahlOberflaeche(double[] auge, double[] r, double weit) {
+        double t = strahl(auge, r, weit);
+        if (Float.isNaN(wasser) || auge[1] <= wasser || r[1] >= 0) return t;
+        double tw = (auge[1] - wasser) / -r[1];
+        if (tw > weit) return t;
+        double x = auge[0] + r[0] * tw, z = auge[2] + r[2] * tw;
+        boolean drin = x >= x0 && x <= x0 + (nx - 1) * zelle && z >= z0 && z <= z0 + (nz - 1) * zelle;
+        return drin && (Double.isNaN(t) || tw < t) ? tw : t;
     }
 
     private static boolean innen(double x, double z, double x0, double z0, double x1, double z1) { return x >= x0 && x <= x1 && z >= z0 && z <= z1; }

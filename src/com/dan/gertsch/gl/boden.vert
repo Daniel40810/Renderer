@@ -7,8 +7,11 @@ uniform int uGelaende;     // 0: Ebene, 1: Gitter
 uniform sampler2D uHoehe;
 uniform vec3 uGelaendeUrsprung;   // x0, z0, Zelle
 uniform ivec2 uGelaendeN;         // nx, nz
+uniform int uWasserAn;            // seit W10b: Wasserspiegel in uWasser (die Fläche liegt nicht tiefer)
+uniform float uWasser;
 out vec3 vP;
 out vec3 vN;
+out float vNass;                  // > 0 unter dem Wasserspiegel (Tiefe, m)
 
 float hoehe(ivec2 q) { return texelFetch(uHoehe, clamp(q, ivec2(0), uGelaendeN - 1), 0).r; }
 
@@ -17,6 +20,7 @@ void main() {
         vec2 q = vec2((gl_VertexID & 1) == 0 ? uBodenRect.x : uBodenRect.z, (gl_VertexID & 2) == 0 ? uBodenRect.y : uBodenRect.w);
         vP = vec3(q.x, 0.0, q.y);
         vN = vec3(0.0, 1.0, 0.0);
+        vNass = -1.0;
     } else {
         // je Zelle sechs Ecken: (0,0) (1,0) (0,1) · (1,0) (1,1) (0,1)
         int zelle = gl_VertexID / 6, ecke = gl_VertexID % 6;
@@ -27,6 +31,8 @@ void main() {
         vP = vec3(uGelaendeUrsprung.x + float(q.x) * s, hoehe(q), uGelaendeUrsprung.y + float(q.y) * s);
         float dx = (hoehe(q + ivec2(1, 0)) - hoehe(q - ivec2(1, 0))) / (2.0 * s), dz = (hoehe(q + ivec2(0, 1)) - hoehe(q - ivec2(0, 1))) / (2.0 * s);
         vN = normalize(vec3(-dx, 1.0, -dz));
+        vNass = uWasserAn == 1 ? uWasser - vP.y : -1.0;
+        if (vNass > 0.0) vP.y = uWasser;
     }
     gl_Position = uVP * vec4(vP, 1.0);
 }

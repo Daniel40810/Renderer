@@ -156,13 +156,29 @@ public final class GertschGl {
     }
 
     /**
-     * Lädt das Dickicht (Zweige, Glieder, Halme, Plätze der Hysterese) und das Licht (Richtung, Farben, Blattfläche als
-     * 3D-Textur, Rechteck der Schattenkarte entlang der Sonne). {@code licht.vorbereiten(d)} muss gelaufen sein.
+     * Was {@link #laden} hochlädt, schon in Puffern (seit LituyaBay1958 W10b): {@link #packen} braucht keinen GL-Faden, eine
+     * App kann es im Hintergrund rechnen und dann nur noch hochladen ({@link #laden(GL4, Paket)}). Bei einer Million
+     * Büscheln hielt das Füllen der Puffer den Bildfaden rund 150 ms an.
      */
-    public void laden(GL4 gl, Dickicht d, Licht l) {
-        dickicht = d;
-        licht = l;
-        zweigZahl = d.zweige.size();
+    public static final class Paket {
+        final Dickicht d;
+        final Licht l;
+        final ByteBuffer zweige;
+        final FloatBuffer blattDaten, glieder, halme, lai, hoehe;
+        final IntBuffer hyst;
+        final int[] laiN;
+        final double[] laiU;
+
+        private Paket(Dickicht d, Licht l, ByteBuffer zweige, FloatBuffer blattDaten, FloatBuffer glieder, FloatBuffer halme, IntBuffer hyst,
+                      FloatBuffer lai, int[] laiN, double[] laiU, FloatBuffer hoehe) {
+            this.d = d; this.l = l; this.zweige = zweige; this.blattDaten = blattDaten; this.glieder = glieder; this.halme = halme; this.hyst = hyst;
+            this.lai = lai; this.laiN = laiN; this.laiU = laiU; this.hoehe = hoehe;
+        }
+    }
+
+    /** Füllt die Puffer für {@link #laden(GL4, Paket)} (ohne GL; {@code licht.vorbereiten(d)} oder {@code vorbereitenGl(d)} muss gelaufen sein). */
+    public static Paket packen(Dickicht d, Licht l) {
+        int zweigZahl = d.zweige.size();
         ByteBuffer zb = ByteBuffer.allocateDirect(48 * zweigZahl).order(ByteOrder.nativeOrder());
         for (Dickicht.Zweig z : d.zweige) {
             if (z.blaetter > 255) throw new IllegalStateException("gertsch: Zweig mit " + z.blaetter + " Blättern (höchstens 255)");
@@ -173,42 +189,61 @@ public final class GertschGl {
             else zb.putFloat(-1).putFloat(0).putFloat(0).putFloat(0);
         }
         zb.flip();
-        hochladen(gl, bZweige, zb, GL4.GL_STATIC_DRAW);
         // Blätter von außen (Phase 5): wie sie im Dickicht liegen, 16 Werte je Blatt = vier vec4
         float[] bd = d.blattDaten != null ? d.blattDaten : new float[Dickicht.STRIDE];
-        hochladen(gl, bBlattDaten, Buffers.newDirectFloatBuffer(bd), GL4.GL_STATIC_DRAW);
-        gliedZahl = d.glieder.size();
-        FloatBuffer gb = Buffers.newDirectFloatBuffer(12 * Math.max(1, gliedZahl));
+        FloatBuffer bdb = Buffers.newDirectFloatBuffer(bd);
+        FloatBuffer gb = Buffers.newDirectFloatBuffer(12 * Math.max(1, d.glieder.size()));
         for (Dickicht.Glied g : d.glieder)
             gb.put(g.x0).put(g.y0).put(g.z0).put(g.r0).put(g.x1).put(g.y1).put(g.z1).put(g.r1).put(g.r).put(g.g).put(g.b).put(g.stamm ? 1 : 0);
         gb.flip();
-        hochladen(gl, bGlieder, gb, GL4.GL_STATIC_DRAW);
-        halmZahl = d.halmListe.size();
-        FloatBuffer hb = Buffers.newDirectFloatBuffer(20 * Math.max(1, halmZahl));
+        FloatBuffer hb = Buffers.newDirectFloatBuffer(20 * Math.max(1, d.halmListe.size()));
         int hi = 0;
         for (Dickicht.Halm hm : d.halmListe) {
             float[] w4 = {hm.breite, hm.r, hm.g, hm.b, (Integer.remainderUnsigned(com.dan.gertsch.Zufall.pcg(hi++), 1000) / 1000f)};
             for (int k = 0; k < 5; k++) hb.put(hm.p[3 * k]).put(hm.p[3 * k + 1]).put(hm.p[3 * k + 2]).put(w4[k]);
         }
         hb.flip();
-        hochladen(gl, bHalme, hb, GL4.GL_STATIC_DRAW);
         // Hysterese: ein Byte je Platz, 0xFF = noch kein Band
         IntBuffer hy = Buffers.newDirectIntBuffer(Math.max(1, d.plaetze / 4));
         while (hy.hasRemaining()) hy.put(-1);
         hy.flip();
-        hochladen(gl, bHyst, hy, GL4.GL_DYNAMIC_COPY);
-        // Blattfläche als 3D-Textur
         float[] lai = l.laiFeld();
         int[] n = l.laiZahl();
-        double[] u0 = l.laiUrsprung();
+        if (lai == null) { lai = new float[]{0}; n = new int[]{1, 1, 1}; }
+        FloatBuffer hoehe = d.gelaende != null ? Buffers.newDirectFloatBuffer(d.gelaende.h) : null;
+        return new Paket(d, l, zb, bdb, gb, hb, hy, Buffers.newDirectFloatBuffer(lai), n, l.laiUrsprung(), hoehe);
+    }
+
+    /**
+     * Lädt das Dickicht (Zweige, Glieder, Halme, Plätze der Hysterese) und das Licht (Richtung, Farben, Blattfläche als
+     * 3D-Textur, Rechteck der Schattenkarte entlang der Sonne). {@code licht.vorbereiten(d)} muss gelaufen sein.
+     */
+    public void laden(GL4 gl, Dickicht d, Licht l) { laden(gl, packen(d, l)); }
+
+    /** Lädt ein gepacktes Dickicht hoch (seit LituyaBay1958 W10b, siehe {@link Paket}). */
+    public void laden(GL4 gl, Paket pk) {
+        Dickicht d = pk.d;
+        Licht l = pk.l;
+        dickicht = d;
+        licht = l;
+        zweigZahl = d.zweige.size();
+        hochladen(gl, bZweige, pk.zweige.duplicate(), GL4.GL_STATIC_DRAW);
+        hochladen(gl, bBlattDaten, pk.blattDaten.duplicate(), GL4.GL_STATIC_DRAW);
+        gliedZahl = d.glieder.size();
+        hochladen(gl, bGlieder, pk.glieder.duplicate(), GL4.GL_STATIC_DRAW);
+        halmZahl = d.halmListe.size();
+        hochladen(gl, bHalme, pk.halme.duplicate(), GL4.GL_STATIC_DRAW);
+        hochladen(gl, bHyst, pk.hyst.duplicate(), GL4.GL_DYNAMIC_COPY);
+        // Blattfläche als 3D-Textur
+        int[] n = pk.laiN;
+        double[] u0 = pk.laiU;
         if (tLai == 0) {
             int[] t = new int[1];
             gl.glGenTextures(1, t, 0);
             tLai = t[0];
         }
         gl.glBindTexture(GL4.GL_TEXTURE_3D, tLai);
-        if (lai == null) { lai = new float[]{0}; n = new int[]{1, 1, 1}; }
-        gl.glTexImage3D(GL4.GL_TEXTURE_3D, 0, GL4.GL_R32F, n[0], n[1], n[2], 0, GL4.GL_RED, GL.GL_FLOAT, Buffers.newDirectFloatBuffer(lai));
+        gl.glTexImage3D(GL4.GL_TEXTURE_3D, 0, GL4.GL_R32F, n[0], n[1], n[2], 0, GL4.GL_RED, GL.GL_FLOAT, pk.lai.duplicate());
         gl.glTexParameteri(GL4.GL_TEXTURE_3D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR);
         gl.glTexParameteri(GL4.GL_TEXTURE_3D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR);
         for (int p : new int[]{GL.GL_TEXTURE_WRAP_S, GL.GL_TEXTURE_WRAP_T, GL4.GL_TEXTURE_WRAP_R})
@@ -225,7 +260,7 @@ public final class GertschGl {
             }
             gl.glBindTexture(GL.GL_TEXTURE_2D, tHoehe);
             gl.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 4);
-            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL4.GL_R32F, ge.nx, ge.nz, 0, GL4.GL_RED, GL.GL_FLOAT, Buffers.newDirectFloatBuffer(ge.h));
+            gl.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL4.GL_R32F, ge.nx, ge.nz, 0, GL4.GL_RED, GL.GL_FLOAT, pk.hoehe.duplicate());
             gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST);
             gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST);
             gl.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE);
@@ -274,7 +309,8 @@ public final class GertschGl {
         if (ge != null)   // seit W10: das Gelände (Empfänger) liegt auch darunter und darüber
             for (int j = 0; j < ge.nz; j++)
                 for (int i = 0; i < ge.nx; i++) {
-                    double ww = (ge.x0 + i * ge.zelle) * w0[0] + ge.h[j * ge.nx + i] * w0[1] + (ge.z0 + j * ge.zelle) * w0[2];
+                    double hy = Float.isNaN(ge.wasser) ? ge.h[j * ge.nx + i] : Math.max(ge.wasser, ge.h[j * ge.nx + i]);
+                    double ww = (ge.x0 + i * ge.zelle) * w0[0] + hy * w0[1] + (ge.z0 + j * ge.zelle) * w0[2];
                     mw = Math.min(mw, ww); xw = Math.max(xw, ww);
                 }
         wMin = Math.min(mw, 0) - 2;   // der Boden (Empfänger) liegt auch darunter
@@ -463,6 +499,9 @@ public final class GertschGl {
             setI(gl, pBoden, "uHoehe", EINHEIT_HOEHE);
             gl.glUniform3f(ort(gl, pBoden, "uGelaendeUrsprung"), (float) ge.x0, (float) ge.z0, (float) ge.zelle);
             gl.glUniform2i(ort(gl, pBoden, "uGelaendeN"), ge.nx, ge.nz);
+            setI(gl, pBoden, "uWasserAn", Float.isNaN(ge.wasser) ? 0 : 1);
+            setF(gl, pBoden, "uWasser", Float.isNaN(ge.wasser) ? 0 : ge.wasser);
+            gl.glUniform3f(ort(gl, pBoden, "uWasserFarbe"), ge.wasserFarbe[0], ge.wasserFarbe[1], ge.wasserFarbe[2]);
             gl.glDrawArrays(GL.GL_TRIANGLES, 0, 6 * (ge.nx - 1) * (ge.nz - 1));
         } else gl.glDrawArrays(GL.GL_TRIANGLE_STRIP, 0, 4);
         // Stämme und Äste

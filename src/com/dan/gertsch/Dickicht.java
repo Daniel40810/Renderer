@@ -126,11 +126,13 @@ public final class Dickicht {
                 o.phase = Zufall.zug(seed, i, 15);
                 return;
             }
-            // gleichverteilt in der Kugel (Richtung, Radius ∝ ∛u), unten abgeflacht
+            // gleichverteilt in der Kugel (Richtung, Radius ∝ ∛u), unten abgeflacht; liegend (Streu) eine flache Scheibe
+            // (seit LituyaBay1958 W10b: ein liegendes Büschel von außen mit 0,5 m Radius verteilte sonst seine Blätter bis
+            // 0,4 m über den Boden, wo sie sich gegenseitig beschatteten; die Streu aus seed hat Radius 0 und bleibt gleich)
             float cz = 2 * Zufall.zug(seed, i, 1) - 1, sxy = (float) Math.sqrt(Math.max(0, 1 - cz * cz));
             float ph = (float) (2 * Math.PI) * Zufall.zug(seed, i, 2), rr = (float) Math.cbrt(Zufall.zug(seed, i, 3));
             o.x = x + radius * rr * sxy * (float) Math.cos(ph);
-            o.y = y + radius * 0.75f * rr * cz;
+            o.y = y + radius * (boden ? LIEGEND_FLACH : 0.75f) * rr * cz;
             o.z = z + radius * rr * sxy * (float) Math.sin(ph);
             // Neigung: |Gauß| · neigung (Box–Muller), höchstens 85°
             float gauss = (float) (Math.sqrt(-2 * Math.log(Math.max(Zufall.zug(seed, i, 4), 1e-7f))) * Math.cos(2 * Math.PI * Zufall.zug(seed, i, 5)));
@@ -361,6 +363,9 @@ public final class Dickicht {
         halmListe.add(hm);
     }
     // ------------------------------------------------------------------ Szene von außen (Phase 5)
+
+    /** Senkrechte Ausdehnung eines liegenden Zweigs als Anteil seines Radius (stehend 0,75; gleich in gertsch.glsl). */
+    public static final float LIEGEND_FLACH = 0.03f;
 
     /** Höchstens so viele Blätter je Zweig (ein Byte je Blatt in der Liste der Grafikkarte). */
     public static final int JE_ZWEIG = 255;
