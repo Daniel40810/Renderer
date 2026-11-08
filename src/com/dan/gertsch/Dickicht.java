@@ -15,6 +15,9 @@ import java.util.SplittableRandom;
  * <p>
  * Blätter in der Sonne stehen eher waagerecht (planophil, {@link #neigung}); von der Seite gesehen werden sie zu
  * waagerecht gestreckten Flecken. Das passt zur Messung an Gertschs „Sommer“ (Hauptrichtung 179°).
+ * <p>
+ * Seit Phase 5 trägt ein Dickicht auch eine Szene von außen ({@link #aus(Quelle)}): einzelne Blätter liegen in
+ * {@link #blattDaten}, und die Zweige fassen sie nur zusammen; Büschel werden Zweige aus seed mit eigener Farbe.
  */
 public final class Dickicht {
     public long seed = 1;
@@ -92,6 +95,17 @@ public final class Dickicht {
         public boolean boden;
         /** Erster Platz des Zweigs in der Reihe aller Blätter (durch 4 teilbar): für die Hysterese auf der Grafikkarte. */
         public int platz;
+        /**
+         * Blätter von außen ({@link Dickicht#aus}): die Werte aller Blätter und die Nummer des ersten dieses Zweigs; sonst
+         * null und −1 (die Blätter entstehen aus dem seed). Für Blätter von außen ist der seed die Nummer des ersten.
+         */
+        public float[] daten;
+        public int erstes = -1;
+        /**
+         * Eigene Farbe und Neigung (ein Büschel von außen): Die Grafikkarte nimmt dann {@link #farbe} und {@link #neigung}
+         * dieses Zweigs statt der des Dickichts. Trockene Blätter gibt es darin nicht.
+         */
+        public boolean eigeneFarbe;
 
         /** Zufall 0..1 des Blatts i, ohne das Blatt zu bauen (für die flächentreue Auswahl). */
         public float zufall(int i) { return Zufall.zug(seed, i, 0); }
@@ -102,6 +116,16 @@ public final class Dickicht {
         /** Baut Blatt i (0 ≤ i < {@link #blaetter}) in {@code o}. */
         public void blatt(int i, Blatt o) {
             o.zufall = zufall(i);
+            if (daten != null) {   // von außen: wie es kam; Zufall und Phase aus dem seed wie sonst
+                int q = STRIDE * (erstes + i);
+                o.x = daten[q]; o.y = daten[q + 1]; o.z = daten[q + 2]; o.laenge = daten[q + 3];
+                o.nx = daten[q + 4]; o.ny = daten[q + 5]; o.nz = daten[q + 6]; o.breite = daten[q + 7];
+                o.ax = daten[q + 8]; o.ay = daten[q + 9]; o.az = daten[q + 10];
+                o.r = daten[q + 12]; o.g = daten[q + 13]; o.b = daten[q + 14];
+                o.trocken = false;
+                o.phase = Zufall.zug(seed, i, 15);
+                return;
+            }
             // gleichverteilt in der Kugel (Richtung, Radius ∝ ∛u), unten abgeflacht
             float cz = 2 * Zufall.zug(seed, i, 1) - 1, sxy = (float) Math.sqrt(Math.max(0, 1 - cz * cz));
             float ph = (float) (2 * Math.PI) * Zufall.zug(seed, i, 2), rr = (float) Math.cbrt(Zufall.zug(seed, i, 3));
@@ -335,5 +359,263 @@ public final class Dickicht {
         hm.g = (float) (halm[1] * hg * (duerr ? 1.1 : 1));
         hm.b = (float) (halm[2] * hg * (duerr ? 0.6 : 1));
         halmListe.add(hm);
+    }
+    // ------------------------------------------------------------------ Szene von außen (Phase 5)
+
+    /** Höchstens so viele Blätter je Zweig (ein Byte je Blatt in der Liste der Grafikkarte). */
+    public static final int JE_ZWEIG = 255;
+    /** Ein Zweig aus Blättern von außen reicht höchstens so weit von seinem ersten Blatt (m). */
+    public static final float ZWEIG_WEITE = 1.0f;
+    /** Werte je Blatt von außen in {@link #blattDaten}: Mitte, Länge, Normale, Breite, Längsachse, frei, Albedo, frei. */
+    public static final int STRIDE = 16;
+
+    /** Blätter von außen ({@link #aus}), je {@link #STRIDE} Werte; null für ein Dickicht aus seed. */
+    public float[] blattDaten;
+    /** Rechteck des Bodens {x0, z0, x1, z1} (m); null: von −breite bis breite, bis zur Tiefe 1,3 · fern. */
+    public float[] bodenBereich;
+
+    /**
+     * Die Szene aus einer {@link Quelle}: Glieder wie sie sind, Halme als Bögen durch fünf Punkte, Blätter in Zweige
+     * gefasst. Ein Zweig nimmt aufeinanderfolgende Blätter derselben Gruppe auf, höchstens {@link #JE_ZWEIG} und nicht
+     * weiter als {@link #ZWEIG_WEITE} vom ersten. Seine Mitte, sein Radius und die mittlere Größe seiner Blätter gelten
+     * für Größenregel, Wind und Schatten wie bei einem Zweig aus seed; die Blätter selbst kommen aus {@link #blattDaten}.
+     * Zufall und Phase je Blatt folgen aus dem seed des Zweigs (= Nummer seines ersten Blatts), also aus der
+     * Reihenfolge: gleiche Quelle, gleiches Bild.
+     * <p>
+     * Das Ergebnis wird nicht gebaut ({@link #bauen} würde es durch ein Dickicht aus seed ersetzen).
+     */
+    public static Dickicht aus(Quelle q) {
+        Dickicht d = new Dickicht();
+        d.baeume = d.jungbaeume = d.straeucher = d.wand = d.kraut = d.dach = d.halme = d.streu = 0;
+        if (q.boden() != null) d.boden = q.boden().clone();
+        float xmin = Float.MAX_VALUE, xmax = -Float.MAX_VALUE, zmin = Float.MAX_VALUE, zmax = -Float.MAX_VALUE;
+        // Glieder
+        Quelle.Glied qg = new Quelle.Glied();
+        for (int i = 0; i < q.glieder(); i++) {
+            q.glied(i, qg);
+            Glied g = new Glied();
+            g.x0 = qg.x0; g.y0 = qg.y0; g.z0 = qg.z0; g.r0 = qg.r0; g.x1 = qg.x1; g.y1 = qg.y1; g.z1 = qg.z1; g.r1 = qg.r1;
+            g.r = qg.r; g.g = qg.g; g.b = qg.b; g.stamm = qg.stamm;
+            d.glieder.add(g);
+            xmin = Math.min(xmin, Math.min(g.x0, g.x1)); xmax = Math.max(xmax, Math.max(g.x0, g.x1));
+            zmin = Math.min(zmin, Math.min(g.z0, g.z1)); zmax = Math.max(zmax, Math.max(g.z0, g.z1));
+        }
+        // Halme: quadratischer Bogen von Fuß zu Spitze, die Mitte um die Biegung neben der Geraden
+        Quelle.Halm qh = new Quelle.Halm();
+        for (int i = 0; i < q.halme(); i++) {
+            q.halm(i, qh);
+            Halm hm = new Halm();
+            float[] k = kontrolle(qh);
+            for (int s = 0; s < 5; s++) {
+                float t = s / 4f, a = (1 - t) * (1 - t), b = 2 * t * (1 - t), c = t * t;
+                hm.p[3 * s] = a * qh.fx + b * k[0] + c * qh.sx;
+                hm.p[3 * s + 1] = a * qh.fy + b * k[1] + c * qh.sy;
+                hm.p[3 * s + 2] = a * qh.fz + b * k[2] + c * qh.sz;
+            }
+            hm.breite = qh.breite;
+            hm.r = qh.r; hm.g = qh.g; hm.b = qh.b;
+            d.halmListe.add(hm);
+            xmin = Math.min(xmin, Math.min(qh.fx, qh.sx)); xmax = Math.max(xmax, Math.max(qh.fx, qh.sx));
+            zmin = Math.min(zmin, Math.min(qh.fz, qh.sz)); zmax = Math.max(zmax, Math.max(qh.fz, qh.sz));
+        }
+        // Blätter
+        int n = q.blaetter();
+        float[] da = new float[STRIDE * Math.max(1, n)];
+        int[] gruppe = new int[n];
+        boolean[] liegt = new boolean[n];
+        Quelle.Blatt qb = new Quelle.Blatt();
+        for (int i = 0; i < n; i++) {
+            q.blatt(i, qb);
+            int o = STRIDE * i;
+            da[o] = qb.x; da[o + 1] = qb.y; da[o + 2] = qb.z; da[o + 3] = qb.laenge;
+            da[o + 4] = qb.nx; da[o + 5] = qb.ny; da[o + 6] = qb.nz; da[o + 7] = qb.breite;
+            da[o + 8] = qb.ax; da[o + 9] = qb.ay; da[o + 10] = qb.az;
+            da[o + 12] = qb.r; da[o + 13] = qb.g; da[o + 14] = qb.b;
+            gruppe[i] = qb.gruppe;
+            liegt[i] = qb.liegt;
+            xmin = Math.min(xmin, qb.x); xmax = Math.max(xmax, qb.x);
+            zmin = Math.min(zmin, qb.z); zmax = Math.max(zmax, qb.z);
+        }
+        d.blattDaten = da;
+        for (int i = 0; i < n; ) {
+            int j = i + 1;
+            while (j < n && j - i < JE_ZWEIG && gruppe[j] == gruppe[i] && liegt[j] == liegt[i]
+                    && abstand(da, i, j) <= ZWEIG_WEITE) j++;
+            d.zweige.add(zweigAus(da, i, j - i, liegt[i], d.laub, d.laubTrocken));
+            i = j;
+        }
+        // Büschel: Zweige aus seed mit eigener Farbe und Neigung; mehr als 255 Blätter auf mehrere Zweige
+        Quelle.Bueschel qbu = new Quelle.Bueschel();
+        for (int i = 0; i < q.bueschelZahl(); i++) {
+            q.bueschel(i, qbu);
+            for (int rest = qbu.blaetter, teil = 0; rest > 0; rest -= JE_ZWEIG, teil++) {
+                Zweig zw = new Zweig();
+                zw.x = qbu.x; zw.y = qbu.y; zw.z = qbu.z; zw.radius = qbu.radius;
+                zw.blaetter = Math.min(JE_ZWEIG, rest);
+                zw.laenge = halb(qbu.laenge);
+                zw.schmal = halb(qbu.schmal);
+                zw.neigung = qbu.liegt ? 8 : qbu.neigung;   // liegend wie die Streu des Dickichts (auch auf der Grafikkarte)
+                zw.trocken = 0;
+                zw.farbe = new float[]{qbu.r, qbu.g, qbu.b};
+                zw.farbeTrocken = zw.farbe;
+                zw.eigeneFarbe = true;
+                zw.seed = Zufall.pcg(0x7A3B1C5D ^ (i * 64 + teil));
+                zw.boden = qbu.liegt;
+                d.zweige.add(zw);
+            }
+            xmin = Math.min(xmin, qbu.x - qbu.radius); xmax = Math.max(xmax, qbu.x + qbu.radius);
+            zmin = Math.min(zmin, qbu.z - qbu.radius); zmax = Math.max(zmax, qbu.z + qbu.radius);
+        }
+        int platz = 0;
+        for (Zweig zw : d.zweige) {
+            zw.platz = platz;
+            platz += (zw.blaetter + 3) & ~3;
+        }
+        d.plaetze = platz;
+        // Ausdehnung: Boden unter allem, was da ist, mit Rand; Tiefe für die Schattenkarten
+        if (xmin > xmax) { xmin = -1; xmax = 1; zmin = 0; zmax = 1; }
+        d.bodenBereich = new float[]{xmin - 2, zmin - 2, xmax + 2, zmax + 2};
+        d.breite = Math.max(2 * Math.max(Math.abs(xmin), Math.abs(xmax)), 1);
+        d.nah = Math.max(0, zmin);
+        d.fern = Math.max(zmax, 1);
+        return d;
+    }
+
+    /** Abstand der Mitten der Blätter i und j von außen (m), für Prüfungen. */
+    public static float abstandFuerPruefung(Dickicht d, int i, int j) { return abstand(d.blattDaten, i, j); }
+
+    static float abstand(float[] da, int i, int j) {
+        float dx = da[STRIDE * j] - da[STRIDE * i], dy = da[STRIDE * j + 1] - da[STRIDE * i + 1], dz = da[STRIDE * j + 2] - da[STRIDE * i + 2];
+        return (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    static Zweig zweigAus(float[] da, int erstes, int zahl, boolean boden, float[] laub, float[] laubTrocken) {
+        double mx = 0, my = 0, mz = 0, ml = 0, ms = 0;
+        for (int i = erstes; i < erstes + zahl; i++) {
+            int o = STRIDE * i;
+            mx += da[o]; my += da[o + 1]; mz += da[o + 2];
+            ml += da[o + 3];
+            ms += da[o + 7] / Math.max(1e-6f, da[o + 3]);
+        }
+        Zweig zw = new Zweig();
+        zw.x = (float) (mx / zahl);
+        zw.y = (float) (my / zahl);
+        zw.z = (float) (mz / zahl);
+        float r = 0;
+        for (int i = erstes; i < erstes + zahl; i++) {
+            int o = STRIDE * i;
+            float dx = da[o] - zw.x, dy = da[o + 1] - zw.y, dz = da[o + 2] - zw.z;
+            r = Math.max(r, (float) Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.5f * da[o + 3]);
+        }
+        zw.radius = r;
+        zw.blaetter = zahl;
+        zw.laenge = halb(ml / zahl);
+        zw.schmal = halb(ms / zahl);
+        zw.neigung = 0;
+        zw.trocken = 0;
+        zw.farbe = laub;
+        zw.farbeTrocken = laubTrocken;
+        zw.seed = erstes;
+        zw.boden = boden;
+        zw.daten = da;
+        zw.erstes = erstes;
+        return zw;
+    }
+
+    /**
+     * Kontrollpunkt des Bogens eines Halms: Mitte der Geraden, um 2 · Biegung · Länge senkrecht zu ihr versetzt (dann
+     * liegt die Mitte des Bogens um Biegung · Länge daneben), in der senkrechten Ebene durch die Gerade, nach oben. Steht
+     * der Halm senkrecht, gibt es keine Seite: dann gerade.
+     */
+    static float[] kontrolle(Quelle.Halm h) {
+        float cx = h.sx - h.fx, cy = h.sy - h.fy, cz = h.sz - h.fz;
+        float l = (float) Math.sqrt(cx * cx + cy * cy + cz * cz);
+        float mx = 0.5f * (h.fx + h.sx), my = 0.5f * (h.fy + h.sy), mz = 0.5f * (h.fz + h.sz);
+        if (l < 1e-6f) return new float[]{mx, my, mz};
+        cx /= l; cy /= l; cz /= l;
+        // oben ohne den Anteil entlang des Halms
+        float ux = -cy * cx, uy = 1 - cy * cy, uz = -cy * cz, lu = (float) Math.sqrt(ux * ux + uy * uy + uz * uz);
+        if (lu < 1e-4f) return new float[]{mx, my, mz};
+        float s = 2 * h.biegung * l / lu;
+        return new float[]{mx + s * ux, my + s * uy, mz + s * uz};
+    }
+
+    /**
+     * Dieses Dickicht als {@link Quelle} (jedes Blatt einzeln, Gruppe = Nummer des Zweigs). Für Prüfungen und die Demo;
+     * {@link #aus} legt alle Blätter in den Speicher (64 Byte je Blatt), also nur für kleine Dickichte.
+     */
+    public Quelle alsQuelle() { return als(false); }
+
+    /**
+     * Dieses Dickicht als {@link Quelle} aus Büscheln: jeder Zweig ein Büschel (Mitte, Radius, Zahl, Größe, Neigung,
+     * Farbe). So passt auch das ganze Dickicht durch die Schnittstelle. Trockene Blätter in den Kronen gibt es dann nicht
+     * (ein Büschel hat eine Farbe), und die Blätter fallen anders aus dem Zufall, gleichen sich aber im Mittel.
+     */
+    public Quelle alsBueschel() { return als(true); }
+
+    private Quelle als(boolean bueschel) {
+        long[] bis = new long[zweige.size()];
+        long s = 0;
+        for (int k = 0; k < zweige.size(); k++) { s += zweige.get(k).blaetter; bis[k] = s; }
+        if (!bueschel && s > Integer.MAX_VALUE) throw new IllegalStateException("gertsch: zu viele Blätter für eine Quelle: " + s);
+        int zahl = bueschel ? 0 : (int) s;
+        Dickicht self = this;
+        return new Quelle() {
+            final Dickicht.Blatt b = new Dickicht.Blatt();
+
+            @Override public int blaetter() { return zahl; }
+
+            @Override public void blatt(int i, Quelle.Blatt o) {
+                int k = java.util.Arrays.binarySearch(bis, i + 1L);
+                k = k >= 0 ? k : -k - 1;
+                while (k > 0 && bis[k - 1] > i) k--;
+                Dickicht.Zweig z = zweige.get(k);
+                int j = (int) (i - (k == 0 ? 0 : bis[k - 1]));
+                synchronized (b) {
+                    z.blatt(j, b);
+                    o.x = b.x; o.y = b.y; o.z = b.z; o.nx = b.nx; o.ny = b.ny; o.nz = b.nz; o.ax = b.ax; o.ay = b.ay; o.az = b.az;
+                    o.laenge = b.laenge; o.breite = b.breite; o.r = b.r; o.g = b.g; o.b = b.b;
+                }
+                o.gruppe = k;
+                o.liegt = z.boden;
+            }
+
+            @Override public int bueschelZahl() { return bueschel ? zweige.size() : 0; }
+
+            @Override public void bueschel(int i, Quelle.Bueschel o) {
+                Dickicht.Zweig z = zweige.get(i);
+                o.x = z.x; o.y = z.y; o.z = z.z; o.radius = z.radius; o.blaetter = z.blaetter; o.laenge = z.laenge; o.schmal = z.schmal;
+                o.neigung = z.neigung; o.r = z.farbe[0]; o.g = z.farbe[1]; o.b = z.farbe[2]; o.liegt = z.boden;
+            }
+
+            @Override public int halme() { return halmListe.size(); }
+
+            @Override public void halm(int i, Quelle.Halm o) { halmAlsQuelle(halmListe.get(i), o); }
+
+            @Override public int glieder() { return glieder.size(); }
+
+            @Override public void glied(int i, Quelle.Glied o) {
+                Dickicht.Glied g = glieder.get(i);
+                o.x0 = g.x0; o.y0 = g.y0; o.z0 = g.z0; o.r0 = g.r0; o.x1 = g.x1; o.y1 = g.y1; o.z1 = g.z1; o.r1 = g.r1;
+                o.r = g.r; o.g = g.g; o.b = g.b; o.stamm = g.stamm;
+            }
+
+            @Override public float[] boden() { return self.boden.clone(); }
+        };
+    }
+
+    /** Ein Halm des Dickichts als Halm von außen: Fuß, Spitze, Biegung aus der Mitte (nach oben positiv), Breite, Farbe. */
+    static void halmAlsQuelle(Halm h, Quelle.Halm o) {
+        float[] p = h.p;
+        o.fx = p[0]; o.fy = p[1]; o.fz = p[2];
+        o.sx = p[12]; o.sy = p[13]; o.sz = p[14];
+        float cx = o.sx - o.fx, cy = o.sy - o.fy, cz = o.sz - o.fz, l = (float) Math.sqrt(cx * cx + cy * cy + cz * cz);
+        float vx = p[6] - 0.5f * (o.fx + o.sx), vy = p[7] - 0.5f * (o.fy + o.sy), vz = p[8] - 0.5f * (o.fz + o.sz);
+        if (l > 1e-6f) {
+            cx /= l; cy /= l; cz /= l;
+            float ux = -cy * cx, uy = 1 - cy * cy, uz = -cy * cz, lu = (float) Math.sqrt(ux * ux + uy * uy + uz * uz);
+            o.biegung = lu < 1e-4f ? 0 : (vx * ux + vy * uy + vz * uz) / lu / l;
+        } else o.biegung = 0;
+        o.breite = h.breite; o.r = h.r; o.g = h.g; o.b = h.b;
     }
 }

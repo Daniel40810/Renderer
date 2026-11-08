@@ -12,7 +12,8 @@ float zug(uint seed, uint i, uint k) { return eins(seed + pcg(i) + k * 0x9E3779B
 
 // ------------------------------------------------------------------ Zweige (je 32 Byte)
 // mr = Mitte (m), Radius der Blattwolke; a.x = Blätter | Boden << 16, a.y = seed, a.z = erster Platz, a.w = halb(Länge, Schmal)
-struct Zweig { vec4 mr; uvec4 a; };
+// f = eigene Albedo und Neigung (Grad) eines Büschels von außen; f.r < 0: die des Dickichts (Phase 5)
+struct Zweig { vec4 mr; uvec4 a; vec4 f; };
 
 uniform float uNeigung;        // Streuung der Blattneigung (Grad)
 uniform float uTrocken;        // Anteil trockener Blätter
@@ -21,14 +22,28 @@ uniform vec3 uLaub, uLaubTrocken, uStreu;   // Albedo linear
 struct Blatt { vec3 p, n, a; float laenge, breite, zufall, phase; vec3 albedo; };
 
 uint blaetter(Zweig z) { return z.a.x & 0xFFFFu; }
-bool boden(Zweig z) { return (z.a.x >> 16u) != 0u; }
+bool boden(Zweig z) { return ((z.a.x >> 16u) & 1u) != 0u; }
+// Blätter von außen (Dickicht.aus, Phase 5): je Blatt vier vec4 ab dem ersten Blatt des Zweigs (= sein seed):
+// Mitte und Länge, Normale und Breite, Längsachse, Albedo
+bool explizit(Zweig z) { return ((z.a.x >> 17u) & 1u) != 0u; }
+layout(std430, binding = 8) readonly buffer BlattDaten { vec4 blattDaten[]; };
 float zweigPhase(Zweig z) { return eins(z.a.y ^ 0x5BD1E995u); }
 
 Blatt blatt(Zweig z, uint i) {
     uint s = z.a.y;
+    if (explizit(z)) {
+        uint o = 4u * (s + i);
+        vec4 d0 = blattDaten[o], d1 = blattDaten[o + 1u], d2 = blattDaten[o + 2u], d3 = blattDaten[o + 3u];
+        Blatt e;
+        e.p = d0.xyz; e.laenge = d0.w; e.n = d1.xyz; e.breite = d1.w; e.a = d2.xyz; e.albedo = d3.xyz;
+        e.zufall = zug(s, i, 0u);
+        e.phase = zug(s, i, 15u);
+        return e;
+    }
     vec2 ls = unpackHalf2x16(z.a.w);
     bool bo = boden(z);
-    float neig = bo ? 8.0 : uNeigung, trocken = bo ? 1.0 : uTrocken;
+    bool eigen = z.f.r >= 0.0;
+    float neig = bo ? 8.0 : (eigen ? z.f.w : uNeigung), trocken = eigen ? 0.0 : (bo ? 1.0 : uTrocken);
     Blatt b;
     b.zufall = zug(s, i, 0u);
     float cz = 2.0 * zug(s, i, 1u) - 1.0, sxy = sqrt(max(0.0, 1.0 - cz * cz));
@@ -45,7 +60,7 @@ Blatt blatt(Zweig z, uint i) {
     b.laenge = ls.x * (0.75 + 0.5 * zug(s, i, 10u));
     b.breite = b.laenge * ls.y * (0.85 + 0.3 * zug(s, i, 11u));
     bool tr = zug(s, i, 12u) < trocken;
-    vec3 f = bo ? uStreu : (tr ? uLaubTrocken : uLaub);
+    vec3 f = eigen ? z.f.rgb : (bo ? uStreu : (tr ? uLaubTrocken : uLaub));
     float hellig = 0.75 + 0.5 * zug(s, i, 13u), gelb = 0.3 * zug(s, i, 14u) - 0.15;
     b.albedo = f * hellig * vec3(1.0 + gelb, 1.0, 1.0 - gelb);
     b.phase = zug(s, i, 15u);

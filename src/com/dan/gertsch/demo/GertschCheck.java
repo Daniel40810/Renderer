@@ -11,6 +11,7 @@ import com.dan.gertsch.Messung;
 import com.dan.gertsch.Morphologie;
 import com.dan.gertsch.Palette;
 import com.dan.gertsch.Punkte;
+import com.dan.gertsch.Quelle;
 import com.dan.gertsch.Stich;
 import com.dan.gertsch.Struktur;
 import com.dan.gertsch.Stufen;
@@ -26,7 +27,7 @@ import java.util.Locale;
 import java.util.SplittableRandom;
 
 /**
- * Prüfung von com.dan.gertsch ohne Fenster und ohne Grafikkarte (Phasen 1 bis 4). Endet mit „Alles in Ordnung.“ oder mit der Zahl der
+ * Prüfung von com.dan.gertsch ohne Fenster und ohne Grafikkarte (Phasen 1 bis 5). Endet mit „Alles in Ordnung.“ oder mit der Zahl der
  * Verstöße (Rückgabewert 1). Rechnet die Messung an künstlichen Bildern mit bekannten Antworten nach (Scheiben
  * bekannter Größe, Streifen bekannter Richtung, Farben bekannter Anteile) und prüft die gespeicherten Vorlagen. Liegen
  * die Bilder in {@code templates/} (oder im Ordner aus dem ersten Argument), misst sie sie neu und vergleicht.
@@ -427,6 +428,109 @@ public final class GertschCheck {
         check(Math.abs(vh.l50 - sollH.l50) < 3 && Math.abs(vh.farbton - sollH.farbton) < 10,
                 "Holzschnitt (Prozessor), Messung wie Phase 1: Median L* %.1f (Soll %.1f ± 3), Farbton %.0f° (Soll %.0f° ± 10)", vh.l50, sollH.l50, vh.farbton, sollH.farbton);
 
+        // ------------------------------------------------------------------ Phase 5: Szene von außen
+
+        // Richtungen eines Blatts: Normale und Längsachse Einheit und senkrecht
+        Quelle.Blatt rb = new Quelle.Blatt().richtung(0.3, 2, -0.4, 1, 0.7, 0.2);
+        double rn = Math.sqrt(rb.nx * rb.nx + rb.ny * rb.ny + rb.nz * rb.nz), ra = Math.sqrt(rb.ax * rb.ax + rb.ay * rb.ay + rb.az * rb.az),
+                rd = rb.nx * rb.ax + rb.ny * rb.ay + rb.nz * rb.az;
+        // Halm: Fuß und Spitze genau, die Mitte um Biegung · Länge über der Geraden
+        Quelle.Sammlung qs = new Quelle.Sammlung();
+        Quelle.Halm qh = qs.halm();
+        qh.fx = 1; qh.fy = 0; qh.fz = 2; qh.sx = 1.3f; qh.sy = 0.4f; qh.sz = 2; qh.breite = 0.004f; qh.biegung = 0.1f;
+        Dickicht.Halm dh = Dickicht.aus(qs).halmListe.get(0);
+        double mx = dh.p[6] - 1.15, my = dh.p[7] - 0.2, mz = dh.p[8] - 2;   // Mitte des Bogens gegen Mitte der Geraden
+        double quer = Math.sqrt(mx * mx + my * my + mz * mz), entlang = (mx * 0.3 + my * 0.4) / 0.5;
+        check(Math.abs(rn - 1) < 1e-6 && Math.abs(ra - 1) < 1e-6 && Math.abs(rd) < 1e-6 && dh.p[0] == 1 && dh.p[2] == 2 && dh.p[12] == 1.3f
+                        && dh.p[13] == 0.4f && Math.abs(quer - 0.05) < 1e-6 && Math.abs(entlang) < 1e-6 && my > 0,
+                "Quelle: Blatt mit Normale ⟂ Längsachse; Halm vom Fuß zur Spitze, die Mitte %.4f m über der Geraden (Biegung 0,1 · 0,5 m), nach oben", quer);
+
+        // Zweige: höchstens 255 Blätter, keine zwei Gruppen, nicht weiter als 1 m; jedes Blatt einmal und genau so
+        Quelle.Sammlung qz = new Quelle.Sammlung();
+        SplittableRandom zr = new SplittableRandom(11);
+        for (int i = 0; i < 2000; i++) {
+            Quelle.Blatt zb = qz.blatt().richtung(zr.nextDouble(-1, 1), 1, zr.nextDouble(-1, 1), 1, 0, 0);
+            zb.x = (float) (i / 300 + zr.nextDouble(0.3)); zb.y = 1 + (float) zr.nextDouble(0.5); zb.z = 5 + (float) zr.nextDouble(i % 7 == 0 ? 3 : 0.5);
+            zb.laenge = 0.05f + (float) zr.nextDouble(0.05); zb.breite = 0.6f * zb.laenge;
+            zb.r = (float) zr.nextDouble(0.2); zb.g = 0.1f; zb.b = 0.05f;
+            zb.gruppe = i / 300;
+            zb.liegt = i >= 1900;
+        }
+        Dickicht dz = Dickicht.aus(qz);
+        boolean zweigeOk = dz.blattZahl() == 2000;
+        int naechstes = 0;
+        Dickicht.Blatt db = new Dickicht.Blatt();
+        Quelle.Blatt qb = new Quelle.Blatt();
+        for (Dickicht.Zweig z : dz.zweige) {
+            zweigeOk &= z.blaetter <= Dickicht.JE_ZWEIG && z.erstes == naechstes && z.seed == z.erstes && z.platz % 4 == 0;
+            for (int i = 0; i < z.blaetter; i++) {
+                qz.blatt(z.erstes + i, qb);
+                z.blatt(i, db);
+                zweigeOk &= db.x == qb.x && db.y == qb.y && db.z == qb.z && db.nx == qb.nx && db.az == qb.az && db.laenge == qb.laenge
+                        && db.breite == qb.breite && db.r == qb.r && db.zufall == z.zufall(i);
+                zweigeOk &= qb.gruppe == qz.blattListe.get(z.erstes).gruppe && qb.liegt == z.boden;
+                zweigeOk &= Dickicht.abstandFuerPruefung(dz, z.erstes, z.erstes + i) <= Dickicht.ZWEIG_WEITE;
+            }
+            naechstes += z.blaetter;
+        }
+        check(zweigeOk && naechstes == 2000, "Quelle: 2.000 Blätter in %d Zweigen, jeder höchstens 255 Blätter einer Gruppe in 1 m, Blätter genau wie gegeben", dz.zweige.size());
+
+        // Büschel: Zweige aus seed mit eigener Farbe und Neigung; mehr als 255 Blätter auf mehrere Zweige
+        Quelle.Sammlung qbs = new Quelle.Sammlung();
+        Quelle.Bueschel bu = qbs.bueschel();
+        bu.x = 1; bu.y = 2; bu.z = 6; bu.radius = 0.3f; bu.blaetter = 600; bu.laenge = 0.08f; bu.schmal = 0.5f; bu.neigung = 5;
+        bu.r = 0.2f; bu.g = 0.05f; bu.b = 0.01f;
+        Dickicht dbu = Dickicht.aus(qbs);
+        boolean buOk = dbu.zweige.size() == 3 && dbu.blattZahl() == 600 && dbu.zweige.get(2).blaetter == 90;
+        double steilst = 0;
+        for (Dickicht.Zweig z : dbu.zweige)
+            for (int i = 0; i < z.blaetter; i++) {
+                z.blatt(i, db);
+                buOk &= z.eigeneFarbe && db.r > db.g && Math.abs(db.x - 1) <= 0.3f + 1e-6f;
+                steilst = Math.max(steilst, Math.toDegrees(Math.acos(db.ny)));
+            }
+        check(buOk && steilst < 5 * 4.5, "Büschel: 600 Blätter auf 3 Zweige (255, 255, 90), in der eigenen Farbe, um die Mitte, steilstes Blatt %.0f° (Neigung 5°)", steilst);
+
+        // das ganze Dickicht als Büschel malt wie das Dickicht aus seed (ohne die trockenen Blätter der Kronen)
+        Dickicht dbs = Dickicht.aus(dd.alsBueschel());
+        Licht lbs = new Licht();
+        lbs.schattenKante = 1536;
+        lbs.vorbereiten(dbs);
+        Malweise.Ergebnis ebs = mal.malen(dbs, lbs, new Kamera());
+        Vorlage vb1 = new Messung().messen(e1.bild), vb2 = new Messung().messen(ebs.bild);
+        check(dbs.blattZahl() == dd.blattZahl() && Math.abs(vb1.l50 - vb2.l50) < 1.5 && Math.abs(vb1.grund - vb2.grund) < 0.015
+                        && Math.abs(vb2.hellD50 / vb1.hellD50 - 1) < 0.12 && Math.abs(vb2.dunkelD50 / vb1.dunkelD50 - 1) < 0.12,
+                "Rundweg mit Büscheln: %,d Blätter in %,d Büscheln malen wie aus seed: Median %.1f / %.1f, Grund %.1f / %.1f %%, hell %.2f / %.2f %%, dunkel %.2f / %.2f %%",
+                dbs.blattZahl(), dd.zweige.size(), vb1.l50, vb2.l50, 100 * vb1.grund, 100 * vb2.grund, 100 * vb1.hellD50, 100 * vb2.hellD50,
+                100 * vb1.dunkelD50, 100 * vb2.dunkelD50);
+
+        // Rundweg: ein kleines Dickicht Blatt für Blatt durch die Schnittstelle malt wie das Dickicht aus seed
+        Dickicht dkl = QuelleDemo.klein(1), dq = Dickicht.aus(dkl.alsQuelle());
+        Malweise mr = new Malweise();
+        mr.quality = Malweise.Quality.MEDIUM;
+        Malweise.Ergebnis er1 = mr.malen(dkl, new Licht().vorbereiten(dkl), new Kamera()), er2 = mr.malen(dq, new Licht().vorbereiten(dq), new Kamera());
+        Vorlage vr1 = new Messung().messen(er1.bild), vr2 = new Messung().messen(er2.bild);
+        check(dq.blattZahl() == dkl.blattZahl() && dq.glieder.size() == dkl.glieder.size() && dq.halmListe.size() == dkl.halmListe.size()
+                        && Math.abs(vr1.l50 - vr2.l50) < 1 && Math.abs(vr1.grund - vr2.grund) < 0.01
+                        && Math.abs(vr2.hellD50 / vr1.hellD50 - 1) < 0.1 && Math.abs(vr2.dunkelD50 / vr1.dunkelD50 - 1) < 0.1,
+                "Rundweg: %,d Blätter aus seed und als Quelle malen gleich: Median %.1f / %.1f, Grund %.1f / %.1f %%, hell %.2f / %.2f %%, dunkel %.2f / %.2f %%",
+                dkl.blattZahl(), vr1.l50, vr2.l50, 100 * vr1.grund, 100 * vr2.grund, 100 * vr1.hellD50, 100 * vr2.hellD50, 100 * vr1.dunkelD50, 100 * vr2.dunkelD50);
+        Malweise.Ergebnis er3 = mr.malen(Dickicht.aus(dkl.alsQuelle()), new Licht().vorbereiten(dq), new Kamera());
+        check(Arrays.equals(er2.bild.getRGB(0, 0, er2.breite, er2.hoehe, null, 0, er2.breite), er3.bild.getRGB(0, 0, er3.breite, er3.hoehe, null, 0, er3.breite)),
+                "gleiche Quelle, gleiches Bild");
+
+        // Huflattich von außen: die Kennzeichen von „Blätter“
+        Huflattich huf = new Huflattich().bauen();
+        Dickicht dhuf = Dickicht.aus(huf.alsQuelle());
+        Licht lhuf = new Licht();
+        lhuf.sonneHoehe = 45;
+        lhuf.vorbereiten(dhuf);
+        Malweise mhuf = new Malweise();
+        mhuf.vorlage = Vorlagen.blaetter();
+        mhuf.seitenverhaeltnis = 1465 / 1000.0;
+        Vorlage vh5 = new Messung().messen(mhuf.malen(dhuf, lhuf, huf.kamera()).bild);
+        abnahmeHuflattich("Huflattich (Prozessor)", vh5, Vorlagen.blaetter(), ist.hellD50, GertschCheck::check);
+
         // mit den Bildern, wenn sie da sind
         if (!ordner.isDirectory()) System.out.println("  –      " + ordner + " fehlt: Vergleich mit den Bildern übersprungen");
         else for (Vorlage g : alle) {
@@ -519,6 +623,20 @@ public final class GertschCheck {
                         + "senkrecht länger (8 und 16 %%: %+.2f, Soll %+.2f)", name, ist.wolken, soll.wolken, ist.wolkenX[0], ist.wolkenX[1], soll.wolkenX[0], soll.wolkenX[1],
                 ist.wolkenY[0], ist.wolkenY[1], soll.wolkenY[0], soll.wolkenY[1], quer, soll.wolkenY[2] + soll.wolkenY[3] - soll.wolkenX[2] - soll.wolkenX[3]);
         p.check(Math.abs(ist.korn - soll.korn) < 0.25, "%s, Korn: L* %.2f (Soll %.2f ± 0,25)", name, ist.korn, soll.korn);
+    }
+
+    /**
+     * Kennzeichen der Vorlage „Blätter“ an einer Szene von außen (Toleranzen siehe README, Phase 5). {@code hellSommer}:
+     * die hellen Flecken des Dickichts im Sommer; die großen Blätter müssen deutlich größere Flecken geben.
+     */
+    static void abnahmeHuflattich(String name, Vorlage ist, Vorlage soll, double hellSommer, Pruefer p) {
+        double rd = ist.dunkelD50 / soll.dunkelD50;
+        p.check(Math.abs(ist.grund - soll.grund) < 0.06 && Math.abs(ist.l50 - soll.l50) < 7 && Math.abs(ist.farbton - soll.farbton) < 8,
+                "%s, Helligkeit und Farbe: Grund %.1f %% (Soll %.1f ± 6), Median %.1f (Soll %.1f ± 7), Farbton %.0f° (Soll %.0f° ± 8)", name,
+                100 * ist.grund, 100 * soll.grund, ist.l50, soll.l50, ist.farbton, soll.farbton);
+        p.check(ist.akzent > 0.01 && ist.akzent < 0.035 && rd > 0.7 && rd < 1.5 && ist.hellD50 > 1.5 * hellSommer && Math.abs(ist.senkrecht - soll.senkrecht) < 0.1,
+                "%s, Formen: Akzente %.1f %% (Soll %.1f, 1 bis 3,5), dunkle Lücken %.2f %% (Soll %.2f, × 0,7 bis 1,5), helle Flecken %.2f %% (über 1,5 × Sommer %.2f), senkrecht %.0f %% (Soll %.0f ± 10)",
+                name, 100 * ist.akzent, 100 * soll.akzent, 100 * ist.dunkelD50, 100 * soll.dunkelD50, 100 * ist.hellD50, 100 * hellSommer, 100 * ist.senkrecht, 100 * soll.senkrecht);
     }
 
     /** Clark–Evans auf dem Torus für die Zellen mit Rang unter f (Mitten der Zellen). */

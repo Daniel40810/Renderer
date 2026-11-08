@@ -6,6 +6,7 @@ import com.dan.gertsch.Kamera;
 import com.dan.gertsch.Lab;
 import com.dan.gertsch.Licht;
 import com.dan.gertsch.Messung;
+import com.dan.gertsch.Quelle;
 import com.dan.gertsch.Stich;
 import com.dan.gertsch.Vorlage;
 import com.dan.gertsch.Vorlagen;
@@ -34,6 +35,8 @@ import java.util.function.Consumer;
  * <li>Abnahme: ein Standbild in HIGH, gemessen gegen „Sommer“ (weitere Toleranzen als auf dem Prozessor, siehe README).</li>
  * <li>Phase 4: Holzschnitt ({@link StichGl}) gleich dem Prozessor ({@link Stich}); Trägheit und Hysterese senken im Wind
  * die Wechsel der Punkte; Abnahme des Drucks gegen den Holzschnitt.</li>
+ * <li>Phase 5: Blätter von außen gleich auf Prozessor und Grafikkarte; der Rundweg durch die Schnittstelle malt gleich;
+ * der Huflattich trägt die Kennzeichen von „Blätter“.</li>
  * </ul>
  */
 public final class GertschGlCheck implements GLEventListener {
@@ -102,7 +105,7 @@ public final class GertschGlCheck implements GLEventListener {
         for (int k = 0; k < n; k++) {
             c.dickicht.zweige.get(zw[k]).blatt(bl[k], b);
             float[] g = gpu[0];
-            int o = 12 * k;
+            int o = 16 * k;
             dp = Math.max(dp, Math.max(Math.abs(g[o] - b.x), Math.max(Math.abs(g[o + 1] - b.y), Math.abs(g[o + 2] - b.z))));
             dn = Math.max(dn, 1 - (g[o + 3] * b.nx + g[o + 4] * b.ny + g[o + 5] * b.nz));
             dn = Math.max(dn, 1 - (g[o + 6] * b.ax + g[o + 7] * b.ay + g[o + 8] * b.az));
@@ -229,6 +232,114 @@ public final class GertschGlCheck implements GLEventListener {
         c.mitStich = false;
         Druck dg = Druck.messen(gpuDruck[0]);
         GertschCheck.abnahmeDruck("Holzschnitt (OpenGL)", dg, Vorlagen.druck(), 0.15, GertschGlCheck::check);
+
+        // 8 Szene von außen: dieselben Blätter auf Prozessor und Grafikkarte
+        c.sg.hysterese = 0.3;
+        Dickicht klein = QuelleDemo.klein(1), alsQuelle = Dickicht.aus(klein.alsQuelle());
+        c.dickicht = alsQuelle;
+        c.licht = new Licht().vorbereiten(alsQuelle);
+        c.geladen = false;
+        c.gg.quality = GertschGl.Quality.MEDIUM;
+        c.gg.wind.staerke = 0;
+        c.zeit = 0;
+        int nq = 3000;
+        int[] zq = new int[nq], bq = new int[nq];
+        SplittableRandom rq = new SplittableRandom(9);
+        for (int k = 0; k < nq; k++) {
+            zq[k] = rq.nextInt(alsQuelle.zweige.size());
+            bq[k] = rq.nextInt(alsQuelle.zweige.get(zq[k]).blaetter);
+        }
+        float[][] gq = new float[1][];
+        c.nachher = gl -> gq[0] = c.gg.blaetterPruefen(gl, zq, bq);
+        dr.display();
+        double dq = 0;
+        int zufallQ = 0;
+        Dickicht.Blatt bqv = new Dickicht.Blatt();
+        for (int k = 0; k < nq; k++) {
+            alsQuelle.zweige.get(zq[k]).blatt(bq[k], bqv);
+            int o = 16 * k;
+            float[] g = gq[0];
+            dq = Math.max(dq, Math.max(Math.abs(g[o] - bqv.x), Math.max(Math.abs(g[o + 1] - bqv.y), Math.abs(g[o + 2] - bqv.z))));
+            dq = Math.max(dq, Math.max(Math.abs(g[o + 3] - bqv.nx), Math.max(Math.abs(g[o + 6] - bqv.ax), Math.abs(g[o + 9] - bqv.laenge))));
+            dq = Math.max(dq, Math.max(Math.abs(g[o + 10] - bqv.breite), Math.abs(g[o + 12] - bqv.r)));
+            dq = Math.max(dq, Math.abs(g[o + 15] - bqv.phase));
+            if (g[o + 11] == bqv.zufall) zufallQ++;
+        }
+        check(dq == 0 && zufallQ == nq, "Blätter von außen: Grafikkarte und Prozessor gleich (größte Abweichung %.1g), Zufall %d von %d gleich", dq, zufallQ, nq);
+
+        // Büschel von außen: Blätter aus seed mit eigener Farbe und Neigung, auf beiden Seiten gleich
+        Quelle.Sammlung qbs = new Quelle.Sammlung();
+        SplittableRandom rb = new SplittableRandom(13);
+        for (int i = 0; i < 400; i++) {
+            Quelle.Bueschel bu = qbs.bueschel();
+            bu.x = (float) rb.nextDouble(-5, 5); bu.y = (float) rb.nextDouble(0.5, 6); bu.z = (float) rb.nextDouble(4, 20);
+            bu.radius = (float) rb.nextDouble(0.1, 0.5); bu.blaetter = 3 + rb.nextInt(400); bu.laenge = (float) rb.nextDouble(0.04, 0.12);
+            bu.schmal = (float) rb.nextDouble(0.4, 0.9); bu.neigung = (float) rb.nextDouble(5, 60);
+            bu.r = (float) rb.nextDouble(0.3); bu.g = (float) rb.nextDouble(0.3); bu.b = (float) rb.nextDouble(0.1); bu.liegt = i % 17 == 0;
+        }
+        Dickicht dbu = Dickicht.aus(qbs);
+        c.dickicht = dbu;
+        c.licht = new Licht().vorbereiten(dbu);
+        c.geladen = false;
+        for (int k = 0; k < nq; k++) {
+            zq[k] = rq.nextInt(dbu.zweige.size());
+            bq[k] = rq.nextInt(dbu.zweige.get(zq[k]).blaetter);
+        }
+        c.nachher = gl -> gq[0] = c.gg.blaetterPruefen(gl, zq, bq);
+        dr.display();
+        double dbb = 0, dnb = 0;
+        for (int k = 0; k < nq; k++) {
+            dbu.zweige.get(zq[k]).blatt(bq[k], bqv);
+            int o = 16 * k;
+            float[] g = gq[0];
+            dbb = Math.max(dbb, Math.max(Math.abs(g[o] - bqv.x), Math.max(Math.abs(g[o + 1] - bqv.y), Math.abs(g[o + 2] - bqv.z))));
+            dbb = Math.max(dbb, Math.max(Math.abs(g[o + 12] - bqv.r), Math.max(Math.abs(g[o + 13] - bqv.g), Math.abs(g[o + 14] - bqv.b))));
+            dnb = Math.max(dnb, 1 - (g[o + 3] * bqv.nx + g[o + 4] * bqv.ny + g[o + 5] * bqv.nz));
+        }
+        check(dbb < 1e-4 && dnb < 1e-5 && dbu.zweige.size() > 400,
+                "Büschel von außen (%d in %d Zweigen): Grafikkarte und Prozessor bauen dieselben Blätter, Lage und Farbe höchstens %.1g daneben, Richtung 1 − cos %.1g",
+                400, dbu.zweige.size(), dbb, dnb);
+
+        // 9 Rundweg auf der Grafikkarte: dasselbe kleine Dickicht aus seed und als Quelle
+        java.awt.image.BufferedImage[] rund = new java.awt.image.BufferedImage[2];
+        Dickicht[] beide = {klein, alsQuelle};
+        for (int j = 0; j < 2; j++) {
+            c.dickicht = beide[j];
+            c.licht = new Licht().vorbereiten(beide[j]);
+            c.geladen = false;
+            for (int i = 0; i < 5; i++) dr.display();
+            int jj = j;
+            c.nachher = gl -> rund[jj] = c.gg.lesen(gl);
+            dr.display();
+        }
+        Vorlage r1 = new Messung().messen(rund[0]), r2 = new Messung().messen(rund[1]);
+        check(Math.abs(r1.l50 - r2.l50) < 1 && Math.abs(r1.grund - r2.grund) < 0.01 && Math.abs(r2.hellD50 / r1.hellD50 - 1) < 0.1
+                        && Math.abs(r2.dunkelD50 / r1.dunkelD50 - 1) < 0.1 && c.gg.gewollt == c.gg.instanzen,
+                "Rundweg (OpenGL): aus seed und als Quelle gleich: Median %.1f / %.1f, Grund %.1f / %.1f %%, hell %.2f / %.2f %%, dunkel %.2f / %.2f %%",
+                r1.l50, r2.l50, 100 * r1.grund, 100 * r2.grund, 100 * r1.hellD50, 100 * r2.hellD50, 100 * r1.dunkelD50, 100 * r2.dunkelD50);
+
+        // 10 Huflattich von außen auf der Grafikkarte: die Kennzeichen von „Blätter“
+        Huflattich huf = new Huflattich().bauen();
+        Dickicht dhuf = Dickicht.aus(huf.alsQuelle());
+        Licht lhuf = new Licht();
+        lhuf.sonneHoehe = 45;
+        c.dickicht = dhuf;
+        c.licht = lhuf.vorbereiten(dhuf);
+        c.geladen = false;
+        Kamera kh = huf.kamera();
+        c.kamera.auge = kh.auge;
+        c.kamera.neigung = kh.neigung;
+        c.kamera.nah = kh.nah;
+        c.gg.quality = GertschGl.Quality.HIGH;
+        c.gg.vorlage = Vorlagen.blaetter();
+        c.gg.seitenverhaeltnis = 1465 / 1000.0;
+        for (int i = 0; i < 6; i++) dr.display();
+        java.awt.image.BufferedImage[] hb = new java.awt.image.BufferedImage[1];
+        c.nachher = gl -> hb[0] = c.gg.lesen(gl);
+        dr.display();
+        check(c.gg.gewollt == c.gg.instanzen && c.gg.instanzen > 0, "Huflattich (OpenGL): %,d Flecken aus %,d Blättern von außen, keine Liste zu klein",
+                c.gg.instanzen, dhuf.blattZahl());
+        GertschCheck.abnahmeHuflattich("Huflattich (OpenGL)", new Messung().messen(hb[0]), Vorlagen.blaetter(), Vorlagen.sommer().hellD50, GertschGlCheck::check);
 
         dr.destroy();
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");

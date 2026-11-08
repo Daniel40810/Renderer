@@ -93,7 +93,7 @@ public final class GertschGl {
     private int pAuswahl, pFleck, pGlied, pHalm, pBoden, pHisto, vao;
     private final Map<Integer, Map<String, Integer>> orte = new HashMap<>();
     // Puffer
-    private int bZweige, bGlieder, bHalme, bListeA, bBefehlA, bHyst;
+    private int bZweige, bGlieder, bHalme, bListeA, bBefehlA, bHyst, bBlattDaten;
     private final int[] bListeS = new int[2], bBefehlS = new int[2], bHisto = new int[3];
     // Ziele
     private int tLai, fMsaa, rbFarbe, rbY, rbTiefe, fAufl, tFarbe, tY;
@@ -134,8 +134,9 @@ public final class GertschGl {
         int[] t = new int[1];
         gl.glGenVertexArrays(1, t, 0);
         vao = t[0];
-        int[] b = new int[13];
-        gl.glGenBuffers(13, b, 0);
+        int[] b = new int[14];
+        gl.glGenBuffers(14, b, 0);
+        bBlattDaten = b[13];
         bZweige = b[0]; bGlieder = b[1]; bHalme = b[2]; bListeA = b[3]; bListeS[0] = b[4]; bListeS[1] = b[5]; bBefehlA = b[6];
         bBefehlS[0] = b[7]; bBefehlS[1] = b[8]; bHyst = b[9]; bHisto[0] = b[10]; bHisto[1] = b[11]; bHisto[2] = b[12];
         for (int hb : bHisto) {
@@ -157,15 +158,20 @@ public final class GertschGl {
         dickicht = d;
         licht = l;
         zweigZahl = d.zweige.size();
-        ByteBuffer zb = ByteBuffer.allocateDirect(32 * zweigZahl).order(ByteOrder.nativeOrder());
+        ByteBuffer zb = ByteBuffer.allocateDirect(48 * zweigZahl).order(ByteOrder.nativeOrder());
         for (Dickicht.Zweig z : d.zweige) {
             if (z.blaetter > 255) throw new IllegalStateException("gertsch: Zweig mit " + z.blaetter + " Blättern (höchstens 255)");
             zb.putFloat(z.x).putFloat(z.y).putFloat(z.z).putFloat(z.radius);
-            zb.putInt(z.blaetter | (z.boden ? 1 << 16 : 0)).putInt(z.seed).putInt(z.platz);
+            zb.putInt(z.blaetter | (z.boden ? 1 << 16 : 0) | (z.daten != null ? 1 << 17 : 0)).putInt(z.seed).putInt(z.platz);
             zb.putInt((Float.floatToFloat16(z.laenge) & 0xFFFF) | (Float.floatToFloat16(z.schmal) << 16));
+            if (z.eigeneFarbe) zb.putFloat(z.farbe[0]).putFloat(z.farbe[1]).putFloat(z.farbe[2]).putFloat(z.neigung);
+            else zb.putFloat(-1).putFloat(0).putFloat(0).putFloat(0);
         }
         zb.flip();
         hochladen(gl, bZweige, zb, GL4.GL_STATIC_DRAW);
+        // Blätter von außen (Phase 5): wie sie im Dickicht liegen, 16 Werte je Blatt = vier vec4
+        float[] bd = d.blattDaten != null ? d.blattDaten : new float[Dickicht.STRIDE];
+        hochladen(gl, bBlattDaten, Buffers.newDirectFloatBuffer(bd), GL4.GL_STATIC_DRAW);
         gliedZahl = d.glieder.size();
         FloatBuffer gb = Buffers.newDirectFloatBuffer(12 * Math.max(1, gliedZahl));
         for (Dickicht.Glied g : d.glieder)
@@ -206,7 +212,7 @@ public final class GertschGl {
         laiUrsprung = new float[]{(float) u0[0], 0, (float) u0[2]};
         laiZahl = new float[]{n[0], n[1], n[2]};
         sonneAchsen();
-        bodenRect = new float[]{(float) (-d.breite), 0.3f, (float) d.breite, (float) (d.fern * 1.3)};
+        bodenRect = d.bodenBereich != null ? d.bodenBereich.clone() : new float[]{(float) (-d.breite), 0.3f, (float) d.breite, (float) (d.fern * 1.3)};
         schattenFertig = false;
         kastenKamera = null;
         grenzen = null;
@@ -381,6 +387,7 @@ public final class GertschGl {
         setF(gl, pAuswahl, "uHysterese", hysterese);
         gl.glUniform2f(ort(gl, pAuswahl, "uBild"), w, h);
         speicher(gl, 0, bZweige);
+        speicher(gl, 8, bBlattDaten);
         speicher(gl, 1, bListeA);
         speicher(gl, 2, bBefehlA);
         speicher(gl, 3, bHyst);
@@ -435,6 +442,7 @@ public final class GertschGl {
         setF(gl, pFleck, "uFokus", k.brennweite());
         setF(gl, pFleck, "uZiel", fleck * w);
         speicher(gl, 0, bZweige);
+        speicher(gl, 8, bBlattDaten);
         speicher(gl, 1, bListeA);
         gl.glEnable(GL.GL_SAMPLE_ALPHA_TO_COVERAGE);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, bBefehlA);
@@ -533,6 +541,7 @@ public final class GertschGl {
         setF(gl, pAuswahl, "uFokus", texelProM[s]);
         setF(gl, pAuswahl, "uZiel", schattenZiel(s));
         speicher(gl, 0, bZweige);
+        speicher(gl, 8, bBlattDaten);
         speicher(gl, 7, bListeS[s]);
         speicher(gl, 2, bBefehlS[s]);
         speicher(gl, 3, bHyst);
@@ -556,6 +565,7 @@ public final class GertschGl {
         setF(gl, pFleck, "uFokus", texelProM[s]);
         setF(gl, pFleck, "uZiel", schattenZiel(s));
         speicher(gl, 0, bZweige);
+        speicher(gl, 8, bBlattDaten);
         speicher(gl, 7, bListeS[s]);
         gl.glBindBuffer(GL4.GL_DRAW_INDIRECT_BUFFER, bBefehlS[s]);
         gl.glDrawArraysIndirect(GL.GL_TRIANGLE_STRIP, 0);
@@ -641,8 +651,8 @@ public final class GertschGl {
 
     /**
      * Für Prüfungen: baut die Blätter (Zweig {@code zweige[k]}, Blatt {@code blaetter[k]}) auf der Grafikkarte
-     * ({@code pruefen.comp}, dieselbe Funktion {@code blatt} wie alle Shader) und gibt je Blatt 12 Werte zurück: Mitte,
-     * Normale, Längsachse, Länge, Breite, Zufall. Nach {@link #laden}.
+     * ({@code pruefen.comp}, dieselbe Funktion {@code blatt} wie alle Shader) und gibt je Blatt 16 Werte zurück: Mitte,
+     * Normale, Längsachse, Länge, Breite, Zufall, Albedo, Phase. Nach {@link #laden}.
      */
     public float[] blaetterPruefen(GL4 gl, int[] zweige, int[] blaetter) {
         if (pPruefen == 0) pPruefen = rechnen(gl, source("gertsch.glsl"), "pruefen.comp");
@@ -654,22 +664,23 @@ public final class GertschGl {
         fragen.flip();
         hochladen(gl, b[0], fragen, GL4.GL_STATIC_DRAW);
         gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, b[1]);
-        gl.glBufferData(GL4.GL_SHADER_STORAGE_BUFFER, 48L * n, null, GL4.GL_DYNAMIC_READ);
+        gl.glBufferData(GL4.GL_SHADER_STORAGE_BUFFER, 64L * n, null, GL4.GL_DYNAMIC_READ);
         gl.glUseProgram(pPruefen);
         gemeinsam(gl, pPruefen, 0, new double[3], true);
         gl.glUniform1ui(ort(gl, pPruefen, "uZahl"), n);
         speicher(gl, 0, bZweige);
-        speicher(gl, 8, b[0]);
-        speicher(gl, 9, b[1]);
+        speicher(gl, 8, bBlattDaten);
+        speicher(gl, 9, b[0]);
+        speicher(gl, 10, b[1]);
         gl.glDispatchCompute((n + 63) / 64, 1, 1);
         gl.glMemoryBarrier(GL4.GL_BUFFER_UPDATE_BARRIER_BIT);
-        FloatBuffer aus = Buffers.newDirectFloatBuffer(12 * n);
+        FloatBuffer aus = Buffers.newDirectFloatBuffer(16 * n);
         gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, b[1]);
-        gl.glGetBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, 48L * n, aus);
+        gl.glGetBufferSubData(GL4.GL_SHADER_STORAGE_BUFFER, 0, 64L * n, aus);
         gl.glBindBuffer(GL4.GL_SHADER_STORAGE_BUFFER, 0);
         gl.glDeleteBuffers(2, b, 0);
         gl.glUseProgram(0);
-        float[] o = new float[12 * n];
+        float[] o = new float[16 * n];
         aus.get(o);
         return o;
     }
@@ -852,8 +863,8 @@ public final class GertschGl {
     public void dispose(GL4 gl) {
         loeschenZiele(gl);
         for (int p : new int[]{pAuswahl, pFleck, pGlied, pHalm, pBoden, pHisto, pPruefen}) if (p != 0) gl.glDeleteProgram(p);
-        gl.glDeleteBuffers(13, new int[]{bZweige, bGlieder, bHalme, bListeA, bListeS[0], bListeS[1], bBefehlA, bBefehlS[0], bBefehlS[1], bHyst,
-                bHisto[0], bHisto[1], bHisto[2]}, 0);
+        gl.glDeleteBuffers(14, new int[]{bZweige, bGlieder, bHalme, bListeA, bListeS[0], bListeS[1], bBefehlA, bBefehlS[0], bBefehlS[1], bHyst,
+                bHisto[0], bHisto[1], bHisto[2], bBlattDaten}, 0);
         if (tLai != 0) gl.glDeleteTextures(1, new int[]{tLai}, 0);
         if (vao != 0) gl.glDeleteVertexArrays(1, new int[]{vao}, 0);
         pAuswahl = pFleck = pGlied = pHalm = pBoden = pHisto = pPruefen = vao = tLai = 0;

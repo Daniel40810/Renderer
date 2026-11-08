@@ -1,6 +1,6 @@
 # com.dan.gertsch – Bäume und Gras nach Franz Gertsch (Probe)
 
-**Stand: Phase 4 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
+**Stand: Phase 5 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
 
 - jedes Blatt ein flacher Fleck mit harter Kante
 - wenige Tonstufen
@@ -14,6 +14,7 @@ Bei Gertsch entsteht das Abstrakte aus der Treue zum Foto, nicht aus einem Filte
 - **Phase 2** malt ein Dickicht auf dem Prozessor nach diesen Regeln und misst das Bild gegen „Sommer“ (Abschnitt [Phase 2](#phase-2-das-dickicht-gemalt)).
 - **Phase 3** malt dasselbe Dickicht auf der Grafikkarte, jedes Bild neu und im Wind, mit Hysterese der Tonstufen (Abschnitt [Phase 3](#phase-3-auf-der-grafikkarte-im-wind)).
 - **Phase 4** druckt jedes Bild als Holzschnitt: eine Farbe, das Licht aus der Dichte gestochener Punkte, Wolken im Farbauftrag, gemessen am Holzschnitt in voller Auflösung (Abschnitt [Phase 4](#phase-4-holzschnitt)).
+- **Phase 5** nimmt Szenen von außen über die Schnittstelle `Quelle`: Blätter einzeln oder als Büschel, Halme und Glieder, etwa Bäume aus `forest` und Gras aus `reed` (Abschnitt [Phase 5](#phase-5-szenen-von-außen)).
 
 Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL (OpenGL 4.3), `demo/` zusätzlich FStyle. Zum Herauskopieren reicht `src/com/dan/gertsch/`.
 
@@ -298,6 +299,131 @@ Gedruckt wird das Licht des Dickichts, 1440 px breit, mit „Ton nach der Vorlag
 - **Wolken jenseits von 8 %:** Auf so große Abstände passen nur wenige Streifen ins Bild, die Autokorrelation hängt dort stark vom seed ab. Geprüft wird darum nur, dass die Wolken senkrecht länger sind.
 - **„Ton nach der Vorlage“** gibt jeder Szene Gertschs dunkle Verteilung: Die Hälfte der Fläche hat höchstens 2 % Papier. Bei einem hellen Bild wie `forest.png` liest sich „Ton wie die Szene“ besser. Die Demo stellt das für fremde Bilder von selbst um.
 
+## Phase 5: Szenen von außen
+
+Bisher malte das Paket nur sein eigenes `Dickicht`. Über die kleine Schnittstelle `Quelle` reicht eine App jetzt ihre eigene Szene herein, etwa Bäume aus `forest` und Gras aus `reed` oder `ground`. Das Paket kennt diese Pakete nicht, so verlangt es der Paketvertrag. Die App schreibt die Brücke, die ihre Daten in ein paar kleine Klassen füllt. `Dickicht.aus(quelle)` macht daraus die Szene, die Malweise, Licht, `GertschGl` und der Holzschnitt wie gewohnt zeichnen.
+
+![Huflattich im Gras, eine Szene von außen, auf der Grafikkarte nach der Vorlage „Blätter“, rechts das Kennblatt mit dem Soll](../../../../docs/img/gertsch_quelle.png)
+
+### Was die Schnittstelle nimmt
+
+Welt wie im Dickicht: Meter, y nach oben, der Boden ist die Ebene y = 0, die Kamera steht nahe dem Ursprung (Gier und Neigung frei). Albedo linear.
+
+| Klasse | Werte | Was das Paket daraus macht |
+|---|---|---|
+| `Quelle.Blatt` | Mitte, Normale, Längsachse, Länge, Breite, Albedo, Gruppe, liegt | ein Fleck in seiner Ebene. Aufeinanderfolgende Blätter derselben Gruppe kommen in einen Zweig: höchstens 255, nicht weiter als 1 m vom ersten. Mitte, Radius und mittlere Größe des Zweigs gelten für Größenregel, Wind und Schatten. |
+| `Quelle.Bueschel` | Mitte, Radius, Zahl, Länge und Breite der Blätter, Neigung, Albedo, liegt | ein Zweig aus seed wie im Dickicht, mit eigener Farbe und Neigung. Mehr als 255 Blätter gehen auf mehrere Zweige. |
+| `Quelle.Halm` | Fuß, Spitze, Breite am Fuß, Biegung, Albedo | ein quadratischer Bogen durch fünf Punkte: Die Mitte liegt um Biegung · Länge neben der Geraden, nach oben gewölbt |
+| `Quelle.Glied` | zwei Punkte mit Radius, Albedo, Stamm | ein Zylinderstumpf wie im Dickicht (Stämme mit Streifen und Lichtflecken) |
+| `boden()` | Albedo | der Boden. Sein Rechteck folgt aus der Ausdehnung der Szene (`Dickicht.bodenBereich`). |
+
+Zufall und Phase des Flatterns kommen je Blatt aus dem seed seines Zweigs. Bei einzelnen Blättern ist dieser seed die Nummer des ersten Blatts, also gleiche Quelle, gleiches Bild. `Quelle.Sammlung` sind fertige Listen zum Füllen. `Dickicht.alsQuelle()` und `alsBueschel()` reichen ein Dickicht selbst durch die Schnittstelle, für Prüfung und Demo.
+
+**Einzelne Blätter oder Büschel.**
+
+- Einzelne Blätter liegen mit 64 Byte je Blatt im Speicher (`Dickicht.blattDaten`, auf der Grafikkarte ein Puffer an Bindung 8). Das passt für große Blätter, die die App selbst setzt: den Huflattich mit 5 000 Blättern oder ein kleines Dickicht mit 3,5 Mio.
+- Ein Baum mit Hunderttausenden Blättern kommt besser als Büschel. Das ganze Dickicht der Phasen 2 und 3 (17 Mio. Blätter) passt so als 1,4 Mio. Büschel durch die Schnittstelle und läuft im Fenster genauso schnell wie aus seed (26 B/s, 36 ms).
+- Auf der Grafikkarte trägt ein Zweig dafür seine eigene Farbe und Neigung (48 statt 32 Byte).
+
+### Die Brücke für forest und reed
+
+Die Brücke gehört in die App, die beide Pakete kennt. Geprobt ist sie gegen die echten Pakete:
+
+- 16 Buchen aus `forest` mit 76 125 Büscheln, also 6,4 Mio. Blättern, und 26 621 Gliedern
+- 12 100 Halme Wiesengras aus `reed`
+- gemalt auf dem Prozessor in 5,5 s
+
+`forest` zeichnet eine Blattstelle als Fächer mit dem Radius `cluster · 0,5 · (0,75 + 0,5 · tone)` vor der Stelle. Darum wird jede Blattstelle ein Büschel, kein einzelnes Blatt.
+
+```java
+// in der App: forest und reed → Quelle
+static void baum(Quelle.Sammlung q, TreeModel m, double x, double y, double z, double gier, double groesse) {
+    double c = Math.cos(gier), s = Math.sin(gier);
+    Species sp = m.species;
+    for (TreeModel.Branch b : m.branches)
+        for (int k = 0; k + 1 < b.nodes(); k++) {
+            Quelle.Glied g = q.glied();
+            g.x0 = (float) (x + groesse * (c * b.x[k] + s * b.z[k]));     g.y0 = (float) (y + groesse * b.y[k]);
+            g.z0 = (float) (z + groesse * (-s * b.x[k] + c * b.z[k]));    g.r0 = (float) (groesse * b.r[k]);
+            g.x1 = (float) (x + groesse * (c * b.x[k + 1] + s * b.z[k + 1])); g.y1 = (float) (y + groesse * b.y[k + 1]);
+            g.z1 = (float) (z + groesse * (-s * b.x[k + 1] + c * b.z[k + 1])); g.r1 = (float) (groesse * b.r[k + 1]);
+            g.r = sp.bark[0]; g.g = sp.bark[1]; g.b = sp.bark[2];
+            g.stamm = b.level == 0;
+        }
+    for (TreeModel.LeafSpot l : m.leaves) {
+        double rr = sp.cluster * 0.5 * (0.75 + 0.5 * l.tone);              // der Fächer von forest
+        double lx = l.x + l.dx * rr * 0.5, ly = l.y + l.dy * rr * 0.5, lz = l.z + l.dz * rr * 0.5;
+        Quelle.Bueschel o = q.bueschel();
+        o.x = (float) (x + groesse * (c * lx + s * lz)); o.y = (float) (y + groesse * ly); o.z = (float) (z + groesse * (-s * lx + c * lz));
+        o.radius = (float) (groesse * rr);
+        o.laenge = (float) (groesse * l.size);
+        o.schmal = sp.leafAspect;
+        o.blaetter = (int) Math.max(3, Math.round(0.55 * Math.PI * rr * rr / (0.7 * l.size * l.size * sp.leafAspect)));
+        double ton = 0.75 + 0.5 * l.tone;
+        o.r = (float) (sp.summer[0] * ton); o.g = (float) (sp.summer[1] * ton); o.b = (float) (sp.summer[2] * ton);
+    }
+}
+
+static void halme(Quelle.Sammlung q, Reed reed, Reed.Kind art, double cx, double cz, double r) {
+    float[] h = reed.around(cx, cz, r, art, (x, z, k) -> 1, (x, z) -> 0);   // x, y, z, Höhe, Richtung, Phase, Ton, Art
+    double neig = Reed.lean(reed.windSpeed, art.stiffness);
+    for (int i = 0; i < h.length; i += Reed.STRIDE) {
+        double hoehe = h[i + 3], ri = h[i + 4], seit = hoehe * (neig + 0.15), hoch = Math.sqrt(Math.max(0, hoehe * hoehe - seit * seit));
+        double[] f = reed.color(art, h[i + 6]);
+        Quelle.Halm o = q.halm();
+        o.fx = h[i]; o.fy = h[i + 1]; o.fz = h[i + 2];
+        o.sx = (float) (h[i] + Math.sin(ri) * seit); o.sy = (float) (h[i + 1] + hoch); o.sz = (float) (h[i + 2] + Math.cos(ri) * seit);
+        o.breite = 0.004f; o.biegung = 0.15f;
+        o.r = (float) f[0]; o.g = (float) f[1]; o.b = (float) f[2];
+    }
+}
+
+Quelle.Sammlung q = new Quelle.Sammlung();
+baum(q, TreeGenerator.grow(Species.beech(), 17, 1), 2, 0, 12, 0.4, 1.0);
+halme(q, Reed.breeze(), Reed.Kind.GRAS, 0, 6, 7);
+Dickicht d = Dickicht.aus(q);                      // weiter wie mit Dickicht.sommer()
+```
+
+Welche Modelle die Bäume einer `Forest` haben, hält `forest` intern (`TreeGenerator.grow` mit eigenem seed je Art und Variante). Für genau dieselben Bäume wie im Wald der App bräuchte `forest` einen Zugriff darauf, etwa `Forest.model(TreeInstance)`. Das gehört in den Einbau in die App.
+
+### Die Testszene: Huflattich
+
+`demo/Huflattich` hat ein eigenes kleines Modell, wie ein fremdes Paket:
+
+- Pflanzen mit Stielen und 3 bis 6 fast runden Blättern von 10 bis 24 cm
+- 1 500 Halme mit Fuß, Höhe, Richtung und Biegung
+- 4 500 Blättchen orange-brauner Streu
+- Erdbeeren mit drei Blättchen
+
+`alsQuelle()` ist ihre Brücke. Die Kamera steht 1,5 m hoch und blickt 55° nach unten, wie Gertsch in „Blätter“. Die Szene trägt die Kennzeichen dieser Vorlage, gemessen mit derselben `Messung`:
+
+| Kennwert | Prozessor | OpenGL | Blätter (Soll) | Toleranz |
+|---|---|---|---|---|
+| dunkler Grund | 34,1 % | 35,3 % | 32,4 % | ± 6 Punkte |
+| Median L* | 39,7 | 35,2 | 33,4 | ± 7 |
+| Farbton | 120° | 120° | 118° | ± 8° |
+| Akzente (Streu) | 2,0 % | 2,1 % | 1,7 % | 1 bis 3,5 % |
+| Lücke dunkel | 2,45 % | 2,45 % | 1,97 % | × 0,7 bis 1,5 |
+| Fleck hell | 2,33 % | 2,71 % | 1,06 % | über 1,5 × Sommer (0,64 bis 0,75 %) |
+| senkrecht | 43 % | 44 % | 40 % | ± 10 Punkte |
+| Kohärenz | 0,81 | 0,81 | 0,69 | |
+
+**Was abweicht:** Die hellen Flecken sind mehr als doppelt so groß wie bei Gertsch, die Kohärenz liegt höher. Unsere Blätter sind flache Flecken mit glatter Kante. Gertschs Huflattich hat Adern, Sprenkel, einen gezähnten Rand und einen hellen Saum; das teilt jedes Blatt in kleinere helle Flecken. Der Saum der Malweise (`Malweise.saum`) gibt es nur auf dem Prozessor.
+
+### Abnahme der Schnittstelle
+
+| Prüfung | Ergebnis |
+|---|---|
+| Ein kleines Dickicht (3,54 Mio. Blätter) Blatt für Blatt durch die Schnittstelle, Prozessor | Median 33,9 / 34,0, Grund 24,5 / 24,6 %, hell 0,64 / 0,63 %, dunkel 1,25 / 1,27 % |
+| dasselbe auf der Grafikkarte | Median 29,2 / 29,2, Grund 31,4 / 31,4 %, hell 0,55 / 0,55 %, dunkel 1,31 / 1,27 % |
+| das ganze Dickicht (17 Mio. Blätter) als 1,4 Mio. Büschel, Prozessor (LOW) | Median 32,5 / 32,7, Grund 23,4 / 23,5 %, hell 0,87 / 0,86 %, dunkel 1,63 / 1,59 % |
+| Blätter von außen: Grafikkarte gegen Prozessor (3 000 Blätter) | gleich bis aufs Bit, auch Farbe, Phase und Zufall |
+| Büschel mit eigener Farbe und Neigung: Grafikkarte gegen Prozessor | Lage und Farbe höchstens 2 · 10⁻⁶ daneben |
+| Blätter in Zweige gefasst (2 000 Blätter, 7 Gruppen) | höchstens 255 je Zweig, keine zwei Gruppen, alle in 1 m, jedes Blatt genau wie gegeben |
+| Halm | Fuß und Spitze genau, die Mitte 0,0500 m über der Geraden bei Biegung 0,1 und 0,5 m Länge |
+
+Toleranz des Rundwegs: Median ± 1, Grund ± 1 Punkt (Büschel ± 1,5), helle und dunkle Flecken ± 10 % (Büschel ± 12 %). Gleich sind die Bilder nur im Mittel. Die Blätter fallen anders aus dem Zufall, weil der seed eines Zweigs von außen die Nummer seines ersten Blatts ist. Den Büscheln fehlen die trockenen Blätter der Kronen.
+
 ## Was es kann
 
 - **Lab** (`Lab`): sRGB ↔ CIELAB (D65), ΔE*ab, Buntheit, Farbton (CIE 15:2004, IEC 61966-2-1).
@@ -348,6 +474,14 @@ st.tonwerte = Stich.Tonwerte.LINEAR;               // oder: Ton wie die Szene
 Stich.Ergebnis s = st.stechen(ImageIO.read(new File("docs/img/forest.png")), Druck.BREITE);
 Druck gemessen = Druck.messen(s.bild);             // gegen Vorlagen.druck() vergleichen
 
+// Phase 5: eine Szene von außen
+Quelle.Sammlung q = new Quelle.Sammlung();        // oder eine eigene Quelle
+Quelle.Blatt b = q.blatt().richtung(0, 1, 0, 1, 0, 0);   // Normale, ungefähre Längsachse
+b.x = 0.2f; b.y = 0.1f; b.z = 1.2f; b.laenge = 0.2f; b.breite = 0.19f; b.r = 0.07f; b.g = 0.13f; b.b = 0.06f;
+Quelle.Bueschel bu = q.bueschel();                 // 120 Blätter aus dem Zufall, eigene Farbe
+bu.x = 1; bu.y = 4; bu.z = 9; bu.radius = 0.3f; bu.blaetter = 120; bu.laenge = 0.08f; bu.r = 0.05f; bu.g = 0.16f; bu.b = 0.03f;
+Dickicht szene = Dickicht.aus(q);                  // für Licht, Malweise, GertschGl, Stich
+
 // Phase 3: auf der Grafikkarte (im GL-Faden)
 GertschGl gg = new GertschGl();                    // Vorlage Sommer, HIGH, Hysterese 0,3 Blenden
 gg.init(gl);
@@ -377,7 +511,7 @@ BufferedImage druck = sg.lesen(gl);
 | `Messung` | Einstellungen, Qualitätsstufen, Leiter; `messen(…)` liefert eine `Vorlage`; Zylinderhut für Lichtflecken und Lücken |
 | `Vorlage` | Kennwerte (offene Felder), `bericht()`, `alsJava(…)` |
 | `Vorlagen` | die sechs gemessenen Vorlagen als Presets (erzeugt) |
-| `Dickicht` | Phase 2: die Szene aus seed (`Glied`, `Zweig`, `Blatt`, `Halm`), Blätter je Zweig bei Bedarf |
+| `Dickicht` | Phase 2: die Szene aus seed (`Glied`, `Zweig`, `Blatt`, `Halm`), Blätter je Zweig bei Bedarf; seit Phase 5 auch aus einer `Quelle` (`aus`, `alsQuelle`, `alsBueschel`) |
 | `Licht` | Phase 2: Sonne, Schattenkarte, Himmel nach der Blattfläche |
 | `Kamera` | Phase 2: Lochkamera, Projektion, Strahl |
 | `Malweise` | Phase 2: die Regeln und das Malen; `Ergebnis` mit Bild, Licht ohne Stufen, Nummer je Bildpunkt, Stufe und Faktor je Fleck |
@@ -387,6 +521,7 @@ BufferedImage druck = sg.lesen(gl);
 | `Druck` | Phase 4: Kennwerte eines Holzschnitts und ihre Messung (Papier, Farbe, Punkte, Ordnung, Ton, Wolken, Korn), `bericht()`, `alsJava(…)` |
 | `Punkte` | Phase 4: Rang je Zelle (Void and Cluster gemischt mit Zufall), Form, Abstand, Einzug der Kante, Eichkurve (in GLSL gleich) |
 | `Stich` | Phase 4: der Holzschnitt aus einem Bild oder einer Helligkeit: Ton, Punkte, Farbe mit Wolken und Korn |
+| `Quelle` | Phase 5: Schnittstelle für Szenen von außen: `Blatt`, `Bueschel`, `Halm`, `Glied`, Boden; `Sammlung` zum Füllen |
 | `gl/GertschGl` | Phase 3: Laden, Schattenkarten, Auswahl, Bild, Tonwerte, Zähler, Zeit je Durchgang; Texturen für Phase 4 |
 | `gl/StichGl` | Phase 4: Holzschnitt aus einer Textur, mit Trägheit und Hysterese der Punkte; Zeigen ganz oder mit der Lupe |
 | `gl/stich.glsl`, `stich.vert`, `stich_hell.frag`, `stich_punkte.comp`, `stich.frag`, `stich_zeigen.frag` | Phase 4: die Shader des Holzschnitts (`histogramm.comp` von Phase 3) |
@@ -395,6 +530,8 @@ BufferedImage druck = sg.lesen(gl);
 | `demo/GertschGlDemo` | Phase 3: Fenster im Wind, Standbild, Messung des Flimmerns |
 | `demo/GertschGlCheck` | Phase 3 und 4: Prüfung auf der Grafikkarte |
 | `demo/StichDemo` | Phase 4: Holzschnitt im Fenster (Dickicht im Wind oder ein Bild), Lupe, Standbild, Messung des Flimmerns |
+| `demo/QuelleDemo` | Phase 5: Szenen von außen im Fenster (Huflattich, Dickicht als Büschel, Dickicht aus seed), wahlweise als Holzschnitt; Standbild |
+| `demo/Huflattich` | Phase 5: Testszene mit eigenem Modell und Brücke zur `Quelle` |
 | `demo/Druckblatt` | zeichnet die Kennwerte eines Drucks, wahlweise mit dem Soll |
 | `demo/GertschDemo` | Phase 1: Vorlagen vermessen, Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
 | `demo/DickichtDemo` | Phase 2: das Dickicht malen und messen, Fenster und Standbilder |
@@ -533,6 +670,26 @@ Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte für Dickicht und Dr
 - `--bild datei.png [dickicht|gemalt|bild.png] [vorlage|linear] [Wind]` schreibt den Druck mit zwei Ausschnitten 4:1 (dort, wo Papier und Farbe am meisten wechseln) und dem Druckblatt. Mit `--cpu` rechnet der Prozessor. Ohne Wind ist die Ruhe aus, dann ist der Druck gleich dem des Prozessors.
 - `--flimmern [Wind]` misst 40 Bilder je Einstellung: ohne Ruhe, nur Hysterese, nur Trägheit, beides, mehr Trägheit.
 
+Die Demo der Phase 5 (mit denselben Freigaben):
+
+```bash
+java --enable-native-access=ALL-UNNAMED --add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.awt.windows=ALL-UNNAMED --add-opens java.desktop/sun.java2d=ALL-UNNAMED -cp "build/classes:lib/*:src" com.dan.gertsch.demo.QuelleDemo
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.QuelleDemo --bild quelle.png huflattich
+```
+
+Das Fenster der `QuelleDemo` zeigt links die Szene im Wind und rechts das Kennblatt, auf „Messen“ mit dem Bild gegen die Vorlage. Unten wählt man:
+
+- Szene: Huflattich (von außen, Vorlage „Blätter“), Dickicht als Büschel (17 Mio. Blätter durch die Schnittstelle), Dickicht aus seed (zum Vergleich)
+- Vorlage
+- Hysterese und Holzschnitt (`StichGl` auf dem Licht der Szene)
+- „Messen“ und „Neu würfeln“
+- Wind, Sonnenhöhe und -richtung
+
+Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte, die Zahl der Flecken und wie viele Blätter von außen kamen. `--bild datei.png [huflattich|bueschel|seed] [vorlage] [Qualität] [Wind]` schreibt ein Standbild mit Kennblatt, mit `--cpu` malt der Prozessor.
+
 `GertschGlCheck` prüft auf der Grafikkarte:
 
 - dieselben Blätter wie der Prozessor
@@ -543,6 +700,10 @@ Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte für Dickicht und Dr
   - der Holzschnitt der Grafikkarte sticht dieselben Punkte wie der des Prozessors (höchstens 0,05 % anders, 99,9 % der Bildpunkte innerhalb ΔE 3)
   - Trägheit und Hysterese dritteln mindestens die Wechsel der Punkte bei 6 m/s
   - die Abnahme gegen den Holzschnitt aus der Tabelle in Phase 4
+- Phase 5:
+  - Blätter von außen genau wie auf dem Prozessor, Büschel mit eigener Farbe und Neigung ebenso
+  - der Rundweg eines kleinen Dickichts durch die Schnittstelle malt gleich
+  - der Huflattich: keine Liste zu klein, die Kennzeichen von „Blätter“
 
 Sie endet mit „Alles in Ordnung.“ Die Zähler der Grafikkarte werden im `display()` desselben Bilds gelesen, nicht über `invoke`: Ohne Animator zeichnet JOGL dabei noch ein Bild zur selben Zeit, und gezählt würden dessen Wechsel (keine).
 
@@ -578,6 +739,12 @@ Sie endet mit „Alles in Ordnung.“ Die Zähler der Grafikkarte werden im `dis
   - die Messung des Drucks an einem Druck bekannter Größe (Punkte 2 px, Ton 4 %)
   - die Form des Presets
   - die Abnahme gegen den Holzschnitt aus der Tabelle in Phase 4
+- Phase 5:
+  - Blatt mit Normale senkrecht zur Längsachse; Halm als Bogen mit der gegebenen Biegung
+  - Blätter in Zweige gefasst: höchstens 255, eine Gruppe, 1 m, jedes Blatt genau
+  - Büschel: auf Zweige verteilt, eigene Farbe und Neigung
+  - Rundweg Blatt für Blatt und mit Büscheln; gleiche Quelle, gleiches Bild
+  - der Huflattich trägt die Kennzeichen von „Blätter“
 
 Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit den Presets, den Holzschnitt auch als Druck in voller Auflösung. Sie braucht etwa 80 s und endet mit „Alles in Ordnung.“
 
@@ -597,7 +764,7 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
   - Im Wind wandert ein Zweig als Ganzes; Äste und Stämme bleiben stehen, so dass Blätter bis zu 16 cm (bei 10 m/s) von ihrem Ast abrücken.
   - Hysterese gibt es nur für die Flecken, nicht für Stämme, Halme und Boden (die Licht je Bildpunkt bekommen). Dort wandern die Lichtflecken mit den Schatten.
   - Die Grenzen der Bänder folgen dem Histogramm von vor zwei Bildern.
-  - Speicher in HIGH rund 400 MB auf der Grafikkarte: Listen der Schattenkarten (170 MB), Mehrfachabtastung (80 MB), Liste der Flecken (64 MB), Zweige (45 MB).
+  - Speicher in HIGH rund 420 MB auf der Grafikkarte: Listen der Schattenkarten (170 MB), Mehrfachabtastung (80 MB), Liste der Flecken (64 MB), Zweige (68 MB, seit Phase 5 je 48 Byte).
   - Die Kamera steht im Fenster fest; bewegt sie sich, werden beide Schattenkarten jedes Bild neu gezeichnet.
 - Phase 4:
   - Die Vorlage ist ein Foto des Drucks in 1438 px: Die Punkte sind kaum größer als ein Bildpunkt, und die Messung trennt Punkte erst ab 3 px Abstand. Ob Gertschs Punkte im Kleinen doch etwas geordnet sind, kann sie nicht sehen.
@@ -606,6 +773,11 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
   - Die Fuge zwischen zwei Bögen Papier, die in der Vorlage senkrecht durch die Mitte läuft, fehlt.
   - Im Wind bleiben trotz Ruhe etwa 5 % Wechsel je Bild. Die Trägheit verschmiert schnelle Bewegung (0,15 s).
   - Die Ellipsen der Punkte sind gezeichnet, nicht aus dem Stich des Hohleisens abgeleitet.
+- Phase 5:
+  - Die Szene muss im Bezug des Dickichts liegen: Boden y = 0, Kamera nahe dem Ursprung. Gelände mit Höhen trägt die Schnittstelle nicht; die App schneidet einen ebenen Ausschnitt oder hebt alles auf die Ebene.
+  - Einzelne Blätter kosten 64 Byte, auf Prozessor und Grafikkarte. Für ganze Bäume sind Büschel gedacht.
+  - Büschel haben eine Farbe, also keine trockenen Blätter darin, und ihre Blätter liegen in einer flachen Kugel, nicht im Fächer von `forest`.
+  - Ein Zweig von außen schwingt als Ganzes. Äste und Stämme stehen still wie im Dickicht.
 
 ## Weiter
 
@@ -613,4 +785,5 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
 2. ~~Standbild „Sommer“ auf der CPU~~ (Phase 2).
 3. ~~`gl/`: Flecken und Halme auf der Grafikkarte, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind~~ (Phase 3).
 4. ~~Holzschnitt: Punkte nach Rang, eine Farbe, senkrechte Wolken im Farbauftrag, auf jeder Ausgabe~~ (Phase 4).
-5. Eine Schnittstelle für Blätter und Halme von außen, damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann. Das Paket kennt sie selbst nicht.
+5. ~~Eine Schnittstelle für Blätter und Halme von außen (`Quelle`), damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann~~ (Phase 5).
+6. Einbau in eine App (LituyaBay1958): die Brücke oben, dieselben Baummodelle wie im Wald der App (`forest` bräuchte dafür einen Zugriff), Heldenbilder gegen die Vorlagen messen.
