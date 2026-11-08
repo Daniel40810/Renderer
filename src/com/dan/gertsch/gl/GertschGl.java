@@ -344,6 +344,8 @@ public final class GertschGl {
     /**
      * Zeichnet ein Bild der Kamera zur Zeit {@code zeit} (s, für den Wind) und bringt es in den Rahmen
      * {@code ziel} (0 = Fenster) ins Rechteck x, y, Breite, Höhe (Seitenverhältnis bleibt, der Rand ist der dunkle Grund).
+     * Mit {@code ziel} &lt; 0 bleibt es in den eigenen Texturen ({@link #farbTextur()}, {@link #helligkeitTextur()}),
+     * etwa für den Holzschnitt ({@link StichGl}).
      */
     public void zeichnen(GL4 gl, Kamera k, double zeit, int ziel, int rx, int ry, int rw, int rh) {
         if (dickicht == null) return;
@@ -468,6 +470,14 @@ public final class GertschGl {
         gl.glActiveTexture(GL.GL_TEXTURE0);
 
         // 6 ins Ziel
+        if (ziel < 0) {
+            gl.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0);
+            gl.glBindVertexArray(0);
+            gl.glUseProgram(0);
+            marke(gl, 5);
+            bild++;
+            return;
+        }
         gl.glBindFramebuffer(GL4.GL_READ_FRAMEBUFFER, fAufl);
         gl.glReadBuffer(GL.GL_COLOR_ATTACHMENT0);
         gl.glBindFramebuffer(GL4.GL_DRAW_FRAMEBUFFER, ziel);
@@ -681,6 +691,15 @@ public final class GertschGl {
 
     /** Grenzen der Bänder in log2 Y (Kopie). */
     public double[] grenzen() { return grenzen == null ? new double[0] : grenzen.clone(); }
+
+    /** Textur des letzten Bilds in sRGB (RGBA8, Zeile 0 unten), {@link #bildBreite()} × {@link #bildHoehe()}. */
+    public int farbTextur() { return tFarbe; }
+
+    /** Textur der Helligkeit Y des letzten Bilds (R32F, linear, vor den Tonstufen; 0 ohne Licht), Zeile 0 unten. */
+    public int helligkeitTextur() { return tY; }
+
+    public int bildBreite() { return w; }
+    public int bildHoehe() { return h; }
 
     /** Das letzte Bild (sRGB, w × h). */
     public BufferedImage lesen(GL4 gl) {

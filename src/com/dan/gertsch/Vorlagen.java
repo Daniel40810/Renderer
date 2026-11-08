@@ -154,4 +154,16 @@ public final class Vorlagen {
         v.senkrecht = 0.4006; v.kohaerenz = 0.6932; v.hauptrichtung = 106.29;
         return v;
     }
+
+    /** Holzschnitt (franz-gertsch5.jpg) als Druck, gemessen mit {@link Druck#messen} in voller Auflösung: Papier, Farbe, gestochene Punkte, Ton, Wolken und Korn. */
+    public static Druck druck() {
+        Druck d = new Druck();
+        d.name = "holzschnitt"; d.titel = "Holzschnitt"; d.quelle = "franz-gertsch5.jpg"; d.breite = 1438; d.hoehe = 1000;
+        d.papier = new double[]{79.44, -6.90, -3.22}; d.farbe = new double[]{44.05, -16.46, -13.36};
+        d.punkt = 0.001121; d.abstand = 0.002782; d.ordnung = 1.0058; d.punkte = 8103;
+        d.ton = new double[]{0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0012, 0.0026, 0.0046, 0.0078, 0.0137, 0.0224, 0.0328, 0.0443, 0.0566, 0.0699, 0.0849, 0.1019, 0.1235, 0.1553, 0.2140, 0.6982};
+        d.tonMittel = 0.0554; d.wolken = 3.487; d.korn = 0.938;
+        d.wolkenX = new double[]{0.882, 0.683, 0.436, 0.350, 0.032}; d.wolkenY = new double[]{0.898, 0.803, 0.813, 0.826, 0.589};
+        return d;
+    }
 }

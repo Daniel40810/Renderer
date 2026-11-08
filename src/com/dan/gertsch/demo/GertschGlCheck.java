@@ -1,12 +1,16 @@
 package com.dan.gertsch.demo;
 
 import com.dan.gertsch.Dickicht;
+import com.dan.gertsch.Druck;
 import com.dan.gertsch.Kamera;
+import com.dan.gertsch.Lab;
 import com.dan.gertsch.Licht;
 import com.dan.gertsch.Messung;
+import com.dan.gertsch.Stich;
 import com.dan.gertsch.Vorlage;
 import com.dan.gertsch.Vorlagen;
 import com.dan.gertsch.gl.GertschGl;
+import com.dan.gertsch.gl.StichGl;
 import com.jogamp.opengl.GL4;
 import com.jogamp.opengl.GLAutoDrawable;
 import com.jogamp.opengl.GLCapabilities;
@@ -28,11 +32,16 @@ import java.util.function.Consumer;
  * <li>Die Listen der Auswahl laufen in keiner Qualität über.</li>
  * <li>Die Hysterese senkt im Wind die Wechsel der Bänder.</li>
  * <li>Abnahme: ein Standbild in HIGH, gemessen gegen „Sommer“ (weitere Toleranzen als auf dem Prozessor, siehe README).</li>
+ * <li>Phase 4: Holzschnitt ({@link StichGl}) gleich dem Prozessor ({@link Stich}); Trägheit und Hysterese senken im Wind
+ * die Wechsel der Punkte; Abnahme des Drucks gegen den Holzschnitt.</li>
  * </ul>
  */
 public final class GertschGlCheck implements GLEventListener {
     private static int bad;
     final GertschGl gg = new GertschGl();
+    final StichGl sg = new StichGl();
+    /** Je Bild auch den Holzschnitt des Lichts drucken (Phase 4). */
+    boolean mitStich;
     final Kamera kamera = new Kamera();
     Dickicht dickicht;
     Licht licht;
@@ -40,18 +49,28 @@ public final class GertschGlCheck implements GLEventListener {
     double zeit;
     Consumer<GL4> nachher;
 
-    @Override public void init(GLAutoDrawable d) { gg.init(d.getGL().getGL4()); }
+    @Override public void init(GLAutoDrawable d) {
+        gg.init(d.getGL().getGL4());
+        sg.init(d.getGL().getGL4());
+    }
 
     @Override public void display(GLAutoDrawable d) {
         GL4 gl = d.getGL().getGL4();
         if (!geladen) { gg.laden(gl, dickicht, licht); geladen = true; }
         gg.zeichnen(gl, kamera, zeit, gl.getDefaultDrawFramebuffer(), 0, 0, 64, 64);
         gg.statistik(gl);
+        if (mitStich) {
+            sg.drucken(gl, gg.helligkeitTextur(), gg.bildBreite(), gg.bildHoehe(), StichGl.Eingang.HELLIGKEIT, Druck.BREITE, zeit);
+            sg.statistik(gl);
+        }
         if (nachher != null) { nachher.accept(gl); nachher = null; }
     }
 
     @Override public void reshape(GLAutoDrawable d, int x, int y, int w, int h) { }
-    @Override public void dispose(GLAutoDrawable d) { gg.dispose(d.getGL().getGL4()); }
+    @Override public void dispose(GLAutoDrawable d) {
+        sg.dispose(d.getGL().getGL4());
+        gg.dispose(d.getGL().getGL4());
+    }
 
     public static void main(String[] args) throws Exception {
         Locale.setDefault(Locale.GERMAN);
@@ -139,6 +158,77 @@ public final class GertschGlCheck implements GLEventListener {
                 "Sommer (OpenGL), Flecken: hell %.2f %% (%+.0f %%), dunkel %.2f %% (%+.0f %%)", 100 * ist.hellD50, 100 * (rel - 1), 100 * ist.dunkelD50, 100 * (reld - 1));
         check(haupt < 25 && ist.akzent > 0.001 && ist.akzent < 0.015,
                 "Sommer (OpenGL), Richtung waagerecht (%.0f°, %.0f %% senkrecht), Akzente %.2f %%", ist.hauptrichtung, 100 * ist.senkrecht, 100 * ist.akzent);
+
+
+        // 5 Holzschnitt: Grafikkarte und Prozessor drucken dasselbe (ohne Hysterese, mit derselben Tabelle des Tons)
+        c.gg.quality = GertschGl.Quality.MEDIUM;
+        c.gg.wind.staerke = 0;
+        c.zeit = 0;
+        java.awt.image.BufferedImage[] quelle = new java.awt.image.BufferedImage[1], gpuDruck = new java.awt.image.BufferedImage[1];
+        float[][] tonKurve = new float[1][];
+        int[] gpuGestochen = new int[1];
+        c.nachher = gl -> {
+            quelle[0] = c.gg.lesen(gl);
+            int tex = StichGl.textur(gl, quelle[0]);
+            c.sg.hysterese = 0;
+            c.sg.neu();
+            c.sg.drucken(gl, tex, quelle[0].getWidth(), quelle[0].getHeight(), StichGl.Eingang.FARBE, Druck.BREITE);
+            c.sg.statistik(gl);
+            gpuGestochen[0] = c.sg.gestochen;
+            gpuDruck[0] = c.sg.lesen(gl);
+            tonKurve[0] = c.sg.tonKurve();
+            gl.glDeleteTextures(1, new int[]{tex}, 0);
+        };
+        dr.display();
+        Stich.Ergebnis cpu = new Stich().stechen(Stich.helligkeit(quelle[0]), quelle[0].getWidth(), quelle[0].getHeight(), Druck.BREITE, tonKurve[0]);
+        int nahBp = 0, bp = cpu.breite * cpu.hoehe;
+        double dL = 0;
+        for (int y = 0; y < cpu.hoehe; y++)
+            for (int x = 0; x < cpu.breite; x++) {
+                double[] a = Lab.vonRgb(cpu.bild.getRGB(x, y)), g = Lab.vonRgb(gpuDruck[0].getRGB(x, y));
+                if (Lab.deltaE(a, g) < 3) nahBp++;
+                dL += Math.abs(a[0] - g[0]);
+            }
+        check(Math.abs(gpuGestochen[0] - cpu.gestochen) <= Math.max(5, cpu.gestochen / 2000) && nahBp >= 0.999 * bp && dL / bp < 0.1,
+                "Holzschnitt: Grafikkarte und Prozessor stechen dieselben Punkte (%,d und %,d), %.3f %% der Bildpunkte innerhalb ΔE 3, |ΔL*| im Mittel %.3f",
+                gpuGestochen[0], cpu.gestochen, 100.0 * nahBp / bp, dL / bp);
+
+        // 6 Holzschnitt im Wind: Trägheit und Hysterese halten die Punkte ruhig
+        c.gg.quality = GertschGl.Quality.LOW;
+        c.gg.wind.staerke = 6;
+        c.mitStich = true;
+        double[] wechsel = new double[2];
+        double[][] ruhe = {{0, 0}, {0.3, 0.15}};
+        for (int j = 0; j < 2; j++) {
+            c.sg.hysterese = ruhe[j][0];
+            c.sg.traegheit = ruhe[j][1];
+            c.sg.neu();
+            double s = 0;
+            int m = 0;
+            for (int i = 0; i < 40; i++) {
+                c.zeit = 20 + i / 24.0;
+                dr.display();
+                if (i >= 8) { s += c.sg.flimmern(); m++; }
+            }
+            wechsel[j] = s / m;
+        }
+        check(wechsel[0] > 0.02 && wechsel[1] < wechsel[0] / 3,
+                "Holzschnitt bei 6 m/s: %.1f %% der gestochenen Punkte wechseln je Bild ohne, %.1f %% mit Trägheit 0,15 s und Hysterese 0,3 Blenden",
+                100 * wechsel[0], 100 * wechsel[1]);
+
+        // 7 Abnahme gegen den Holzschnitt: das Licht des Dickichts (HIGH, ohne Wind) als Holzschnitt auf der Grafikkarte
+        c.gg.quality = GertschGl.Quality.HIGH;
+        c.gg.wind.staerke = 0;
+        c.sg.hysterese = 0.3;
+        c.sg.traegheit = 0.15;
+        c.sg.neu();
+        c.zeit = 0;
+        for (int i = 0; i < 6; i++) dr.display();
+        c.nachher = gl -> gpuDruck[0] = c.sg.lesen(gl);
+        dr.display();
+        c.mitStich = false;
+        Druck dg = Druck.messen(gpuDruck[0]);
+        GertschCheck.abnahmeDruck("Holzschnitt (OpenGL)", dg, Vorlagen.druck(), 0.15, GertschGlCheck::check);
 
         dr.destroy();
         System.out.println(bad == 0 ? "Alles in Ordnung." : bad + " Verstöße.");

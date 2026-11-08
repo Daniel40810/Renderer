@@ -4,6 +4,7 @@ import com.dan.fcombobox.FComboBox;
 import com.dan.fframe.FFrame;
 import com.dan.fslider.FSlider;
 import com.dan.gertsch.Bild;
+import com.dan.gertsch.Druck;
 import com.dan.gertsch.Lab;
 import com.dan.gertsch.Messung;
 import com.dan.gertsch.Struktur;
@@ -46,7 +47,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <li>{@code --bild datei.png sommer} – Vorlage „sommer“ frisch gemessen: vier Ansichten und Kennblatt (nur für den
  * eigenen Gebrauch, das Bild enthält das Werk)</li>
  * <li>{@code --bericht} – Kennwerte aller Vorlagen als Text</li>
- * <li>{@code --quelltext Vorlagen.java} – alle Vorlagen messen und die Presets als Java-Quelltext schreiben</li>
+ * <li>{@code --quelltext Vorlagen.java} – alle Vorlagen messen und die Presets als Java-Quelltext schreiben, dazu den
+ * Holzschnitt als {@link Druck}</li>
  * <li>{@code --vorlagen ordner} – wo die Vorlagen liegen (sonst {@code templates})</li>
  * </ul>
  */
@@ -157,6 +159,16 @@ public final class GertschDemo {
             s.append('\n');
             s.append(vs.get(i).alsJava(Vorlagen.NAMEN[i], Vorlagen.TITEL[i] + " (" + Vorlagen.DATEIEN[i] + "): " + Vorlagen.BESCHREIBUNG[i] + "."));
         }
+        // Phase 4: der Holzschnitt in voller Auflösung, als Druck (Papier, Farbe, Punkte, Ton, Wolken, Korn)
+        int hz = index("holzschnitt");
+        Druck d = Druck.messen(ImageIO.read(datei(hz)));
+        d.name = "holzschnitt";
+        d.titel = "Holzschnitt";
+        d.quelle = Vorlagen.DATEIEN[hz];
+        System.out.print(d.bericht());
+        s.append('\n');
+        s.append(d.alsJava("druck", "Holzschnitt (" + Vorlagen.DATEIEN[hz] + ") als Druck, gemessen mit {@link Druck#messen} in voller Auflösung: "
+                + "Papier, Farbe, gestochene Punkte, Ton, Wolken und Korn."));
         s.append("}\n");
         Files.writeString(ziel.toPath(), s.toString(), StandardCharsets.UTF_8);
         System.out.println("Quelltext: " + ziel);

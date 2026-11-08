@@ -1,0 +1,67 @@
+// stich_punkte.comp — je Zelle des Drucks ein Faden: Ton an der Mitte ihres Punkts (Helligkeit der Quelle bilinear, wie
+// Stich.bilinear), gestochen, wenn er über der Schwelle des Rangs liegt. Gegen das Flimmern im Wind:
+// - Trägheit: die Helligkeit je Zelle zeitlich geglättet (Tiefpass erster Ordnung, Anteil uAlpha des neuen Werts), so
+//   dass das Flattern der Blätter (2,5 bis 4 Hz) gedämpft wird und das Schwingen der Zweige (unter 1 Hz) durchkommt;
+// - Hysterese in Blenden: ein gestochener Punkt bleibt, solange der Ton bei Y · 2^h noch darüber liegt, ein offener
+//   kommt erst, wenn er es bei Y · 2^−h tut.
+// Zustand je Zelle in uZustand (0/1), geglättete Helligkeit in uGlatt, Zähler: gestochen, gewechselt. Dazu das
+// Histogramm der geglätteten Helligkeit über die Zellen im Druck: daraus kommt zwei Bilder später die Tabelle des Tons,
+// so dass die Tonwerte zu dem passen, was die Punkte sehen.
+layout(local_size_x = 16, local_size_y = 16) in;
+uniform sampler2D uY;            // Helligkeit der Quelle, Zeile 0 unten
+layout(r8ui, binding = 0) uniform uimage2D uZustand;
+layout(r32f, binding = 2) uniform image2D uGlatt;
+layout(std430, binding = 1) buffer Zaehler { uint gestochen; uint gewechselt; };
+layout(std430, binding = 3) buffer HistoZellen { uint zfach[257]; };
+uniform ivec2 uZellen;           // Zahl der Zellen mit Rand: Zelle (i, j) liegt bei (i + uReich, j + uReich)
+uniform ivec2 uInnen;            // Zahl der Zellen im Druck
+uniform vec2 uDruck;             // Größe des Drucks (px)
+uniform float uHysterese;        // Blenden
+uniform int uFrisch;             // 1: ohne Hysterese und Trägheit (neuer Druck)
+uniform float uAlpha;            // Anteil des neuen Werts der Helligkeit (1 = keine Trägheit)
+shared uint lokal[257];
+
+float hell(vec2 p) {
+    ivec2 gr = textureSize(uY, 0);
+    p = clamp(p, vec2(0.0), vec2(gr - 1));
+    ivec2 i0 = min(ivec2(p), max(gr - 2, ivec2(0)));
+    vec2 f = p - vec2(i0);
+    ivec2 i1 = min(i0 + 1, gr - 1);
+    float a = texelFetch(uY, i0, 0).r, b = texelFetch(uY, ivec2(i1.x, i0.y), 0).r;
+    float c = texelFetch(uY, ivec2(i0.x, i1.y), 0).r, d = texelFetch(uY, i1, 0).r;
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+void main() {
+    uint li = gl_LocalInvocationIndex;
+    for (uint k = li; k < 257u; k += 256u) lokal[k] = 0u;
+    barrier();
+    ivec2 z = ivec2(gl_GlobalInvocationID.xy);
+    if (z.x < uZellen.x && z.y < uZellen.y) {
+        ivec2 c = z - uReich;
+        Form f = form(c);
+        ivec2 gr = textureSize(uY, 0);
+        vec2 uv = f.m * uZelle / uDruck;                   // oben zuerst
+        float xq = uv.x * float(gr.x) - 0.5, yUnten = uv.y * float(gr.y) - 0.5;
+        float y = hell(vec2(xq, float(gr.y - 1) - yUnten));   // Zeile 0 der Textur ist unten
+        if (uFrisch == 0) y = mix(imageLoad(uGlatt, z).r, y, uAlpha);
+        imageStore(uGlatt, z, vec4(y));
+        float t = schwelle(rang(c));
+        bool war = imageLoad(uZustand, z).r != 0u, jetzt;
+        if (y <= 0.0) jetzt = uTon[0] > t;
+        else {
+            float l2 = log2(y);
+            if (uFrisch != 0 || uHysterese <= 0.0) jetzt = tonLog(l2) > t;
+            else jetzt = war ? tonLog(l2 + uHysterese) > t : tonLog(l2 - uHysterese) > t;
+        }
+        imageStore(uZustand, z, uvec4(jetzt ? 1u : 0u));
+        if (jetzt) atomicAdd(gestochen, 1u);
+        if (jetzt != war && uFrisch == 0) atomicAdd(gewechselt, 1u);
+        if (all(greaterThanEqual(c, ivec2(0))) && all(lessThan(c, uInnen))) {
+            uint k = y <= 0.0 ? 0u : 1u + uint(clamp((log2(y) - uLo) / (uHi - uLo) * 256.0, 0.0, 255.0));
+            atomicAdd(lokal[k], 1u);
+        }
+    }
+    barrier();
+    for (uint k = li; k < 257u; k += 256u) if (lokal[k] != 0u) atomicAdd(zfach[k], lokal[k]);
+}

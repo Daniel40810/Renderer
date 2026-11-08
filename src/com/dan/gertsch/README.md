@@ -1,6 +1,6 @@
 # com.dan.gertsch – Bäume und Gras nach Franz Gertsch (Probe)
 
-**Stand: Phase 3 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
+**Stand: Phase 4 (08.11.2026).** Ein Probe-Paket. Es soll Bäume und Gras so zeichnen, wie Franz Gertsch (1930–2022) sie gemalt und geschnitten hat:
 
 - jedes Blatt ein flacher Fleck mit harter Kante
 - wenige Tonstufen
@@ -13,6 +13,7 @@ Bei Gertsch entsteht das Abstrakte aus der Treue zum Foto, nicht aus einem Filte
 - **Phase 1** vermisst die Vorlagen und legt die Ergebnisse als Presets ab (`Vorlagen`).
 - **Phase 2** malt ein Dickicht auf dem Prozessor nach diesen Regeln und misst das Bild gegen „Sommer“ (Abschnitt [Phase 2](#phase-2-das-dickicht-gemalt)).
 - **Phase 3** malt dasselbe Dickicht auf der Grafikkarte, jedes Bild neu und im Wind, mit Hysterese der Tonstufen (Abschnitt [Phase 3](#phase-3-auf-der-grafikkarte-im-wind)).
+- **Phase 4** druckt jedes Bild als Holzschnitt: eine Farbe, das Licht aus der Dichte gestochener Punkte, Wolken im Farbauftrag, gemessen am Holzschnitt in voller Auflösung (Abschnitt [Phase 4](#phase-4-holzschnitt)).
 
 Der Kern braucht nur Java 21, `gl/` zusätzlich JOGL (OpenGL 4.3), `demo/` zusätzlich FStyle. Zum Herauskopieren reicht `src/com/dan/gertsch/`.
 
@@ -182,6 +183,121 @@ Ohne Wind fallen die Schattenkarten weg, solange die Kamera steht. Die Zahl der 
 - Die Schattenkarte zeichnet Blätter in ihrer Form statt als Scheiben.
 - Der dunkle Grund trifft so besser (31 statt 25 %), der Median liegt etwas tiefer.
 
+## Phase 4: Holzschnitt
+
+`Stich` druckt **jedes Bild** als Holzschnitt nach Gertsch: eine Farbe auf Papier, das Licht allein aus der Dichte gestochener Punkte, dazu Wolken im Farbauftrag und das Korn des Papiers. Der Holzschnitt braucht nur die Helligkeit eines Bilds. Er passt darum auf jede Ausgabe: auf das Dickicht (unten das Licht vor den Tonstufen) und auf Szenen anderer Pakete, denn ein PNG genügt (zweites Bild: `docs/img/forest.png` aus `forest`). `gl/StichGl` rechnet dasselbe auf der Grafikkarte, jedes Bild neu, ein Druck in 1440 px in 2 bis 5 ms.
+
+![Das Licht des Dickichts als Holzschnitt, Ton nach der Vorlage, darunter zwei Ausschnitte 4:1, rechts das Druckblatt mit dem Soll aus dem Holzschnitt](../../../../docs/img/gertsch_stich.png)
+
+![Eine Szene aus dem Paket forest als Holzschnitt, Ton wie die Szene](../../../../docs/img/gertsch_stich_forest.png)
+
+### Die Vorlage vermessen
+
+Die gestochenen Punkte sind in der Vorlage 1 bis 2 px groß; Phase 1 misst auf 1000 px und sieht sie nicht. `Druck.messen` misst den Holzschnitt darum in **voller Auflösung** (1438 px) und trennt je Bildpunkt Papier und Farbe:
+
+1. **Farbe ohne Punkte:** Eine Öffnung (Minimum, dann Maximum über 7 × 7) nimmt die hellen Punkte weg und gibt eine Schwelle. Das Feld der Farbe ist das Mittel der Bildpunkte darunter, nur aus Gegenden mit wenig Punkten (normierte Faltung). Ein Mittel, kein Minimum: Sonst zählte das Korn der Farbe als Papier, und der Ton läge um 3 Punkte zu hoch (Median 6,1 statt 2,2 %).
+2. **Papier:** das Mittel der hellsten 0,1 %.
+3. **Anteil Papier** je Bildpunkt: a = (Y − Y_Farbe) / (Y_Papier − Y_Farbe). Gemittelt über einige Punkte (σ = 4 px) ist er der **Ton**.
+4. **Punkte** in dünnen Gegenden (Ton unter 10 %): Spitzen von a. Die Summe von a um die Spitze ist die Fläche des Punkts, auch wenn die Aufnahme ihn verwischt. Daraus folgen der wirksame Durchmesser, der Abstand zum nächsten Punkt und die **Ordnung nach Clark und Evans (1954)**: R = mittlerer Abstand zum nächsten / (0,5 / √Dichte). R = 1 bedeutet Zufall, Blue Noise liegt bei 1,5 bis 1,8.
+5. **Wolken:** die Streuung von L* im Feld der Farbe und ihre Autokorrelation waagerecht und senkrecht bei 2, 4, 8, 16 und 31 % der Breite.
+6. **Korn:** die Streuung von L* je Bildpunkt um das geglättete Bild, wo nur Farbe ist.
+
+Das Ergebnis steht als `Vorlagen.druck()` im Repository, erzeugt von `GertschDemo --quelltext`:
+
+| Kennwert | Holzschnitt |
+|---|---|
+| Papier | L* 79, a* −7, b* −3 |
+| Farbe | L* 44, a* −16, b* −13 (Farbton 219°, Blaugrün) |
+| Punkt (wirksamer Durchmesser) | 0,112 % der Breite, 1,61 px bei 1440 |
+| nächster Punkt (dünne Gegenden) | 4,0 px |
+| Ordnung R | 1,01 |
+| Ton (Anteil Papier) | Mittel 5,5 %, Median 2,2 %, 75 % bei 8,5 %, 95 % bei 21 %, höchstens 70 % |
+| Wolken | Streuung L* 3,5; Autokorrelation waagerecht 0,88 / 0,68 / 0,44 / 0,35 / 0,03, senkrecht 0,90 / 0,80 / 0,81 / 0,83 / 0,59 |
+| Korn | Streuung L* 0,94 je Bildpunkt |
+
+**Was die Zahlen sagen:**
+
+- **Gertschs Punkte liegen zufällig, nicht gleichmäßig.** R = 1,01 ist der Wert für Zufall. Der Plan („Punkte nach Blue-Noise-Rang“) hätte sie deutlich gleichmäßiger gemacht. Siehe unten zur Ordnung.
+- **Der Druck ist dunkel:** Auf der Hälfte der Fläche ist höchstens 2,2 % Papier zu sehen. Hell sind nur die Blätter vorn.
+- **Die Wolken laufen senkrecht.** Bei 16 % der Breite ist die Farbe senkrecht noch zu 0,83 gleich, waagerecht nur zu 0,35. Das sind die Bahnen des Abreibens mit dem Baren.
+
+### Wie gedruckt wird
+
+| Schritt | Wie |
+|---|---|
+| Helligkeit | Y linear je Bildpunkt der Quelle, Histogramm über log2 Y wie in Phase 3 |
+| Ton | Tabelle aus dem Histogramm (`Stich.tonKurve`). `VORLAGE`: der Rang der Helligkeit auf die Perzentile des Tons der Vorlage, so bekommt der Druck so viel Papier wie Gertschs Holzschnitt. `LINEAR`: der Anteil Papier, der dieselbe Helligkeit gibt wie die Szene (99,5 % der Helligkeit = Papier). |
+| Zellen | Kante = Punkt / 1,45. Je Zelle ein möglicher Punkt mit einem **Rang** (`Punkte`) |
+| Rang | Blue Noise nach „Void and Cluster“ (Ulichney 1993) auf einer Kachel von 256 × 256 (σ = 1,5), gemischt mit weißem Rauschen je Zelle: v = o · blau + (1 − o) · weiß, über seine Verteilung (ein Trapez) wieder gleichverteilt |
+| Form | Ellipse um die Mitte der Zelle, um höchstens 0,3 Zellen verschoben, Durchmesser ± 12 %, bis 1,35-mal so lang wie breit, in zufälliger Richtung, wie ein Stich mit dem Hohleisen |
+| Stechen | Ein Punkt wird gestochen, wenn der Ton an seiner Mitte über der Schwelle seines Rangs liegt. Gleicher Rang heißt bei jedem Ton gleicher Punkt. |
+| Eichung | `Punkte.kurve()` ist der Anteil Papier, wenn alle Punkte mit Rang unter f gestochen sind (256 × 256 Zellen, 4 × 4 Proben). Die Schwelle eines Rangs r ist die Kurve bei r. So ist der Anteil Papier gleich dem Ton (3 → 3,2 %, 10 → 10,2 %, 30 → 30,6 %, 60 → 64 %). |
+| Kante | Abdeckung über einen Bildpunkt, die Kanten berührender Punkte addiert. Die geglättete Kante gibt bei jeder gewölbten Form π/12 px² zu viel (nach Steiner). Darum wird sie um π / (12 · Umfang) eingezogen, sonst hätten Punkte von 1,6 px 11 % zu viel Papier. |
+| Farbe | eine Schicht der Dicke d: Reflexion = Papier · (Farbe / Papier)^d je Kanal, d = 1 + Wolken + Korn; so ausgeglichen, dass die Farbe im Mittel die des Drucks bleibt |
+| Wolken | Gradientenrauschen (Perlin 2002): senkrechte Streifen (0,14 der Breite breit, 0,7 lang, quer drei Oktaven), breite Bahnen (5-mal so breit) und feine runde Flecken; Streuung der Dicke 0,23 |
+| Korn | weißes Rauschen je Bildpunkt, ± 0,058 der Dicke; auf dem Papier halb so stark |
+
+**Ordnung der Punkte.** Gemessen am Druck des Dickichts, dazu die Unruhe eines flachen Mitteltons (30 %: Streuung des Anteils Papier, gemittelt über σ = 3 px):
+
+| `punkte.ordnung` | 0 (Zufall) | 0,5 | **0,75** (Vorgabe) | 0,9 | 1 (Blue Noise) |
+|---|---|---|---|---|---|
+| R im Druck des Dickichts (Gertsch 1,01) | 1,06 | 1,07 | 1,08 | 1,13 | 1,23 |
+| Unruhe eines Mitteltons | 0,062 | 0,055 | 0,041 | | 0,016 |
+
+Die Messung erkennt die Ordnung erst ab etwa 0,8. Mit 0,75 bleiben die dünnen Gegenden so zufällig wie bei Gertsch, und die Mitteltöne werden um ein Drittel ruhiger. Reines Blue Noise (R 1,63 auf der Kachel) bleibt als Einstellung.
+
+### Auf der Grafikkarte
+
+`StichGl.drucken(gl, textur, breite, höhe, art, druckbreite, zeit)` nimmt eine beliebige Textur (sRGB oder lineare Helligkeit, etwa `GertschGl.helligkeitTextur()`). `zeigen(…)` bringt den Druck ins Fenster: ganz, über Mipmaps verkleinert wie aus der Entfernung, oder mit der Lupe. Dieselben Rechnungen stehen in `stich.glsl`:
+
+1. Helligkeit der Quelle (`stich_hell.frag`).
+2. Tabelle des Tons aus einem Histogramm von vor zwei Bildern (Ring aus drei Puffern, ohne Warten).
+3. Zustand je Zelle (`stich_punkte.comp`).
+4. Druck (`stich.frag`).
+
+Ohne Wind und Ruhe sticht die Grafikkarte genau dieselben Punkte wie der Prozessor (43 151 und 43 151); 99,999 % der Bildpunkte liegen innerhalb ΔE 3.
+
+**Ruhe im Wind.** Die Punkte sitzen fest im Stock, aber die Blätter flattern darunter weg. Der Sprung von einem besonnten Blatt zur dunklen Lücke ist viel größer als jede Hysterese. Darum wirken zwei Dinge zusammen:
+
+- **Trägheit** (`traegheit`, 0,15 s): Die Helligkeit je Zelle wird zeitlich geglättet (Tiefpass erster Ordnung). Das dämpft das Flattern der Blätter (2,5 bis 4 Hz) und lässt das Schwingen der Zweige (unter 1 Hz) fast durch.
+- **Hysterese** (`hysterese`, 0,3 Blenden): Ein Punkt wechselt erst, wenn die geglättete Helligkeit um mehr als 0,3 Blenden über seine Schwelle geht.
+
+Die Tabelle des Tons kommt im Lauf aus dem Histogramm der geglätteten Helligkeit, die die Punkte sahen. So verschiebt die Trägheit den Ton nicht.
+
+Anteil der gestochenen Punkte, die je Bild wechseln (`StichDemo --flimmern 6`, Dickicht MEDIUM, 24 B/s):
+
+| bei 6 m/s | ohne | Hysterese 0,3 | Trägheit 0,15 s | beides (Vorgabe) | Trägheit 0,3 s und Hysterese |
+|---|---|---|---|---|---|
+| wechseln je Bild | 29,2 % | 21,7 % | 8,9 % | 4,7 % | 2,2 % |
+
+Ohne Wind wechselt kein Punkt. Im Fenster (Dickicht MEDIUM, Wind 4 m/s) braucht der Druck 2,2 ms der Grafikkarte, das Dickicht 36 ms; es laufen 21 B/s, und 2,8 % der Punkte wechseln je Bild.
+
+### Abnahme gegen den Holzschnitt
+
+Gedruckt wird das Licht des Dickichts, 1440 px breit, mit „Ton nach der Vorlage“, ohne Wind. Gemessen wird mit derselben `Druck.messen` wie die Vorlage. `GertschCheck` prüft den Druck des Prozessors, `GertschGlCheck` den der Grafikkarte.
+
+| Kennwert | Prozessor | OpenGL | Holzschnitt (Soll) | Toleranz |
+|---|---|---|---|---|
+| Papier, Farbe | ΔE 0,8 / 1,2 | ΔE 0,8 / 0,3 | L* 79 / 44 | ΔE < 2 |
+| Punkt | 1,64 px | 1,65 px | 1,61 px | ± 12 % |
+| nächster Punkt | 4,1 px | 4,1 px | 4,0 px | ± 20 % |
+| Ordnung R | 1,08 | 1,08 | 1,01 | ± 0,15 |
+| Ton: Mittel | 6,3 % | 6,3 % | 5,5 % | ± 1,5 Punkte |
+| Ton: Median | 3,5 % | 4,1 % | 2,2 % | ± 2 Punkte |
+| Ton: 95 % | 23,8 % | 18,7 % | 21,4 % | ± 5 Punkte |
+| Wolken: Streuung L* | 3,42 | 3,45 | 3,49 | ± 0,6 |
+| Wolken bei 2 / 4 %, waagerecht | 0,82 / 0,65 | 0,82 / 0,61 | 0,88 / 0,68 | ± 0,15 |
+| Wolken bei 2 / 4 %, senkrecht | 0,88 / 0,88 | 0,91 / 0,90 | 0,90 / 0,80 | ± 0,15 |
+| senkrecht länger (8 und 16 %, Summe senkrecht − waagerecht) | +1,10 | +1,40 | +0,85 | über 0,5 |
+| Korn | 0,93 | 0,93 | 0,94 | ± 0,25 |
+| Messung wie Phase 1: Median L*, Farbton | 44,1, 219° | 44,2, 219° | 45,8, 217° | ± 3, ± 10° |
+
+**Was noch abweicht:**
+
+- **Ton:** Im Mittel liegt um 0,8 Punkte mehr Papier als bei Gertsch. Der Median ist um 1,3 bis 1,9 Punkte zu hell. Das Dickicht hat feinere helle Formen als Gertschs große Blätter, und die Messung sieht in jeder Gegend mit Punkten auch etwas von deren Zufall.
+- **Wolken jenseits von 8 %:** Auf so große Abstände passen nur wenige Streifen ins Bild, die Autokorrelation hängt dort stark vom seed ab. Geprüft wird darum nur, dass die Wolken senkrecht länger sind.
+- **„Ton nach der Vorlage“** gibt jeder Szene Gertschs dunkle Verteilung: Die Hälfte der Fläche hat höchstens 2 % Papier. Bei einem hellen Bild wie `forest.png` liest sich „Ton wie die Szene“ besser. Die Demo stellt das für fremde Bilder von selbst um.
+
 ## Was es kann
 
 - **Lab** (`Lab`): sRGB ↔ CIELAB (D65), ΔE*ab, Buntheit, Farbton (CIE 15:2004, IEC 61966-2-1).
@@ -226,6 +342,12 @@ Malweise.Ergebnis e = m.malen(d, licht, new Kamera());
 ImageIO.write(e.bild, "png", new File("dickicht.png"));
 Vorlage ist = new Messung().messen(e.bild);        // gegen Vorlagen.sommer() vergleichen
 
+// Phase 4: Holzschnitt aus jedem Bild (Prozessor)
+Stich st = new Stich();                            // Druck wie der Holzschnitt, Ton nach der Vorlage
+st.tonwerte = Stich.Tonwerte.LINEAR;               // oder: Ton wie die Szene
+Stich.Ergebnis s = st.stechen(ImageIO.read(new File("docs/img/forest.png")), Druck.BREITE);
+Druck gemessen = Druck.messen(s.bild);             // gegen Vorlagen.druck() vergleichen
+
 // Phase 3: auf der Grafikkarte (im GL-Faden)
 GertschGl gg = new GertschGl();                    // Vorlage Sommer, HIGH, Hysterese 0,3 Blenden
 gg.init(gl);
@@ -233,6 +355,14 @@ gg.laden(gl, d, licht);
 gg.wind.staerke = 6;                               // m/s; Richtung und Böigkeit ebenso offen
 gg.zeichnen(gl, kamera, zeit, zielFbo, 0, 0, breite, hoehe);   // je Bild
 BufferedImage bild = gg.lesen(gl);                 // das letzte Bild, etwa zum Messen
+
+// Phase 4: Holzschnitt auf der Grafikkarte (im GL-Faden), aus jeder Textur
+StichGl sg = new StichGl();                        // Ruhe: Trägheit 0,15 s, Hysterese 0,3 Blenden
+sg.init(gl);
+gg.zeichnen(gl, kamera, zeit, -1, 0, 0, 0, 0);     // −1: in den eigenen Texturen lassen
+sg.drucken(gl, gg.helligkeitTextur(), gg.bildBreite(), gg.bildHoehe(), StichGl.Eingang.HELLIGKEIT, Druck.BREITE, zeit);
+sg.zeigen(gl, 0, 0, 0, breite, hoehe, 0, 0.5, 0.5, 0x0B1118);   // ganz; Lupe 4: (…, 4, mu, mv, …)
+BufferedImage druck = sg.lesen(gl);
 ```
 
 ## Aufbau
@@ -254,11 +384,18 @@ BufferedImage bild = gg.lesen(gl);                 // das letzte Bild, etwa zum 
 | `Zufall` | Phase 3: PCG-Hash, in Java und GLSL gleich |
 | `Wind` | Phase 3: Auslenkung der Zweige, Flattern der Blätter (in GLSL gleich) |
 | `Stufen` | Phase 3: Anteile der Tonstufen, Grenzen der Bänder aus einem Histogramm, Band mit Hysterese (in GLSL gleich) |
-| `gl/GertschGl` | Phase 3: Laden, Schattenkarten, Auswahl, Bild, Tonwerte, Zähler, Zeit je Durchgang |
+| `Druck` | Phase 4: Kennwerte eines Holzschnitts und ihre Messung (Papier, Farbe, Punkte, Ordnung, Ton, Wolken, Korn), `bericht()`, `alsJava(…)` |
+| `Punkte` | Phase 4: Rang je Zelle (Void and Cluster gemischt mit Zufall), Form, Abstand, Einzug der Kante, Eichkurve (in GLSL gleich) |
+| `Stich` | Phase 4: der Holzschnitt aus einem Bild oder einer Helligkeit: Ton, Punkte, Farbe mit Wolken und Korn |
+| `gl/GertschGl` | Phase 3: Laden, Schattenkarten, Auswahl, Bild, Tonwerte, Zähler, Zeit je Durchgang; Texturen für Phase 4 |
+| `gl/StichGl` | Phase 4: Holzschnitt aus einer Textur, mit Trägheit und Hysterese der Punkte; Zeigen ganz oder mit der Lupe |
+| `gl/stich.glsl`, `stich.vert`, `stich_hell.frag`, `stich_punkte.comp`, `stich.frag`, `stich_zeigen.frag` | Phase 4: die Shader des Holzschnitts (`histogramm.comp` von Phase 3) |
 | `gl/gertsch.glsl` | vor jedem Shader: Zufall, Blatt, Wind, Licht, Lab, Tonstufen |
 | `gl/auswahl.comp`, `fleck.*`, `glied.*`, `halm.*`, `boden.*`, `histogramm.comp`, `pruefen.comp` | die Shader |
 | `demo/GertschGlDemo` | Phase 3: Fenster im Wind, Standbild, Messung des Flimmerns |
-| `demo/GertschGlCheck` | Phase 3: Prüfung auf der Grafikkarte |
+| `demo/GertschGlCheck` | Phase 3 und 4: Prüfung auf der Grafikkarte |
+| `demo/StichDemo` | Phase 4: Holzschnitt im Fenster (Dickicht im Wind oder ein Bild), Lupe, Standbild, Messung des Flimmerns |
+| `demo/Druckblatt` | zeichnet die Kennwerte eines Drucks, wahlweise mit dem Soll |
 | `demo/GertschDemo` | Phase 1: Vorlagen vermessen, Fenster und Standbilder, Erzeugen von `Vorlagen.java` |
 | `demo/DickichtDemo` | Phase 2: das Dickicht malen und messen, Fenster und Standbilder |
 | `demo/Kennblatt` | zeichnet die Kennwerte einer Vorlage, wahlweise mit einem Soll |
@@ -363,12 +500,49 @@ Dazu stehen Bilder je Sekunde, Zeit der Grafikkarte und Anteil der wechselnden F
 - `--bild datei.png [vorlage] [Qualität] [Wind] [Zeit]` schreibt ein Standbild ohne Fenster.
 - `--flimmern [Wind] [Qualität]` misst 40 Bilder je Hysterese 0, 0,15 und 0,3.
 
+Die Demo der Phase 4 braucht dieselben Freigaben:
+
+```bash
+java --enable-native-access=ALL-UNNAMED --add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.awt.windows=ALL-UNNAMED --add-opens java.desktop/sun.java2d=ALL-UNNAMED -cp "build/classes:lib/*:src" com.dan.gertsch.demo.StichDemo
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.StichDemo --bild stich.png dickicht vorlage
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.StichDemo --bild forest.png docs/img/forest.png linear
+```
+
+```bash
+java -cp "build/classes:lib/*:src" com.dan.gertsch.demo.StichDemo --flimmern 6
+```
+
+Das Fenster der `StichDemo` zeigt links den Druck, 1440 px breit wie die Vorlage. „Ganz“ zeigt ihn verkleinert wie aus der Entfernung. Ein Klick ins Bild öffnet dort die Lupe 4:1, ein weiterer Klick schiebt den Ausschnitt. Rechts steht das Druckblatt: zuerst die Kennwerte des Holzschnitts, nach „Messen“ der Druck gegen sie. Unten wählt man:
+
+- Quelle: Dickicht im Wind (sein Licht vor den Tonstufen oder das gemalte Bild), `forest.png` oder „Bild öffnen …“ für jedes andere Bild, etwa aus `docs/img`
+- Ton nach der Vorlage oder wie die Szene
+- Farbe: Blau wie gemessen, Schwarz, Grün oder Rotbraun
+- Ansicht: ganz oder Lupe 1:1 bis 8:1
+- Ruhe (Trägheit und Hysterese der Punkte)
+- „Messen“ und „Neu würfeln“
+- Wind (0–15 m/s), Punktgröße, Ordnung der Punkte und Stärke der Wolken
+
+Darunter stehen Bilder je Sekunde, die Zeit der Grafikkarte für Dickicht und Druck, die Zahl der gestochenen Punkte und der Anteil, der je Bild wechselt.
+
+- `--bild datei.png [dickicht|gemalt|bild.png] [vorlage|linear] [Wind]` schreibt den Druck mit zwei Ausschnitten 4:1 (dort, wo Papier und Farbe am meisten wechseln) und dem Druckblatt. Mit `--cpu` rechnet der Prozessor. Ohne Wind ist die Ruhe aus, dann ist der Druck gleich dem des Prozessors.
+- `--flimmern [Wind]` misst 40 Bilder je Einstellung: ohne Ruhe, nur Hysterese, nur Trägheit, beides, mehr Trägheit.
+
 `GertschGlCheck` prüft auf der Grafikkarte:
 
 - dieselben Blätter wie der Prozessor
 - keine Liste zu klein in LOW bis ULTRA
 - die Hysterese mindestens halbiert die Wechsel bei 6 m/s
 - die Abnahme gegen „Sommer“ aus der Tabelle oben
+- Phase 4:
+  - der Holzschnitt der Grafikkarte sticht dieselben Punkte wie der des Prozessors (höchstens 0,05 % anders, 99,9 % der Bildpunkte innerhalb ΔE 3)
+  - Trägheit und Hysterese dritteln mindestens die Wechsel der Punkte bei 6 m/s
+  - die Abnahme gegen den Holzschnitt aus der Tabelle in Phase 4
 
 Sie endet mit „Alles in Ordnung.“ Die Zähler der Grafikkarte werden im `display()` desselben Bilds gelesen, nicht über `invoke`: Ohne Animator zeichnet JOGL dabei noch ein Bild zur selben Zeit, und gezählt würden dessen Wechsel (keine).
 
@@ -396,8 +570,16 @@ Sie endet mit „Alles in Ordnung.“ Die Zähler der Grafikkarte werden im `dis
   - Anteile und Grenzen der Bänder, Hysterese
   - Plätze je Zweig durch 4 teilbar, höchstens 255 Blätter je Zweig
   - die Matrix der Kamera für OpenGL gegen `projizieren`
+- Phase 4:
+  - Void and Cluster vergibt jeden Rang einmal; die kleinsten 10 % sind gleichmäßig (R 1,63), mit weißem Rang zufällig (R 1,08)
+  - der gemischte Rang bleibt gleichverteilt
+  - die Eichkurve steigt; Ton 3, 10, 30 und 60 % geben so viel Papier (höchstens 12 % daneben)
+  - Wolken senkrecht länger als waagerecht; die Farbe bleibt im Mittel die des Drucks; gleicher seed, gleicher Druck
+  - die Messung des Drucks an einem Druck bekannter Größe (Punkte 2 px, Ton 4 %)
+  - die Form des Presets
+  - die Abnahme gegen den Holzschnitt aus der Tabelle in Phase 4
 
-Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit den Presets. Sie braucht etwa 30 s und endet mit „Alles in Ordnung.“
+Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit den Presets, den Holzschnitt auch als Druck in voller Auflösung. Sie braucht etwa 80 s und endet mit „Alles in Ordnung.“
 
 ## Grenzen
 
@@ -405,7 +587,7 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
 - Die Granulometrie misst Inkreise: Ein langer, schmaler Fleck zählt nach seiner Breite.
 - k-means teilt nach Flächen, nicht nach Gertschs Mischungen. Seltene Farben bekommen keine eigene Stufe; dafür gibt es die Akzente.
 - Akzente werden nur über den Farbton erkannt.
-- Holzschnitt: Die gestochenen Punkte sind in der Vorlage 1–2 px groß und liegen damit unter der Arbeitsbreite. Die Punktdichte über dem Tonwert misst erst Phase 4.
+- Holzschnitt: Die gestochenen Punkte sind in der Vorlage 1–2 px groß und liegen damit unter der Arbeitsbreite der Phase 1; `Druck.messen` misst sie in voller Auflösung.
 - Phase 2:
   - Nur ein Standbild, ohne Wind und ohne Hysterese der Stufen.
   - Der Maleralgorithmus ordnet nach der Mitte jedes Flecks: Wo sich lange Stücke kreuzen, kann die Reihenfolge falsch sein.
@@ -417,11 +599,18 @@ Liegen die Bilder in `templates/`, misst die Prüfung sie neu und vergleicht mit
   - Die Grenzen der Bänder folgen dem Histogramm von vor zwei Bildern.
   - Speicher in HIGH rund 400 MB auf der Grafikkarte: Listen der Schattenkarten (170 MB), Mehrfachabtastung (80 MB), Liste der Flecken (64 MB), Zweige (45 MB).
   - Die Kamera steht im Fenster fest; bewegt sie sich, werden beide Schattenkarten jedes Bild neu gezeichnet.
+- Phase 4:
+  - Die Vorlage ist ein Foto des Drucks in 1438 px: Die Punkte sind kaum größer als ein Bildpunkt, und die Messung trennt Punkte erst ab 3 px Abstand. Ob Gertschs Punkte im Kleinen doch etwas geordnet sind, kann sie nicht sehen.
+  - Die Abstände der Messung sind für 1440 px Breite gewählt. Kleinere Drucke misst sie gröber.
+  - Gertsch druckt oft mehrere Stöcke in Tönen derselben Farbe übereinander; hier gibt es einen Stock und eine Farbe.
+  - Die Fuge zwischen zwei Bögen Papier, die in der Vorlage senkrecht durch die Mitte läuft, fehlt.
+  - Im Wind bleiben trotz Ruhe etwa 5 % Wechsel je Bild. Die Trägheit verschmiert schnelle Bewegung (0,15 s).
+  - Die Ellipsen der Punkte sind gezeichnet, nicht aus dem Stich des Hohleisens abgeleitet.
 
 ## Weiter
 
 1. ~~Vorlagen vermessen~~ (Phase 1).
 2. ~~Standbild „Sommer“ auf der CPU~~ (Phase 2).
 3. ~~`gl/`: Flecken und Halme auf der Grafikkarte, Lichtflecken über die Schattenkarte, Hysterese der Stufen im Wind~~ (Phase 3).
-4. Holzschnitt: Punkte nach Blue-Noise-Rang, eine Farbe, senkrechte Wolken im Farbauftrag.
+4. ~~Holzschnitt: Punkte nach Rang, eine Farbe, senkrechte Wolken im Farbauftrag, auf jeder Ausgabe~~ (Phase 4).
 5. Eine Schnittstelle für Blätter und Halme von außen, damit eine App echte Kronen aus `forest` und Gras aus `reed`/`ground` hineinreichen kann. Das Paket kennt sie selbst nicht.
