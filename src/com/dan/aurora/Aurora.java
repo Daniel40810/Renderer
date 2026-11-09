@@ -36,6 +36,8 @@ public final class Aurora {
     /** Optische Dicke der Luft im Zenit bei 557,7 nm (0,12 klare Polarluft, 0,3 Dunst). */
     public double extinktion = 0.15;
     public Quality quality = Quality.HIGH;
+    /** Stufen der Tabellen gleich mitbauen (Prozessor); gl/ setzt false, die Grafikkarte macht Mip-Stufen selbst. */
+    public boolean stufen = true;
     public final Emission emission = new Emission();
     public final Magnetfeld feld = new Magnetfeld();
 
@@ -139,6 +141,7 @@ public final class Aurora {
             v.strahlen = strahlen;
             v.drift = drift * (mlt < 12 ? 1 : -1);
             v.bewegung = bewegung;
+            v.stufen = stufen;
             v.profileRechnen(emission);
             v.bauen(t);
             vorhaenge.add(v);
@@ -157,6 +160,7 @@ public final class Aurora {
             d.schwankung = 0.3;
             d.drift = 0;
             d.bewegung = 0;
+            d.stufen = stufen;
             d.profileRechnen(emission);
             d.bauen(t);
             vorhaenge.add(d);
@@ -178,6 +182,12 @@ public final class Aurora {
     }
 
     public double zeit() { return zeit; }
+
+    /** Für gl/: horizontale Einheitsvektoren (Ost, Nord) entlang der Bögen und polwärts, dann cot I: {eOst, eNord, pOst, pNord, cotI}. */
+    public double[] rahmen() { return new double[]{eOst, eNord, pOst, pNord, cotI}; }
+
+    /** Für gl/: Höhen des Strahlengangs (km): unten, oben, Ende des feinen Teils. */
+    public double[] hoehen() { return new double[]{hMin, hMax, hFein}; }
 
     // ------------------------------------------------------------------ Strahlengang
     /** Weg vom Beobachter bis zur Höhe h (km) entlang einer Richtung mit dem Anteil dz nach oben, mit Erdkrümmung. */

@@ -122,7 +122,7 @@ Alle Pakete liegen unter `src/com/dan/`. Jedes hat eine eigene, ausführliche RE
 | Paket | Inhalt |
 |---|---|
 | [`sky`](src/com/dan/sky/README.md) | Sonne, Mond und Planeten nach Datum und Ort, Streuung in der Atmosphäre, Dämmerung, 8 920 Sterne, Milchstraße, Regenbogen, Glorie, grüner Blitz |
-| [`aurora`](src/com/dan/aurora/README.md) | Polarlicht aus Ort, Datum, Weltzeit und Kp: Oval nach Gussenhoven, exzentrischer Dipol (IGRF-13), Elektronen-Niederschlag nach Rees (Maxwell-Spektrum, Reichweite, Ionisation über der Höhe), vier Linien 427,8 · 557,7 · 630,0 · 670 nm in kR und cd/m² (IBC-Skala), Vorhänge mit Falten, Strahlen entlang der Feldlinien und nachhinkendem Rot, Extinktion, Kamera und dunkeladaptiertes Auge |
+| [`aurora`](src/com/dan/aurora/README.md) | Polarlicht aus Ort, Datum, Weltzeit und Kp: Oval nach Gussenhoven, exzentrischer Dipol (IGRF-13), Elektronen-Niederschlag nach Rees (Maxwell-Spektrum, Reichweite, Ionisation über der Höhe), vier Linien 427,8 · 557,7 · 630,0 · 670 nm in kR und cd/m² (IBC-Skala), Vorhänge mit Falten, Strahlen entlang der Feldlinien und nachhinkendem Rot, Extinktion, Kamera und dunkeladaptiertes Auge; derselbe Strahlengang in `gl/` als Shader, additiv hinter jeden Himmel (in LituyaBay1958 der Block POLARLICHT) |
 | [`horizon`](src/com/dan/horizon/README.md) | Licht im Gebirge: Bergschatten aus Horizontkarten (Erdkrümmung, Brechung, Kimm des Meers), Alpenglühen aus der Luftmasse am Punkt, Luftperspektive in zwei Schichten, Himmelslicht nach der Richtung einer Fläche |
 | [`cloud`](src/com/dan/cloud/README.md) | Cumulus bis Gewitterturm, Schichtwolken, Schleier; Bedeckung in Achteln, Wolkenschatten |
 | [`fog`](src/com/dan/fog/README.md) | Seenebel in Bänken, Nebel über Gelände, Nebelschallsignale mit Kennung |
