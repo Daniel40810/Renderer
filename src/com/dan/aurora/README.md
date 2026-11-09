@@ -1,9 +1,9 @@
 # com.dan.aurora – Polarlicht
 
-**Stand: Phase 1 (09.11.2026).** Nordlicht und Südlicht aus Ort, Datum, Weltzeit und Kp-Index, physikalisch gerechnet: Das Oval sagt, wo die Vorhänge stehen, das Erdmagnetfeld, wie die Strahlen liegen, der Niederschlag der Elektronen, in welcher Höhe es leuchtet, und vier Spektrallinien, in welcher Farbe. Heraus kommen Kilorayleigh je Linie für jede Blickrichtung, daraus cd/m², Farben und schließlich das Bild einer Kamera oder des dunkeladaptierten Auges.
+**Stand: Phase 2 (09.11.2026).** Nordlicht und Südlicht aus Ort, Datum, Weltzeit und Kp-Index, physikalisch gerechnet: Das Oval sagt, wo die Vorhänge stehen, das Erdmagnetfeld, wie die Strahlen liegen, der Niederschlag der Elektronen, in welcher Höhe es leuchtet, und vier Spektrallinien, in welcher Farbe. Heraus kommen Kilorayleigh je Linie für jede Blickrichtung, daraus cd/m², Farben und schließlich das Bild einer Kamera oder des dunkeladaptierten Auges.
 
 - **Phase 1** rechnet alles auf dem Prozessor und malt Standbilder: Vorhänge mit Falten und Strahlen über einer Winterbucht mit Sternen, Bergen und Spiegelung (dieses Dokument).
-- **Phase 2** bringt den Strahlengang als Fragment-Shader auf die Grafikkarte (`gl/`), in Echtzeit, mit Drift und Flattern.
+- **Phase 2** bringt denselben Strahlengang als Fragment-Shader auf die Grafikkarte (`gl/`), in Echtzeit, mit Drift und Falten in Bewegung; additiv hinter jeden Himmel, auch ins Rundumbild für Spiegelungen (Abschnitt [Phase 2](#phase-2-auf-der-grafikkarte)). Damit steht das Polarlicht in LituyaBay1958 (Bedienfeld POLARLICHT, Werkbuch Welle W12).
 - **Phase 3** macht die Dynamik: Substurm (Aufbruch in Minuten), pulsierende Flecken, Flackern der Strahlen, Korona im magnetischen Zenit.
 - **Phase 4** gibt das Licht an die Landschaft: Bestrahlungsstärke als Kugelflächenfunktionen für Schnee, Eis und Wasser, und das Oval für ganze Nächte (Kp aus einer Zeitreihe).
 - **Phase 5** nimmt Himmel und Gelände von außen über eine kleine Schnittstelle, etwa aus `sky` (Sterne, Dämmerung, Mond) und `horizon` in einer App wie Lituya Bay oder Brocken.
@@ -115,11 +115,37 @@ java -cp "build/classes;lib/*;src" com.dan.aurora.demo.AuroraCheck
 
 ![Aufbruch über Geiranger bei Kp 6: 80 mW/m² bei 9 keV, IBC III, drei stark gefaltete Vorhänge mit purpurnem Saum](../../../../docs/img/aurora_ausbruch.png)
 
+## Phase 2: auf der Grafikkarte
+
+`gl/AuroraGl` zeichnet dasselbe Polarlicht mit OpenGL 4.3 (`aurora.frag`), Schritt für Schritt wie `Aurora.strahlung` in Java:
+
+- **Tabellen als Texturen.** Die vier Tabellen je Vorhang (Mitte, Mitte des Rots, Strahlen, Helligkeit über u, 16 001 Stützen zu 0,25 km) liegen in einem 1D-Textur-Array mit 14 Mip-Stufen; die Stufen der Java-Fassung sind genau diese Mip-Stufen, der Shader wählt sie nach dem Schritt der Abtastung entlang u (`textureLod`). Die Höhenprofile der Linien (glatt, Strahlen, Rot) liegen in einer 2D-Textur, 321 Höhen × 9 Zeilen je Vorhang.
+- **Derselbe Marsch.** In der Höhe durch die Schale, fein bis `hFein`, darüber das glatte Rot in vierfachen Schritten; jeder Punkt entlang der Feldlinie auf seine Fußlinie zurück; Gaußglocke mit Kastenfilter; Extinktion. `AuroraGlCheck` vergleicht das Rundumbild (256 × 64) mit dem Prozessor: Summe der Leuchtdichte auf 0,02 %, je Richtung 3,7 % des Mittels.
+- **Additiv hinter jeden Himmel.** `zeichnen(View)` rechnet in ein Zwischenbild halber Auflösung und mischt es mit GL_ONE, GL_ONE in das gebundene Ziel; Tiefe wird nicht geschrieben, Mischung und Tiefentest stehen danach wie vorher. Der Wirt gibt die Inverse von Projektion mal Ansicht, seine Vorbelichtung, seine Einheit der Strahldichte in cd/m² und seine Achsen Ost, Nord, oben (Vorgabe wie `sky`: x Ost, y oben, z Süd). `panorama(…)` legt das Polarlicht in ein Rundumbild (Azimut von Nord, Höhe), wie `sky` es für Spiegelungen führt.
+- **Bewegung.** `Aurora.zeit(t)` baut die Tabellen neu (3 bis 5 ms je Vorhang, ohne Stufen: `aurora.stufen = false`), `AuroraGl.daten(aurora)` packt sie in jedem Faden, `laden(gl, daten)` lädt im GL-Faden (rund 1 MB je Bild).
+- **Zeit je Bild** (1280 × 720, Zwischenbild 640 × 360, drei Vorhänge, Radeon 680M): MEDIUM (2,5 km) 7 ms, HIGH (1,25 km) 16 ms.
+
+`demo/AuroraGlDemo` zeigt es in Bewegung: Nachthimmel, Sterne, eine Kette, das Polarlicht aus der Grafikkarte, Kamera oder Auge (`nachtsicht.frag`), Ziehen mit der Maus dreht den Blick. `--bild datei.png [preset|kp] [ort] [Qualität] [seed]` schreibt ein Standbild aus der Grafikkarte.
+
+![Dasselbe Polarlicht aus der Grafikkarte (AuroraGlDemo --bild): Tromsø, aktiv, HIGH](../../../../docs/img/aurora_gl.png)
+
+```bash
+java --enable-native-access=ALL-UNNAMED --add-opens java.desktop/sun.awt=ALL-UNNAMED --add-opens java.desktop/sun.awt.windows=ALL-UNNAMED --add-opens java.desktop/sun.java2d=ALL-UNNAMED -cp "build/classes;lib/*;src" com.dan.aurora.demo.AuroraGlDemo
+```
+
+```bash
+java -cp "build/classes;lib/*;src" com.dan.aurora.demo.AuroraGlCheck
+```
+
 ## Aufbau
 
 | Klasse | Aufgabe |
 |---|---|
-| `Aurora` | Offene Werte, Presets `ruhig()`, `aktiv()`, `ausbruch()`, `rot()`, `kp(n)`; `vorbereiten(t)`, `strahlung(…)` (kR je Linie), Auskunft (Höhenwinkel, Azimut, Helligkeit, IBC) |
+| `Aurora` | Offene Werte, Presets `ruhig()`, `aktiv()`, `ausbruch()`, `rot()`, `kp(n)`; `vorbereiten(t)`, `zeit(t)`, `strahlung(…)` (kR je Linie), Auskunft (Höhenwinkel, Azimut, Helligkeit, IBC); `rahmen()`, `hoehen()` für gl/ |
+| `gl/AuroraGl` | Dasselbe auf der Grafikkarte: Tabellen und Profile als Texturen, `zeichnen(View)` additiv hinter den Himmel, `panorama(…)` ins Rundumbild; `gl/Glsl` lädt `fullscreen.vert`, `aurora.frag`, `zusammen.frag` |
+| `demo/AuroraGlDemo` | Fenster mit GLCanvas in Bewegung, `nachtsicht.frag` für Szene und Sicht; `--bild` |
+| `demo/AuroraGlCheck` | Grafikkarte gegen Prozessor (Rundumbild), ein Blick 1280 × 720 mit Zeit je Bild |
+| `demo/Matrizen` | Projektion, Ansicht, Inverse für die GL-Demos |
 | `Magnetfeld` | Exzentrischer Dipol: magnetische Breite und Länge, Inklination, Peilung zum Pol, magnetische Ortszeit |
 | `Oval` | Grenzen nach Kp und MLT, Höhenwinkel mit Erdkrümmung |
 | `Ort` | Beobachtungsorte mit Deklination; zwölf Presets |
@@ -139,8 +165,8 @@ java -cp "build/classes;lib/*;src" com.dan.aurora.demo.AuroraCheck
 - Das Oval ist eine Statistik nach Kp; ein einzelner Abend weicht um Grad ab, und der Substurm (Aufbruch, Ausdehnung, Erholung) kommt erst in Phase 3.
 - Falten sind seitliche Verschiebungen der Fußlinie; echte Spiralen und Wirbel (Kelvin-Helmholtz) schließen sich zu Schleifen (Phase 3).
 - Die Ausbeuten der Linien sind so gesetzt, dass die beobachteten Verhältnisse herauskommen; ein vollständiges Modell (Energietransport, Sekundärelektronen, N₂(A) → O(¹S)) ist nicht drin.
-- Kein Mond, keine Dämmerung, kein Zodiakallicht; die Szene ist Winter bei Neumond. Mondlicht und Dämmerung gehören zu `sky`, das Polarlicht kommt in Phase 5 dort dazu.
-- Nur auf dem Prozessor (Phase 2 macht den Shader).
+- Kein Mond, keine Dämmerung, kein Zodiakallicht; die Szene ist Winter bei Neumond. Mondlicht und Dämmerung gehören zu `sky`; in LituyaBay1958 steht das Polarlicht schon hinter dem Himmel von `sky` und geht in der Dämmerung richtig im Himmelslicht unter.
+- Auf der Grafikkarte kostet HIGH rund 16 ms je Bild in 1280 × 720; in Bewegung ist MEDIUM (7 ms) die Wahl, Standbilder dürfen HIGH und ULTRA.
 
 ## Quellen
 

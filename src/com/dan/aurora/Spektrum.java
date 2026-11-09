@@ -81,6 +81,14 @@ public final class Spektrum {
         xyzZuRgb(t[0], t[1], t[2], rgb);
     }
 
+    /** Lineares sRGB in cd/m² für 1 kR einer Linie allein (in den Farbraum gezogen); die Summe über die Linien nähert {@link #rgb}. */
+    public static double[] farbeJeKr(int linie) {
+        double[] kr = new double[Emission.LINIEN], rgb = new double[3];
+        kr[linie] = 1;
+        rgb(kr, rgb);
+        return rgb;
+    }
+
     /** Farbe einer Linie allein, lineares sRGB mit Y = 1. */
     public static double[] farbe(int linie) {
         double[] rgb = new double[3];

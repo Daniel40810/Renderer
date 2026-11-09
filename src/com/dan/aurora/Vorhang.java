@@ -30,10 +30,15 @@ public final class Vorhang {
     public long seed = 1;
 
     /** Halbe Länge der Tabellen in km und ihr feinster Schritt. */
-    static final double U = 2500, SCHRITT = 0.25;
+    public static final double U = 2000, SCHRITT = 0.25;
+    /** Zahl der Stützen je Tabelle: 2·U/SCHRITT + 1 = 16 001 (unter der größten Texturbreite 16 384 für gl/). */
+    public static final int STUETZEN = (int) Math.round(2 * U / SCHRITT) + 1;
+    /** Die Stufen (Mittel über 2, 4, 8 … Stützen) gleich mitbauen; gl/ braucht sie nicht (die Grafikkarte macht Mip-Stufen) und setzt false. */
+    public boolean stufen = true;
     static final int STUFEN = 8;
     /** Tabellen über u je Stufe: Mitte v der Fußlinie, Mitte des Rots, Strahlfaktor (Mittel 1), Helligkeit. */
     private double[][] mitte, mitteRot, strahl, hell;
+    private double[] feinMitte, feinMitteRot, feinStrahl, feinHell;
     private double sigmaRot, vMin, vMax;
     /** Höhenprofile [Linie][Höhe] für den glatten Anteil, die Strahlen und das Rot (beide zusammen), Photonen/cm³/s bei Dichte 1. */
     public double[][] profilGlatt, profilStrahl;
@@ -128,10 +133,12 @@ public final class Vorhang {
         }
         double k = summeStrahl > 0 ? n / summeStrahl : 1;
         for (int i = 0; i < n; i++) s[i] *= k;
-        mitte = stufen(m);
-        mitteRot = stufen(mr);
-        strahl = stufen(s);
-        hell = stufen(h);
+        feinMitte = m;
+        feinMitteRot = mr;
+        feinStrahl = s;
+        feinHell = h;
+        if (stufen) stufenBauen();
+        else { mitte = null; mitteRot = null; strahl = null; hell = null; }
         sigmaRot = Math.sqrt(breite * breite + 55 * bewegung * (55 * bewegung) + 64);
         vMin = Double.MAX_VALUE;
         vMax = -Double.MAX_VALUE;
@@ -140,6 +147,26 @@ public final class Vorhang {
             vMax = Math.max(vMax, Math.max(m[i] + 5 * breite, mr[i] + 5 * sigmaRot));
         }
     }
+
+    /** Die Stufen aus den feinen Tabellen (für den Strahlengang auf dem Prozessor). */
+    private synchronized void stufenBauen() {
+        if (mitte != null) return;
+        double[][] a = stufen(feinMitte), b = stufen(feinMitteRot), c = stufen(feinStrahl), d = stufen(feinHell);
+        mitteRot = b;
+        strahl = c;
+        hell = d;
+        mitte = a;
+    }
+
+    /** Die feinen Tabellen über u (−U..U, Schritt SCHRITT) für gl/: 0 Mitte, 1 Mitte des Rots, 2 Strahlfaktor, 3 Helligkeit. */
+    public double[] tabelle(int welche) {
+        return switch (welche) { case 0 -> feinMitte; case 1 -> feinMitteRot; case 2 -> feinStrahl; default -> feinHell; };
+    }
+
+    /** Breite des Rots (km), Band in v, in dem der Vorhang leuchten kann (für gl/). */
+    public double sigmaRot() { return sigmaRot; }
+    public double vMin() { return vMin; }
+    public double vMax() { return vMax; }
 
     /** Stufen: jede nächste mittelt zwei Nachbarn. */
     static double[][] stufen(double[] fein) {
@@ -169,6 +196,7 @@ public final class Vorhang {
      * (Kastenfilter), damit dünne Vorhänge bei groben Schritten nicht flimmern; ihr Integral bleibt.
      */
     public void dichte(double u, double v, double du, double dv, double[] out) {
+        if (mitte == null) stufenBauen();
         int st = 0;
         double schritt = SCHRITT;
         while (st < STUFEN - 1 && du > schritt * 1.5) {
@@ -196,7 +224,7 @@ public final class Vorhang {
 
     /** Mitte der Fußlinie am Meridian des Beobachters (u = 0) zur gebauten Zeit, km polwärts. */
     public double mitteAmMeridian() {
-        double[] m = mitte[0];
+        double[] m = feinMitte;
         return m[m.length / 2];
     }
 }
