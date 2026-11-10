@@ -454,8 +454,9 @@ public final class UnderstoryDemo implements GLEventListener {
         root.setBackground(BG);
         root.add(canvas, BorderLayout.CENTER);
         root.add(controls(), BorderLayout.EAST);
-        f.setPreferredFrameSize(new java.awt.Dimension(1500, 900));
-        f.setSize(1500, 900);
+        f.setBackground(BG);   // ein durchsichtiges FFrame lässt den GLCanvas schwarz
+        f.setPreferredFrameSize(new java.awt.Dimension(1440, 780));
+        f.setSize(1440, 780);
         f.setLocationRelativeTo(null);
         f.setVisible(true);
         new Animator(canvas).start();
