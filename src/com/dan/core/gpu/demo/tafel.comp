@@ -1,0 +1,13 @@
+// tafel.comp — Prüfkernel von GpuCheck für die Feldtafel: Feld c = Feld a + Feld b, die Nummern kommen aus den
+// Push-Konstanten. Kein Deskriptorsatz je Belegung.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/core/gpu/feldtafel.glsl"
+layout(local_size_x = 64) in;
+layout(push_constant) uniform Werte { int n, a, b, c; };
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(n)) return;
+    feld[c].w[i] = feld[a].w[i] + feld[b].w[i];
+}

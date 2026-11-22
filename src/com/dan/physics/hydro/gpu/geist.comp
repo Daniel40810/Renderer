@@ -1,0 +1,29 @@
+// geist.comp — Schachtel auf der Karte: Rand des feinen Gitters aus den groben Zellen außen (je Randindex, in die
+// halben Schritte 0, 1, 2 des Randpuffers): Wasserstand linear längs der Reihe über die nassen Zellen (gleiche Werte
+// genau), Boden 1e30, wenn beide trocken sind.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#define SCHACHTEL_BINDUNG 0
+#include "/com/dan/physics/hydro/gpu/schachtel.glsl"
+layout(std430, binding = 1) readonly buffer EtaC { float etaC[]; };
+layout(std430, binding = 2) readonly buffer VolC { float volC[]; };
+bool nass(int c) { return volC[c] > 0.0; }
+#define KOPPLUNG_BINDUNG 3
+#include "/com/dan/physics/hydro/gpu/kopplung.glsl"
+layout(std430, binding = 6) writeonly buffer RandF { float randF[]; };
+layout(local_size_x = 64) in;
+
+void main() {
+    int rr = int(gl_GlobalInvocationID.x);
+    if (rr >= K.nRandF || kop[4 * rr + 1] == 0) return;
+    int a = zelleO[kop[4 * rr + 2]], o2 = kop[4 * rr + 3], b = o2 < 0 ? -1 : zelleO[o2];
+    float w = gewicht(rr), e;
+    if (w == 0.0) e = etaC[a];
+    else if (w == 1.0 || etaC[a] == etaC[b]) e = etaC[b];
+    else e = (1.0 - w) * etaC[a] + w * etaC[b];
+    float boden = nass(a) || b >= 0 && nass(b) ? -1e30 : 1e30;
+    for (int m = 0; m < 3; m++) {
+        randF[(m * K.nRandF + rr) * 2] = e;
+        randF[(m * K.nRandF + rr) * 2 + 1] = boden;
+    }
+}

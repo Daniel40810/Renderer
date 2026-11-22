@@ -1,0 +1,160 @@
+// impuls.comp — Impuls (je Kante) aus dem neuen Stand: Gefälle, Advektion (impulserhaltend, wo die Strömung langsamer
+// wird oder an der Front, sonst energieerhaltend; quer stromauf), Coriolis, Wind, Luftdruck, Seegang, Smagorinsky,
+// Reibung halbimplizit. Schreibt uNeu; Bauwerke und Wände 0, gesperrte Kanten behalten u.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+const float KEIN = 3.0e38;   // statt NaN: Kante außerhalb oder trocken
+
+/** u einer Kante gleicher Richtung, versetzt um (di, dj); KEIN außerhalb. */
+float uBei(bool querX, int i, int j, int di, int dj) {
+    int a = i + di, b = j + dj;
+    if (querX) return a < 0 || a > W.nx || b < 0 || b >= W.ny ? KEIN : u[kanteX(a, b)];
+    return a < 0 || a >= W.nx || b < 0 || b > W.ny ? KEIN : u[kanteY(a, b)];
+}
+float haBei(bool querX, int i, int j, int di, int dj) {
+    int a = i + di, b = j + dj;
+    if (querX) return a < 0 || a > W.nx || b < 0 || b >= W.ny ? 0.0 : ha[kanteX(a, b)];
+    return a < 0 || a >= W.nx || b < 0 || b > W.ny ? 0.0 : ha[kanteY(a, b)];
+}
+/** Wie uBei, aber KEIN auch an trockenen Kanten (Ufer ohne Haftung). */
+float uNass(bool querX, int i, int j, int di, int dj) {
+    float w = uBei(querX, i, j, di, dj);
+    return w == KEIN || haBei(querX, i, j, di, dj) > 0.0 ? w : KEIN;
+}
+float qBei(bool querX, int i, int j, int di, int dj) {
+    int a = i + di, b = j + dj;
+    if (querX) return a < 0 || a > W.nx || b < 0 || b >= W.ny ? 0.0 : q[kanteX(a, b)];
+    return a < 0 || a >= W.nx || b < 0 || b > W.ny ? 0.0 : q[kanteY(a, b)];
+}
+/** Mittel der vier Geschwindigkeiten der anderen Richtung um die Kante (fehlende zählen als 0). */
+float quer(bool querX, int i, int j) {
+    float s = 0.0;
+    if (querX) {
+        if (i - 1 >= 0) { s += u[kanteY(i - 1, j)]; s += u[kanteY(i - 1, j + 1)]; }
+        if (i < W.nx) { s += u[kanteY(i, j)]; s += u[kanteY(i, j + 1)]; }
+    } else {
+        if (j - 1 >= 0) { s += u[kanteX(i, j - 1)]; s += u[kanteX(i + 1, j - 1)]; }
+        if (j < W.ny) { s += u[kanteX(i, j)]; s += u[kanteX(i + 1, j)]; }
+    }
+    return s / 4.0;
+}
+float coriolis(bool querX, int i, int j) {
+    float v = quer(querX, i, j);
+    if (v == 0.0) return 0.0;
+    float fj = querX ? fcor[j] : 0.5 * (fcor[max(0, j - 1)] + fcor[min(W.ny - 1, j)]);
+    fj += querX ? u[kanteX(i, j)] * ztan(j) : v * ktanY(j);          // metrisches Glied (auf der Kugel; in UTM 0)
+    return querX ? fj * v : -fj * v;
+}
+float advektion(int e, bool querX, int i, int j, float ue, float d, float dq) {
+    int di = querX ? 1 : 0, dj = querX ? 0 : 1;
+    float adv = 0.0;
+    float uv = uBei(querX, i, j, -di, -dj), un = uBei(querX, i, j, di, dj);
+    if (uv == KEIN) uv = ue;
+    if (un == KEIN) un = ue;
+    float qe = q[e], qv = qBei(querX, i, j, -di, -dj), qn = qBei(querX, i, j, di, dj);
+    float qL = 0.5 * (qv + qe), qR = 0.5 * (qe + qn);
+    bool vor = ue > 0.0 || ue == 0.0 && qL > 0.0;
+    float uDown = vor ? un : uv, haDown = vor ? haBei(querX, i, j, di, dj) : haBei(querX, i, j, -di, -dj);
+    bool front = !(haDown > 0.0);
+    bool langsamer = sign(uDown) != sign(ue) || abs(uDown) < abs(ue);
+    if (front || langsamer) {
+        int a = links(e), b = rechts(e);
+        float hq = 0.5 * ((a >= 0 ? vol[a] : 0.0) + (b >= 0 ? vol[b] : 0.0)) / (laenge(e) * d);
+        if (hq > 0.0) {
+            float uL = qL > 0.0 ? uv : ue, uR = qR > 0.0 ? ue : un;
+            adv += (qR * uR - qL * uL - ue * (qR - qL)) / (hq * d);
+        }
+    } else if (ue != 0.0) {
+        adv += ue > 0.0 ? ue * (ue - uv) / d : ue * (un - ue) / d;
+    }
+    float v = quer(querX, i, j);
+    if (v != 0.0) {
+        float us = uNass(querX, i, j, -dj, -di), uo = uNass(querX, i, j, dj, di);
+        if (v > 0.0 && us != KEIN) adv += v * (ue - us) / dq;
+        else if (v < 0.0 && uo != KEIN) adv += v * (uo - ue) / dq;
+    }
+    return adv;
+}
+float viskositaet(bool querX, int i, int j, float ue, float d, float dq) {
+    int di = querX ? 1 : 0, dj = querX ? 0 : 1;
+    float a = uNass(querX, i, j, -di, -dj), b = uNass(querX, i, j, di, dj), c = uNass(querX, i, j, -dj, -di), dd = uNass(querX, i, j, dj, di);
+    if (a == KEIN) a = ue;
+    if (b == KEIN) b = ue;
+    if (c == KEIN) c = ue;
+    if (dd == KEIN) dd = ue;
+    if (a == ue && b == ue && c == ue && dd == ue) return 0.0;
+    float ux = (b - a) / (2.0 * d), uy = (dd - c) / (2.0 * dq);
+    float cs = W.smag * sqrt(d * dq);
+    float nu = cs * cs * sqrt(2.0 * ux * ux + uy * uy);
+    return nu * ((a - 2.0 * ue + b) / (d * d) + (c - 2.0 * ue + dd) / (dq * dq));
+}
+float mittel(int block, int a, int b) {
+    int o = block * W.zellen;
+    if (a < 0) return antr[o + b];
+    if (b < 0) return antr[o + a];
+    return 0.5 * (antr[o + a] + antr[o + b]);
+}
+
+float impuls(int e) {
+    int s = seite(e);
+    if (s >= 0 && art(s) == WAND) return 0.0;
+    if (s < 0 && bauNr[e] >= 0) return 0.0;
+    int m1 = P.m + 2;
+    if (s >= 0 && art(s) == DURCHFLUSS) {
+        float h = ha[e], r = links(e) < 0 ? 1.0 : -1.0;
+        return h > 0.0 ? r * randWert(m1, randIndex(e)) / h : 0.0;
+    }
+    bool querX = e < W.kantenX;
+    int i, j;
+    if (querX) { i = e % (W.nx + 1); j = e / (W.nx + 1); }
+    else { int k = e - W.kantenX; i = k % W.nx; j = k / W.nx; }
+    int a = links(e), b = rechts(e);
+    float ea = a >= 0 ? eta[a] : randWert(m1, randIndex(e)), eb = b >= 0 ? eta[b] : randWert(m1, randIndex(e));
+    float ue = u[e];
+    float hOben;
+    if (!obenEta(e, ue, m1, hOben)) return 0.0;
+    float hAv = hA(e, hOben), hKv = hK(e, hOben);
+    if (!(hAv >= W.hTrocken) || !(hKv > 0.0)) return 0.0;
+    float d = abstand(e) * (s >= 0 ? W.randAbstand : 1.0), dq = querX ? zhoehe(j) : klaengeY(j);
+    float gef = -W.g * (eb - ea) / d;
+    if ((W.antrieb & 8) != 0) {                                       // Gleichgewichtstide (seit P5): Gefälle auf η − η_eq
+        int o = 5 * W.zellen;
+        float ga = a >= 0 ? antr[o + a] : antr[o + b], gb = b >= 0 ? antr[o + b] : antr[o + a];
+        gef += W.g * (gb - ga) / d;
+    }
+    if (ue == 0.0) {
+        int von = gef > 0.0 ? a : b;
+        if (von >= 0 && !(vol[von] > 0.0)) return 0.0;
+    }
+    float adv = advektion(e, querX, i, j, ue, d, dq);
+    float fq = coriolis(querX, i, j);
+    float kraft = 0.0;
+    if (hAv >= W.hWind) {
+        if ((W.antrieb & 1) != 0) {
+            float wx = mittel(0, a, b), wy = mittel(1, a, b), w = querX ? wx : wy;
+            if (w != 0.0 || wx != 0.0 || wy != 0.0) {
+                float betrag = sqrt(wx * wx + wy * wy), cd = (0.8 + 0.065 * betrag) * 1e-3;
+                kraft += W.rhoL * cd * betrag * w / (W.rhoW * hAv);
+            }
+        }
+        if ((W.antrieb & 4) != 0) kraft += mittel(querX ? 3 : 4, a, b) / (W.rhoW * hAv);
+    }
+    if ((W.antrieb & 2) != 0) {
+        int o = 2 * W.zellen;
+        float pa = a >= 0 ? antr[o + a] : antr[o + b], pb = b >= 0 ? antr[o + b] : antr[o + a];
+        kraft -= (pb - pa) / (W.rhoW * d);
+    }
+    float visk = W.smagEin != 0 ? viskositaet(querX, i, j, ue, d, dq) : 0.0;
+    float aQ = laenge(e) * hAv, kL = kWeite(e) * pow(hKv, 5.0 / 3.0);
+    float reib = W.g * abs(ue) * aQ * aQ / (kL * kL);
+    return (ue + P.dt * (gef - adv + fq + kraft + visk)) / (1.0 + P.dt * reib);
+}
+
+void main() {
+    int e = int(gl_GlobalInvocationID.x);
+    if (e >= W.kanten) return;
+    uNeu[e] = bauNr[e] == GESPERRT ? u[e] : impuls(e);
+}

@@ -1,0 +1,50 @@
+#version 460
+// lic.comp – render.analysis (P11c2): Line Integral Convolution (Cabral und Leedom 1993) über dem Gitter der Strömung,
+// je Zelle zwei mal zwei Bildpunkte: weißes Rauschen längs der Stromlinie gemittelt (Kasten, L Schritte zu je einem
+// halben Bildpunkt in beide Richtungen, Euler in der normierten Richtung). Unter vMin keine Richtung: das Rauschen.
+// Ausgabe je Bildpunkt (RGBA16F): η, h, LIC (0 … 1), Betrag der Geschwindigkeit (m/s) – alles zum Gewicht w; lic.frag
+// liest es mit linearem Filter und braucht das Feld nicht mehr.
+layout(local_size_x = 16, local_size_y = 16) in;
+#define MIT_FELDBILD
+layout(set = 0, binding = 0) uniform sampler2D FELDBILD;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D LIC;
+layout(push_constant) uniform Q {
+    ivec4 n;      // nx, ny, lx, ly (Bildpunkte der LIC)
+    vec4 p;       // erste Zeile des Streifens, Schritte L, vMin (m/s), Zeilen des Streifens
+} q;
+#include "messblick.glsl"
+
+float rauschen(vec2 x) {
+    ivec2 i = clamp(ivec2(floor(x)), ivec2(0), q.n.zw - 1);
+    return zufall(uint(i.x) * 7919u + 13u, uint(i.y) * 104729u + 7u);
+}
+
+void main() {
+    // ein Streifen von Zeilen je Aufruf: die LIC verteilt sich über mehrere Bilder (Messblick.STREIFEN)
+    if (gl_GlobalInvocationID.y >= uint(q.p.w)) return;
+    ivec2 a = ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y + uint(q.p.x));
+    if (any(greaterThanEqual(a, q.n.zw))) return;
+    int nx = q.n.x, ny = q.n.y;
+    vec2 s = vec2(float(q.n.z) / float(nx), float(q.n.w) / float(ny));   // Bildpunkte je Zelle
+    vec2 x0 = vec2(a) + 0.5;
+    float summe = rauschen(x0);
+    float zahl = 1.0;
+    int L = int(q.p.y);
+    for (int r = -1; r <= 1; r += 2) {
+        vec2 x = x0;
+        for (int k = 0; k < L; k++) {
+            vec2 v = fb(x / s, nx, ny).xy;
+            float b = length(v);
+            if (b < q.p.z) break;
+            x += float(r) * 0.5 * (v / b);
+            if (x.x < 0.0 || x.y < 0.0 || x.x >= float(q.n.z) || x.y >= float(q.n.w)) break;
+            summe += rauschen(x);
+            zahl += 1.0;
+        }
+    }
+    vec2 c = x0 / s;
+    // Kontrast nach der Zahl der Proben ausgeglichen (das Mittel von n Werten streut um 1/√n) [G]
+    float lic = clamp(0.5 + (summe / zahl - 0.5) * sqrt(zahl) * 0.6, 0.0, 1.0);
+    vec4 f = fb(c, nx, ny);
+    imageStore(LIC, a, vec4(f.z, f.w, lic, length(f.xy)));
+}

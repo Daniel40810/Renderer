@@ -1,0 +1,5 @@
+#version 460
+// pfad_ebenen.comp – Referenz Stufe 2 (P11a, Werkbuch HalligHooge Teil A, 12.12) über der Szene Ebenen
+#include "/com/dan/render/reference/gpu/kopf.glsl"
+#include "/com/dan/render/reference/gpu/szene_ebenen.glsl"
+#include "/com/dan/render/reference/gpu/pfad.glsl"

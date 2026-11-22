@@ -1,0 +1,33 @@
+// begrenzen.comp — Masse, dritter Teil (je Kante): Fluss und u mit dem Anteil der Zelle stromauf; Bilanz je Randkante
+// (kompensiert summiert: zu und ab je mit Ausgleich).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+void kahan(int i, float x) {
+    precise float y = x - bilanz[i + 1];
+    precise float t = bilanz[i] + y;
+    precise float c = (t - bilanz[i]) - y;
+    bilanz[i] = t;
+    bilanz[i + 1] = c;
+}
+
+void main() {
+    int e = int(gl_GlobalInvocationID.x);
+    if (e >= W.kanten) return;
+    float fl = fluss[e];
+    if (fl == 0.0) return;
+    int von = fl > 0.0 ? links(e) : rechts(e);
+    if (von >= 0 && faktor[von] < 1.0) {
+        fl = fl * faktor[von];
+        fluss[e] = fl;
+        u[e] = u[e] * faktor[von];
+    }
+    if (seite(e) >= 0 && fl != 0.0) {
+        float rein = links(e) < 0 ? fl : -fl;
+        int r = randIndex(e);
+        if (rein > 0.0) kahan(4 * r, rein * P.dt);
+        else kahan(4 * r + 2, -rein * P.dt);
+    }
+}

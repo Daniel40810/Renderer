@@ -1,0 +1,72 @@
+// fluss.comp — Masse, erster Teil (je Kante): Fluss Q = u A(η_oben) mit dem alten u; Durchfluss am Rand; auf
+// Bauwerkskanten Überfall (Poleni, Villemonte) und Siel, begrenzt auf den Ausgleich beider Seiten, u = 0; gesperrte
+// Kanten ohne Fluss.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+/** Fluss über das Bauwerk k (m³/s, + von links nach rechts). */
+float bauFluss(int k, int e, float ea, float eb) {
+    float ho = max(ea, eb), hu = min(ea, eb), q = 0.0;
+    int n = int(bau[8 * k + 4]), o = int(bau[8 * k + 5]);
+    float c = 2.0 / 3.0 * W.muPoleni * sqrt(2.0 * W.g) * laenge(e) / float(n);
+    for (int s = 0; s < n; s++) {
+        float z = profil[o + s];
+        if (z > 1e29) continue;
+        float h = ho - z;
+        if (!(h > 0.0)) continue;
+        float r = max(0.0, hu - z) / h, f = 1.0;
+        if (r > 0.0) {
+            float t = 1.0 - r * sqrt(r);
+            f = t > 0.0 ? pow(t, 0.385) : 0.0;
+        }
+        q += c * h * sqrt(h) * f;
+    }
+    q = ea >= eb ? q : -q;
+    float a = bau[8 * k + 1], binnen = bau[8 * k + 3], sohle = bau[8 * k];
+    if (a > 0.0 && binnen != 0.0) {
+        float ein = binnen > 0.0 ? eb : ea, aus = binnen > 0.0 ? ea : eb;
+        if (ein > aus && ein > sohle) {
+            float qs = bau[8 * k + 2] * a * sqrt(2.0 * W.g * (ein - max(aus, sohle)));
+            q += binnen > 0.0 ? -qs : qs;
+        }
+    }
+    return q;
+}
+
+void main() {
+    int e = int(gl_GlobalInvocationID.x);
+    if (e >= W.kanten) return;
+    if (bauNr[e] == GESPERRT) { fluss[e] = 0.0; return; }
+    int s = seite(e);
+    if (s >= 0 && art(s) == DURCHFLUSS) {
+        fluss[e] = (links(e) < 0 ? 1.0 : -1.0) * randWert(P.m + 1, randIndex(e)) * laenge(e);
+        return;
+    }
+    if (s < 0 && bauNr[e] >= 0) {
+        int k = bauNr[e], a = links(e), b = rechts(e);
+        float ea = eta[a], eb = eta[b];
+        float qq = bauFluss(k, e, ea, eb);
+        if (qq != 0.0) {
+            int o = qq > 0.0 ? a : b, un = qq > 0.0 ? b : a;
+            float eo = eta[o], eu = eta[un];
+            if (vol[un] > 0.0 && eu > bau[8 * k + 6]) {
+                float ao = benetzt(o, eo), au = benetzt(un, eu);
+                if (ao > 0.0 && au > 0.0) {
+                    float grenze = (eo - eu) * ao * au / (ao + au) / P.dt;
+                    if (abs(qq) > grenze) qq = qq > 0.0 ? grenze : -grenze;
+                }
+            }
+        }
+        fluss[e] = qq;
+        u[e] = 0.0;
+        return;
+    }
+    float h;
+    bool ok = obenEta(e, u[e], P.m, h);
+    float a = ok ? hA(e, h) : 0.0;
+    float fl = a < W.hTrocken || u[e] == 0.0 ? 0.0 : u[e] * laenge(e) * a;
+    fluss[e] = fl;
+    if (fl == 0.0) u[e] = 0.0;
+}

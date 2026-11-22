@@ -1,0 +1,796 @@
+package com.dan.render.bewuchs.baum;
+
+import java.util.List;
+
+/**
+ * Wie eine Baumart wächst und aussieht: Höhe, Stamm, Äste je Ordnung, Form der Krone, Blätter oder
+ * Nadeln, Farben durchs Jahr und wie biegsam sie im Wind ist. Die Werte sind öffentlich und dürfen
+ * angepasst werden; die fertigen Arten ({@link #ALL}) sind nach Wuchsbeschreibungen der Forstkunde
+ * eingestellt und genähert, nicht vermessen.
+ * <p>
+ * Farben sind linear (nicht sRGB), 0..1.
+ */
+public final class Species {
+    /**
+     * Form der Krone: wie lang die Äste erster Ordnung je nach Höhe in der Krone sind. SPIRE ist der
+     * schmale Turm der Hochlagentannen (fast gleich breit, oben spitz), UMBRELLA der flache Schirm alter
+     * Kiefern und Tannen (unten kurz, oben breit).
+     */
+    public enum Crown { CONICAL, NARROW, OVOID, ROUND, SPREADING, SPIRE, UMBRELLA }
+
+    /** Blattform: breites Blatt, rundes (Espe), gelapptes (Eiche), kleines (Birke), Nadelbüschel. */
+    public enum Leaf { OVAL, ROUND, LOBED, SMALL, NEEDLES }
+    /**
+     * Seit LituyaBay1958 W6 Runde 5: Muster der Rinde in der Nähe ({@code forest.frag}, nur mit
+     * {@code ForestGpu.barkDetail} bzw. {@code ForestGl.barkDetail}): glatt mit Korkporen und Flechten (Erle, Buche),
+     * gefurcht mit Rippen (Hemlock, Douglasie, Eiche), schuppig (Fichte), Platten (Kiefer), Papier (Birke) [G].
+     */
+    public enum BarkStyle { NONE, SMOOTH, FURROWED, SCALY, PLATED, PAPER }
+
+    public final String name, latin;
+    public boolean conifer, deciduous;
+    /** Höhe von bis (m) eines ausgewachsenen Baums. */
+    public float heightMin, heightMax;
+    /** Stammdurchmesser am Fuß je Meter Höhe. */
+    public float trunkRatio = 0.02f;
+    /** Bis zu welchem Anteil der Höhe der Stamm als eigener Leittrieb geht (1 = bis zur Spitze; Eiche teilt sich früher). */
+    public float trunkEnd = 1f;
+    /** Ab welchem Anteil der Höhe Äste ansetzen (darunter ist der Stamm kahl). */
+    public float crownBase = 0.35f;
+    public Crown crown = Crown.OVOID;
+    /** Stamm: Neigung und Krümmung (Rauschen), Anzahl der Glieder. */
+    public float trunkWobble = 0.04f;
+    public int trunkSegments = 10;
+    /** Ordnungen der Äste (1 = nur Äste am Stamm, 3 = Äste, Zweige, Triebe). */
+    public int levels = 3;
+    /** Je Ordnung 1..levels: Anzahl Kinder je Eltern, Abgangswinkel (Grad), Streuung, Längenverhältnis, Ansatz ab (0..1). */
+    public float[] count = {0, 24, 7, 5}, angle = {0, 70, 45, 40}, angleVar = {0, 12, 15, 15}, lengthRatio = {0, 0.45f, 0.45f, 0.5f},
+            start = {0, 0, 0.2f, 0.25f};
+    /** Je Ordnung: Richtung nach oben (+) oder hängend (−) je Meter Länge. */
+    public float[] tropism = {0, 0.02f, 0.0f, 0.05f};
+    /** Je Ordnung: Dicke des Kindes zum Elternteil an der Ansatzstelle. */
+    public float[] radiusRatio = {0, 0.55f, 0.5f, 0.5f};
+    /** Quirle (Nadelbäume): so viele Äste auf einer Höhe; 0 = schraubig im Goldenen Winkel. */
+    public int whorl = 0;
+    /** Ab welcher Ordnung Blätter wachsen, und wie viele je Meter Zweig. */
+    public int leafLevel = 3;
+    public float leafDensity = 14f;
+    public Leaf leaf = Leaf.OVAL;
+    /** Blattlänge (m) und Breite im Verhältnis; Nadelbäume: Länge eines Nadelbüschels entlang des Zweigs. */
+    public float leafSize = 0.09f, leafAspect = 0.6f;
+    /**
+     * Laubbäume: Durchmesser eines Blattbüschels (m). Ein echter Baum hat Hunderttausende Blätter; so
+     * viele Dreiecke zeichnet kein Software-Renderer. Darum steht jede Blattstelle für ein Büschel aus
+     * vielen Blättern, gezeichnet als flacher Fächer mit gezacktem Rand (Blattspitzen), wie die
+     * Blattkarten in Spiele-Engines, nur als Geometrie statt als Textur. Die Zacken folgen der
+     * Blattform ({@link #leaf}).
+     */
+    public float cluster = 0.45f;
+    /** Wie biegsam im Wind: Stamm, Äste, Blattflattern (Espe zittert besonders). */
+    public float flexTrunk = 1f, flexBranch = 1f, flutter = 1f;
+    /** Rinde (linear). */
+    public float[] bark = {0.09f, 0.07f, 0.055f};
+    /** Rinde hell mit dunklen Querbändern (Birke) oder glatt grünlich (Espe): Anteil. */
+    public float barkMarks = 0;
+    public float[] barkMark = {0.02f, 0.02f, 0.02f};
+    /** Rinde im oberen Stamm (Waldkiefer: orange „Spiegelrinde“) ab diesem Anteil der Höhe; null = wie unten. */
+    public float[] barkTop;
+    public float barkTopFrom = 0.5f;
+    /** Seit W6 Runde 5: Muster der Rinde ({@link BarkStyle}) und Anteil der Flechten darauf (0..1) [G]. */
+    public BarkStyle barkStyle = BarkStyle.NONE;
+    public float lichen = 0;
+    /**
+     * Seit W6 Runde 6: Moos an der Rinde (0..1: Polster am Stammfuß bis rund 0,4 + 2,2 · moss m hoch, auf der Oberseite
+     * der Äste, höher auf der feuchten Seite {@code ForestGl.Light.mossSide}) und Bartflechten (0..1: Anteil der Äste
+     * zweiter und dritter Ordnung, an denen Strähnen hängen; nur mit {@code ForestGpu.beardLichen}) [G].
+     */
+    public float moss = 0, beard = 0;
+    /**
+     * Zapfen: wie viele je Ast erster Ordnung (0 = keine), Länge (m), Farbe; aufrecht (Tannen, Zirbe) oder
+     * hängend (Fichten); nur im oberen Teil der Krone (Anteil, 1 = überall).
+     */
+    public float cones;
+    public float coneSize = 0.06f, coneZone = 0.5f;
+    public float[] coneColor = {0.22f, 0.13f, 0.07f};
+    public boolean coneUpright;
+    /** Nadelbäume: Farbe der Maitriebe (die neuen, hellen Spitzen im Frühsommer); null = keine. */
+    public float[] shoots;
+    /** Blattfarben (linear): Austrieb, Sommer, Herbst (einige Töne), Nadeln das ganze Jahr = Sommer. */
+    public float[] spring = {0.12f, 0.30f, 0.04f}, summer = {0.05f, 0.16f, 0.03f};
+    public float[][] autumn = {{0.35f, 0.20f, 0.02f}};
+    /** Laubjahr (Tag im Jahr, Nordhalbkugel): Austrieb, Beginn der Färbung, volle Färbung, kahl. */
+    public int leafOut = 120, colorStart = 255, colorFull = 280, bare = 305;
+
+    // ------------------------------------------------------------ seit Brocken Phase 9: Totholz und Windflüchter
+
+    /**
+     * Zustand: 0 lebend; 1 frisch abgestorben (die Nadeln oder Blätter hängen noch, rotbraun, die Farbe kommt aus
+     * {@link #summer}); 2 lange tot (kahl, die Äste kürzer, nur wenige dürre Zweige, Rinde silbergrau aus
+     * {@link #bark}; gebrochen oder liegend nur noch Aststummel).
+     */
+    public int dead;
+    /** Gebrochen (0 = ganz): der Stamm endet bei diesem Anteil der Höhe; darüber nichts (die Krone liegt am Boden). */
+    public float snag;
+    /** Liegend (Windwurf): der ganze Baum liegt entlang +x im Modell, die Drehung der Instanz gibt die Fallrichtung. */
+    public boolean lying;
+    /**
+     * Windflüchter (Fahnenwuchs): 0..1, wie stark die Äste auf der Seite, aus der der Wind kommt, verkürzt sind;
+     * {@link #flagFromDeg} ist diese Richtung im Modell (Grad von −z über +x, wie ein Kompass mit Nord = −z). Die
+     * Instanz muss dafür ungedreht stehen (in {@code ForestField} {@code yaw} setzen).
+     */
+    public float flagging;
+    public float flagFromDeg = 250;
+
+    // ------------------------------------------------------------ seit LituyaBay1958 Phase 6: Küstenregenwald und Flutschäden
+
+    /** Anteil der Äste erster Ordnung, die wachsen (1 = alle; entrindete Stämme behalten nur wenige Stummel). */
+    public float branchKeep = 1;
+    /**
+     * Nickender Leittrieb (Hemlocktanne): 0 = aufrecht; 1 = die obersten rund 8 % des Stamms biegen sich bis fast
+     * waagerecht zur Seite. Der Baum bleibt so hoch, wie er gewachsen ist; nur die Spitze neigt sich.
+     */
+    public float leaderDroop;
+
+    /** Schäden durch Flut, Sturm oder Lawine (seit LituyaBay1958 Phase 6), siehe {@link #damaged}. */
+    public enum Damage {
+        /** gebrochen: ein Stumpf von 20 bis 40 % der Höhe, Rinde noch dran, wenige Aststummel */
+        BROKEN,
+        /** entrindet: der ganze Stamm steht, ohne Rinde (helles Holz) und fast ohne Äste */
+        STRIPPED,
+        /** umgelegt: liegt entlang +x, entrindet, fast ohne Äste; die Drehung der Instanz gibt die Richtung */
+        FELLED
+    }
+
+    /** Frisches Holz ohne Rinde (linear): hell gelbbraun, wie die entrindeten Stämme an der Spurlinie [G]. */
+    public static final float[] FRESH_WOOD = {0.40f, 0.31f, 0.20f};
+
+    /** Eine Kopie unter neuem Namen (alle Werte, Felder kopiert), etwa als Grundlage einer abgestorbenen Form. */
+    public Species copy(String newName, String newLatin) {
+        Species c = new Species(newName, newLatin);
+        try {
+            for (java.lang.reflect.Field f : Species.class.getDeclaredFields()) {
+                int mod = f.getModifiers();
+                if (java.lang.reflect.Modifier.isStatic(mod) || java.lang.reflect.Modifier.isFinal(mod)) continue;
+                Object v = f.get(this);
+                if (v instanceof float[] a) v = a.clone();
+                else if (v instanceof float[][] a) { float[][] b = new float[a.length][]; for (int i = 0; i < a.length; i++) b[i] = a[i].clone(); v = b; }
+                f.set(c, v);
+            }
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+        return c;
+    }
+
+    public Species(String name, String latin) { this.name = name; this.latin = latin; }
+
+    // ------------------------------------------------------------ die Arten
+
+    /** Drehkiefer (Pinus contorta latifolia): schlank und gerade, Krone im oberen Drittel, kurze Äste; Hauptbaum in Yellowstone. */
+    public static Species lodgepolePine() {
+        Species s = new Species("Drehkiefer", "Pinus contorta");
+        s.conifer = true; s.heightMin = 14; s.heightMax = 26; s.trunkRatio = 0.014f; s.crownBase = 0.55f; s.crown = Species.Crown.NARROW;
+        s.trunkWobble = 0.02f; s.trunkSegments = 12; s.levels = 2; s.whorl = 4;
+        s.count = new float[]{0, 110, 5}; s.angle = new float[]{0, 82, 40}; s.angleVar = new float[]{0, 10, 15};
+        s.lengthRatio = new float[]{0, 0.12f, 0.45f}; s.start = new float[]{0, 0, 0.15f};
+        s.tropism = new float[]{0, -0.04f, 0.1f}; s.radiusRatio = new float[]{0, 0.35f, 0.5f};
+        s.leafLevel = 1; s.leafDensity = 6; s.leaf = Leaf.NEEDLES; s.leafSize = 0.4f;
+        s.flexTrunk = 0.6f; s.flexBranch = 0.7f; s.flutter = 0.3f;
+        s.bark = new float[]{0.10f, 0.075f, 0.055f};
+        s.summer = new float[]{0.035f, 0.085f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.22f, 0.08f};
+        s.leafOut = 160;
+        s.cones = 1.5f; s.coneSize = 0.045f; s.coneColor = new float[]{0.20f, 0.14f, 0.08f}; s.coneZone = 0.6f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.1f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Espe (Populus tremuloides): schlank, weißgrüne Rinde, runde Blätter an flachen Stielen, die im leisesten Wind zittern; im Herbst goldgelb. */
+    public static Species aspen() {
+        Species s = new Species("Espe", "Populus tremuloides");
+        s.deciduous = true; s.heightMin = 10; s.heightMax = 20; s.trunkRatio = 0.016f; s.crownBase = 0.5f; s.crown = Crown.OVOID;
+        s.trunkWobble = 0.05f; s.levels = 3;
+        s.count = new float[]{0, 16, 6, 4}; s.angle = new float[]{0, 45, 45, 40}; s.lengthRatio = new float[]{0, 0.32f, 0.45f, 0.45f};
+        s.tropism = new float[]{0, 0.05f, 0.02f, 0.02f};
+        s.leafLevel = 2; s.leafDensity = 14; s.leaf = Leaf.ROUND; s.leafSize = 0.06f; s.leafAspect = 0.95f; s.cluster = 0.45f;
+        s.flexTrunk = 1.2f; s.flexBranch = 1.3f; s.flutter = 3.0f;
+        s.bark = new float[]{0.55f, 0.58f, 0.50f}; s.barkMarks = 0.25f; s.barkMark = new float[]{0.05f, 0.05f, 0.04f};
+        s.spring = new float[]{0.18f, 0.38f, 0.06f}; s.summer = new float[]{0.08f, 0.22f, 0.04f};
+        s.autumn = new float[][]{{0.75f, 0.52f, 0.02f}, {0.80f, 0.45f, 0.01f}, {0.62f, 0.50f, 0.03f}};
+        s.leafOut = 150; s.colorStart = 250; s.colorFull = 268; s.bare = 290;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.25f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Douglasie (Pseudotsuga menziesii): kegelförmig, dicht, die unteren Äste hängen. */
+    public static Species douglasFir() {
+        Species s = new Species("Douglasie", "Pseudotsuga menziesii");
+        s.conifer = true; s.heightMin = 20; s.heightMax = 40; s.trunkRatio = 0.022f; s.crownBase = 0.2f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.015f; s.trunkSegments = 14; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 150, 7}; s.angle = new float[]{0, 80, 45}; s.lengthRatio = new float[]{0, 0.17f, 0.4f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.06f, 0.05f}; s.radiusRatio = new float[]{0, 0.3f, 0.5f};
+        s.leafLevel = 1; s.leafDensity = 5; s.leaf = Leaf.NEEDLES; s.leafSize = 0.45f;
+        s.flexTrunk = 0.5f; s.flexBranch = 0.8f; s.flutter = 0.3f;
+        s.bark = new float[]{0.12f, 0.07f, 0.045f};
+        s.summer = new float[]{0.03f, 0.075f, 0.035f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.23f, 0.09f};
+        s.leafOut = 150;
+        s.cones = 2; s.coneSize = 0.08f; s.coneColor = new float[]{0.23f, 0.14f, 0.08f}; s.coneZone = 0.5f;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Stieleiche (Quercus robur): breite, knorrige Krone, der Stamm teilt sich früh; Blätter gelappt, im Herbst braun. */
+    public static Species oak() {
+        Species s = new Species("Eiche", "Quercus robur");
+        s.deciduous = true; s.heightMin = 18; s.heightMax = 30; s.trunkRatio = 0.035f; s.trunkEnd = 0.55f; s.crownBase = 0.3f;
+        s.crown = Crown.SPREADING; s.trunkWobble = 0.08f; s.levels = 3;
+        s.count = new float[]{0, 9, 7, 5}; s.angle = new float[]{0, 50, 50, 45}; s.angleVar = new float[]{0, 18, 22, 20};
+        s.lengthRatio = new float[]{0, 0.45f, 0.5f, 0.45f}; s.start = new float[]{0, 0.1f, 0.2f, 0.25f};
+        s.tropism = new float[]{0, 0.01f, -0.02f, 0.03f}; s.radiusRatio = new float[]{0, 0.6f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 15; s.leaf = Leaf.LOBED; s.leafSize = 0.11f; s.leafAspect = 0.55f; s.cluster = 0.8f;
+        s.flexTrunk = 0.4f; s.flexBranch = 0.7f; s.flutter = 0.8f;
+        s.bark = new float[]{0.08f, 0.07f, 0.06f};
+        s.spring = new float[]{0.14f, 0.30f, 0.05f}; s.summer = new float[]{0.045f, 0.13f, 0.025f};
+        s.autumn = new float[][]{{0.25f, 0.13f, 0.03f}, {0.32f, 0.20f, 0.04f}, {0.20f, 0.14f, 0.05f}};
+        s.leafOut = 125; s.colorStart = 275; s.colorFull = 300; s.bare = 330;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.25f; s.moss = 0.3f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    /** Rotbuche (Fagus sylvatica): dichte, eiförmige Krone, glatte graue Rinde; im Herbst kupferrot. */
+    public static Species beech() {
+        Species s = new Species("Buche", "Fagus sylvatica");
+        s.deciduous = true; s.heightMin = 20; s.heightMax = 35; s.trunkRatio = 0.022f; s.trunkEnd = 0.85f; s.crownBase = 0.35f;
+        s.crown = Crown.OVOID; s.trunkWobble = 0.03f; s.levels = 3;
+        s.count = new float[]{0, 14, 8, 5}; s.angle = new float[]{0, 50, 45, 40}; s.lengthRatio = new float[]{0, 0.38f, 0.5f, 0.45f};
+        s.tropism = new float[]{0, 0.02f, -0.01f, 0.0f};
+        s.leafLevel = 3; s.leafDensity = 15; s.leaf = Leaf.OVAL; s.leafSize = 0.08f; s.leafAspect = 0.6f; s.cluster = 0.7f;
+        s.flexTrunk = 0.5f; s.flexBranch = 0.8f; s.flutter = 0.8f;
+        s.bark = new float[]{0.20f, 0.20f, 0.19f};
+        s.spring = new float[]{0.20f, 0.42f, 0.06f}; s.summer = new float[]{0.05f, 0.15f, 0.03f};
+        s.autumn = new float[][]{{0.45f, 0.18f, 0.03f}, {0.55f, 0.28f, 0.04f}, {0.40f, 0.12f, 0.02f}};
+        s.leafOut = 120; s.colorStart = 280; s.colorFull = 298; s.bare = 320;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Hängebirke (Betula pendula): schlank, weiße Rinde mit schwarzen Rissen, dünne hängende Zweige, kleine Blätter; im Herbst gelb. */
+    public static Species birch() {
+        Species s = new Species("Birke", "Betula pendula");
+        s.deciduous = true; s.heightMin = 12; s.heightMax = 25; s.trunkRatio = 0.013f; s.crownBase = 0.4f; s.crown = Crown.OVOID;
+        s.trunkWobble = 0.05f; s.levels = 3;
+        s.count = new float[]{0, 16, 7, 6}; s.angle = new float[]{0, 40, 50, 30}; s.lengthRatio = new float[]{0, 0.38f, 0.55f, 0.6f};
+        s.tropism = new float[]{0, 0.03f, -0.10f, -0.35f}; s.radiusRatio = new float[]{0, 0.5f, 0.45f, 0.45f};
+        s.leafLevel = 3; s.leafDensity = 15; s.leaf = Leaf.SMALL; s.leafSize = 0.05f; s.leafAspect = 0.7f; s.cluster = 0.5f;
+        s.flexTrunk = 1.0f; s.flexBranch = 1.3f; s.flutter = 1.6f;
+        s.bark = new float[]{0.62f, 0.62f, 0.58f}; s.barkMarks = 0.4f; s.barkMark = new float[]{0.02f, 0.02f, 0.02f};
+        s.spring = new float[]{0.20f, 0.45f, 0.07f}; s.summer = new float[]{0.07f, 0.20f, 0.035f};
+        s.autumn = new float[][]{{0.70f, 0.55f, 0.04f}, {0.60f, 0.48f, 0.05f}};
+        s.leafOut = 115; s.colorStart = 265; s.colorFull = 285; s.bare = 310;
+        s.barkStyle = BarkStyle.PAPER; s.lichen = 0.0f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Gemeine Fichte (Picea abies): spitzer Kegel, dichte Quirle, bei älteren Bäumen hängen die Zweige an den Ästen („Kammfichte“). */
+    public static Species spruce() {
+        Species s = new Species("Fichte", "Picea abies");
+        s.conifer = true; s.heightMin = 20; s.heightMax = 40; s.trunkRatio = 0.02f; s.crownBase = 0.12f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.012f; s.trunkSegments = 14; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 170, 7}; s.angle = new float[]{0, 85, 70}; s.lengthRatio = new float[]{0, 0.15f, 0.35f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.02f, -0.3f}; s.radiusRatio = new float[]{0, 0.3f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 5; s.leaf = Leaf.NEEDLES; s.leafSize = 0.42f;
+        s.flexTrunk = 0.5f; s.flexBranch = 0.9f; s.flutter = 0.3f;
+        s.bark = new float[]{0.11f, 0.07f, 0.05f};
+        s.summer = new float[]{0.02f, 0.06f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.24f, 0.08f};
+        s.leafOut = 135;
+        s.cones = 2.5f; s.coneSize = 0.12f; s.coneColor = new float[]{0.24f, 0.13f, 0.07f}; s.coneZone = 0.35f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.2f; s.moss = 0.15f; s.beard = 0.15f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    // ------------------------------------------------------------ weitere Nadelbäume
+
+    /** Engelmann-Fichte (Picea engelmannii): schmal kegelförmig, dicht, blaugrün; hängende Zapfen; in feuchten Lagen Yellowstones. */
+    public static Species engelmannSpruce() {
+        Species s = new Species("Engelmann-Fichte", "Picea engelmannii");
+        s.conifer = true; s.heightMin = 20; s.heightMax = 35; s.trunkRatio = 0.019f; s.crownBase = 0.06f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.012f; s.trunkSegments = 14; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 175, 7}; s.angle = new float[]{0, 86, 70}; s.lengthRatio = new float[]{0, 0.12f, 0.35f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.035f, -0.35f}; s.radiusRatio = new float[]{0, 0.3f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 5.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.36f;
+        s.flexTrunk = 0.55f; s.flexBranch = 0.9f; s.flutter = 0.3f;
+        s.bark = new float[]{0.14f, 0.09f, 0.07f};
+        s.summer = new float[]{0.025f, 0.058f, 0.048f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.22f, 0.13f};
+        s.leafOut = 160;
+        s.cones = 2.5f; s.coneSize = 0.055f; s.coneColor = new float[]{0.24f, 0.13f, 0.07f}; s.coneZone = 0.45f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.2f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Felsengebirgs-Tanne (Abies lasiocarpa): schmaler, spitzer Turm bis zum Boden beastet, dunkel; aufrechte violette Zapfen. */
+    public static Species subalpineFir() {
+        Species s = new Species("Felsengebirgs-Tanne", "Abies lasiocarpa");
+        s.conifer = true; s.heightMin = 14; s.heightMax = 24; s.trunkRatio = 0.017f; s.crownBase = 0.02f; s.crown = Crown.SPIRE;
+        s.trunkWobble = 0.01f; s.trunkSegments = 14; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 190, 8}; s.angle = new float[]{0, 88, 60}; s.lengthRatio = new float[]{0, 0.085f, 0.4f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.015f, 0.05f}; s.radiusRatio = new float[]{0, 0.3f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 6; s.leaf = Leaf.NEEDLES; s.leafSize = 0.32f;
+        s.flexTrunk = 0.5f; s.flexBranch = 0.8f; s.flutter = 0.25f;
+        s.bark = new float[]{0.20f, 0.20f, 0.19f};
+        s.summer = new float[]{0.018f, 0.048f, 0.030f}; s.spring = s.summer; s.shoots = new float[]{0.09f, 0.20f, 0.10f};
+        s.leafOut = 165;
+        s.cones = 2; s.coneSize = 0.08f; s.coneColor = new float[]{0.14f, 0.06f, 0.13f}; s.coneUpright = true; s.coneZone = 0.2f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Weißstämmige Kiefer (Pinus albicaulis): niedrig, rundlich, oft mehrstämmig, helle Rinde; an der Waldgrenze. */
+    public static Species whitebarkPine() {
+        Species s = new Species("Weißstämmige Kiefer", "Pinus albicaulis");
+        s.conifer = true; s.heightMin = 10; s.heightMax = 17; s.trunkRatio = 0.035f; s.trunkEnd = 0.7f; s.crownBase = 0.3f; s.crown = Crown.ROUND;
+        s.trunkWobble = 0.07f; s.trunkSegments = 9; s.levels = 2; s.whorl = 0;
+        s.count = new float[]{0, 34, 8}; s.angle = new float[]{0, 50, 45}; s.angleVar = new float[]{0, 18, 20};
+        s.lengthRatio = new float[]{0, 0.38f, 0.4f}; s.start = new float[]{0, 0.1f, 0.2f};
+        s.tropism = new float[]{0, 0.05f, 0.12f}; s.radiusRatio = new float[]{0, 0.55f, 0.5f};
+        s.leafLevel = 1; s.leafDensity = 6; s.leaf = Leaf.NEEDLES; s.leafSize = 0.3f;
+        s.flexTrunk = 0.3f; s.flexBranch = 0.6f; s.flutter = 0.3f;
+        s.bark = new float[]{0.30f, 0.30f, 0.28f};
+        s.summer = new float[]{0.05f, 0.10f, 0.035f}; s.spring = s.summer; s.shoots = new float[]{0.12f, 0.22f, 0.08f};
+        s.leafOut = 165;
+        s.cones = 1.2f; s.coneSize = 0.07f; s.coneColor = new float[]{0.16f, 0.09f, 0.10f}; s.coneUpright = true; s.coneZone = 0.4f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.2f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Weißtanne (Abies alba): mächtig, lange kegelförmig, alt mit flacher Spitze („Storchennest“), silbergraue Rinde, aufrechte Zapfen. */
+    public static Species silverFir() {
+        Species s = new Species("Weißtanne", "Abies alba");
+        s.conifer = true; s.heightMin = 28; s.heightMax = 45; s.trunkRatio = 0.023f; s.crownBase = 0.22f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.01f; s.trunkSegments = 14; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 160, 8}; s.angle = new float[]{0, 84, 55}; s.lengthRatio = new float[]{0, 0.15f, 0.4f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.01f, 0.08f}; s.radiusRatio = new float[]{0, 0.3f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 5.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.4f;
+        s.flexTrunk = 0.45f; s.flexBranch = 0.8f; s.flutter = 0.25f;
+        s.bark = new float[]{0.26f, 0.26f, 0.25f};
+        s.summer = new float[]{0.02f, 0.065f, 0.03f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.24f, 0.08f};
+        s.leafOut = 140;
+        s.cones = 1.5f; s.coneSize = 0.12f; s.coneColor = new float[]{0.20f, 0.14f, 0.07f}; s.coneUpright = true; s.coneZone = 0.15f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Waldkiefer (Pinus sylvestris): hoch astfrei, oben orange „Spiegelrinde“, schirmförmige Krone, blaugrüne Nadeln. */
+    public static Species scotsPine() {
+        Species s = new Species("Waldkiefer", "Pinus sylvestris");
+        s.conifer = true; s.heightMin = 20; s.heightMax = 35; s.trunkRatio = 0.018f; s.crownBase = 0.62f; s.crown = Crown.UMBRELLA;
+        s.trunkWobble = 0.035f; s.trunkSegments = 12; s.levels = 2; s.whorl = 4;
+        s.count = new float[]{0, 48, 7}; s.angle = new float[]{0, 62, 45}; s.angleVar = new float[]{0, 14, 18};
+        s.lengthRatio = new float[]{0, 0.24f, 0.45f}; s.start = new float[]{0, 0, 0.15f};
+        s.tropism = new float[]{0, 0.045f, 0.12f}; s.radiusRatio = new float[]{0, 0.4f, 0.5f};
+        s.leafLevel = 1; s.leafDensity = 6; s.leaf = Leaf.NEEDLES; s.leafSize = 0.36f;
+        s.flexTrunk = 0.55f; s.flexBranch = 0.7f; s.flutter = 0.3f;
+        s.bark = new float[]{0.13f, 0.09f, 0.07f}; s.barkTop = new float[]{0.48f, 0.21f, 0.08f}; s.barkTopFrom = 0.45f;
+        s.summer = new float[]{0.03f, 0.068f, 0.048f}; s.spring = s.summer; s.shoots = new float[]{0.11f, 0.20f, 0.10f};
+        s.leafOut = 130;
+        s.cones = 1.5f; s.coneSize = 0.045f; s.coneColor = new float[]{0.22f, 0.18f, 0.13f}; s.coneZone = 0.7f;
+        s.barkStyle = BarkStyle.PLATED; s.lichen = 0.05f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Europäische Lärche (Larix decidua): lichter Kegel, hängende Zweige, weiche hellgrüne Nadeln, im Herbst goldgelb, im Winter kahl. */
+    public static Species larch() {
+        Species s = new Species("Europäische Lärche", "Larix decidua");
+        s.conifer = true; s.deciduous = true; s.heightMin = 25; s.heightMax = 40; s.trunkRatio = 0.018f; s.crownBase = 0.25f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.03f; s.trunkSegments = 13; s.levels = 2; s.whorl = 0;
+        s.count = new float[]{0, 70, 9}; s.angle = new float[]{0, 75, 55}; s.angleVar = new float[]{0, 12, 18};
+        s.lengthRatio = new float[]{0, 0.2f, 0.45f}; s.start = new float[]{0, 0, 0.1f};
+        s.tropism = new float[]{0, 0.02f, -0.45f}; s.radiusRatio = new float[]{0, 0.35f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 5; s.leaf = Leaf.NEEDLES; s.leafSize = 0.3f;
+        s.flexTrunk = 0.6f; s.flexBranch = 1.1f; s.flutter = 0.6f;
+        s.bark = new float[]{0.17f, 0.09f, 0.06f};
+        s.spring = new float[]{0.22f, 0.42f, 0.10f}; s.summer = new float[]{0.09f, 0.20f, 0.06f};
+        s.autumn = new float[][]{{0.72f, 0.46f, 0.05f}, {0.64f, 0.38f, 0.04f}, {0.78f, 0.55f, 0.08f}};
+        s.leafOut = 115; s.colorStart = 280; s.colorFull = 296; s.bare = 318;
+        s.cones = 3; s.coneSize = 0.03f; s.coneColor = new float[]{0.20f, 0.12f, 0.07f}; s.coneUpright = true; s.coneZone = 0.9f;
+        s.barkStyle = BarkStyle.PLATED; s.lichen = 0.15f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Zirbe (Pinus cembra): dicht, säulenförmig bis breit, aufstrebende Äste; aufrechte blauviolette Zapfen; an der Waldgrenze der Alpen. */
+    public static Species stonePine() {
+        Species s = new Species("Zirbe", "Pinus cembra");
+        s.conifer = true; s.heightMin = 10; s.heightMax = 22; s.trunkRatio = 0.035f; s.crownBase = 0.08f; s.crown = Crown.OVOID;
+        s.trunkWobble = 0.04f; s.trunkSegments = 12; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 120, 8}; s.angle = new float[]{0, 65, 45}; s.lengthRatio = new float[]{0, 0.2f, 0.4f};
+        s.start = new float[]{0, 0, 0.15f}; s.tropism = new float[]{0, 0.06f, 0.1f}; s.radiusRatio = new float[]{0, 0.35f, 0.5f};
+        s.leafLevel = 1; s.leafDensity = 6.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.36f;
+        s.flexTrunk = 0.35f; s.flexBranch = 0.6f; s.flutter = 0.25f;
+        s.bark = new float[]{0.16f, 0.14f, 0.12f};
+        s.summer = new float[]{0.028f, 0.072f, 0.045f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.20f, 0.10f};
+        s.leafOut = 165;
+        s.cones = 1.2f; s.coneSize = 0.07f; s.coneColor = new float[]{0.14f, 0.10f, 0.20f}; s.coneUpright = true; s.coneZone = 0.25f;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /**
+     * Schwarzerle (Alnus glutinosa): Baum der Bruchwälder und Bachufer, 15 bis 25 m, kegelig-eiförmige Krone mit
+     * waagerechten Ästen, dunkle rissige Rinde; Blätter rundlich und vorn eingekerbt, dunkelgrün und glänzend. Sie
+     * färben sich im Herbst kaum und fallen spät noch fast grün (seit Haithabu Phase 2b).
+     */
+    public static Species alder() {
+        Species s = new Species("Schwarzerle", "Alnus glutinosa");
+        s.deciduous = true; s.heightMin = 14; s.heightMax = 24; s.trunkRatio = 0.02f; s.trunkEnd = 0.9f; s.crownBase = 0.3f;
+        s.crown = Crown.CONICAL; s.trunkWobble = 0.05f; s.levels = 3;
+        s.count = new float[]{0, 18, 7, 5}; s.angle = new float[]{0, 70, 45, 40}; s.angleVar = new float[]{0, 14, 15, 15};
+        s.lengthRatio = new float[]{0, 0.30f, 0.5f, 0.45f}; s.start = new float[]{0, 0, 0.2f, 0.25f};
+        s.tropism = new float[]{0, 0.0f, -0.01f, 0.02f}; s.radiusRatio = new float[]{0, 0.5f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 14; s.leaf = Leaf.ROUND; s.leafSize = 0.08f; s.leafAspect = 0.9f; s.cluster = 0.6f;
+        s.flexTrunk = 0.7f; s.flexBranch = 0.9f; s.flutter = 0.9f;
+        s.bark = new float[]{0.055f, 0.048f, 0.042f};
+        s.spring = new float[]{0.10f, 0.26f, 0.05f}; s.summer = new float[]{0.030f, 0.095f, 0.025f};
+        s.autumn = new float[][]{{0.06f, 0.10f, 0.03f}, {0.10f, 0.11f, 0.035f}, {0.14f, 0.11f, 0.04f}};
+        s.leafOut = 110; s.colorStart = 290; s.colorFull = 312; s.bare = 322;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.45f; s.moss = 0.3f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    // ------------------------------------------------------------ seit Glacier: Südbuchen Patagoniens
+    // Die Tage im Laubjahr gelten wie bei allen Arten für die Nordhalbkugel; eine Szene im Süden gibt den Tag
+    // um ein halbes Jahr versetzt herein (Austrieb im Oktober = Tag 118 hier, Färbung im April = Tag 277 hier).
+
+    /**
+     * Lenga (Nothofagus pumilio): der Waldbaum Patagoniens bis an die Baumgrenze, 15 bis 25 m, die Äste in waagerechten
+     * Stockwerken, kleine gekerbte Blätter; im Herbst (April) leuchtend rot, orange und gelb.
+     */
+    public static Species lenga() {
+        Species s = new Species("Lenga", "Nothofagus pumilio");
+        s.deciduous = true; s.heightMin = 12; s.heightMax = 24; s.trunkRatio = 0.022f; s.trunkEnd = 0.8f; s.crownBase = 0.35f;
+        s.crown = Crown.SPREADING; s.trunkWobble = 0.07f; s.levels = 3;
+        s.count = new float[]{0, 14, 8, 6}; s.angle = new float[]{0, 72, 45, 40}; s.angleVar = new float[]{0, 10, 18, 18};
+        s.lengthRatio = new float[]{0, 0.42f, 0.5f, 0.45f}; s.start = new float[]{0, 0.05f, 0.2f, 0.25f};
+        s.tropism = new float[]{0, -0.005f, -0.02f, 0.02f}; s.radiusRatio = new float[]{0, 0.55f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 16; s.leaf = Leaf.SMALL; s.leafSize = 0.035f; s.leafAspect = 0.65f; s.cluster = 0.55f;
+        s.flexTrunk = 0.6f; s.flexBranch = 0.9f; s.flutter = 1.0f;
+        s.bark = new float[]{0.11f, 0.10f, 0.09f}; s.barkMarks = 0.15f; s.barkMark = new float[]{0.05f, 0.05f, 0.045f};
+        s.spring = new float[]{0.16f, 0.36f, 0.06f}; s.summer = new float[]{0.05f, 0.15f, 0.03f};
+        s.autumn = new float[][]{{0.48f, 0.07f, 0.03f}, {0.58f, 0.18f, 0.03f}, {0.62f, 0.33f, 0.04f}, {0.40f, 0.06f, 0.04f}};
+        s.leafOut = 118; s.colorStart = 268; s.colorFull = 285; s.bare = 305;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.5f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /**
+     * Ñire (Nothofagus antarctica): Strauch oder kleiner, krummer Baum von 3 bis 8 m, oft mehrstämmig, an trockenen
+     * Rändern und in Senken; kleine, gewellte, duftende Blätter; im Herbst rot bis rostbraun.
+     */
+    public static Species nire() {
+        Species s = new Species("Ñire", "Nothofagus antarctica");
+        s.deciduous = true; s.heightMin = 3; s.heightMax = 8; s.trunkRatio = 0.03f; s.trunkEnd = 0.4f; s.crownBase = 0.15f;
+        s.crown = Crown.SPREADING; s.trunkWobble = 0.14f; s.trunkSegments = 8; s.levels = 3;
+        s.count = new float[]{0, 8, 7, 5}; s.angle = new float[]{0, 45, 50, 45}; s.angleVar = new float[]{0, 22, 25, 22};
+        s.lengthRatio = new float[]{0, 0.6f, 0.5f, 0.45f}; s.start = new float[]{0, 0.05f, 0.15f, 0.2f};
+        s.tropism = new float[]{0, 0.02f, -0.03f, 0.02f}; s.radiusRatio = new float[]{0, 0.65f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 18; s.leaf = Leaf.SMALL; s.leafSize = 0.025f; s.leafAspect = 0.7f; s.cluster = 0.45f;
+        s.flexTrunk = 0.5f; s.flexBranch = 0.8f; s.flutter = 1.1f;
+        s.bark = new float[]{0.09f, 0.085f, 0.08f}; s.barkMarks = 0.25f; s.barkMark = new float[]{0.16f, 0.17f, 0.12f};
+        s.spring = new float[]{0.15f, 0.32f, 0.06f}; s.summer = new float[]{0.055f, 0.14f, 0.035f};
+        s.autumn = new float[][]{{0.42f, 0.09f, 0.04f}, {0.35f, 0.14f, 0.05f}, {0.28f, 0.10f, 0.05f}};
+        s.leafOut = 120; s.colorStart = 262; s.colorFull = 280; s.bare = 300;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.5f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /**
+     * Guindo oder Coigüe de Magallanes (Nothofagus betuloides): immergrüne Südbuche der feuchten Westseite, nah am Eis,
+     * 15 bis 25 m, dichte, gerundete Krone aus kleinen, ledrigen, dunkel glänzenden Blättern.
+     */
+    public static Species guindo() {
+        Species s = new Species("Guindo", "Nothofagus betuloides");
+        s.deciduous = false; s.heightMin = 12; s.heightMax = 22; s.trunkRatio = 0.022f; s.trunkEnd = 0.85f; s.crownBase = 0.3f;
+        s.crown = Crown.OVOID; s.trunkWobble = 0.05f; s.levels = 3;
+        s.count = new float[]{0, 18, 8, 6}; s.angle = new float[]{0, 55, 45, 40}; s.lengthRatio = new float[]{0, 0.36f, 0.5f, 0.45f};
+        s.tropism = new float[]{0, 0.03f, 0.0f, 0.03f}; s.radiusRatio = new float[]{0, 0.5f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 20; s.leaf = Leaf.SMALL; s.leafSize = 0.022f; s.leafAspect = 0.6f; s.cluster = 0.5f;
+        s.flexTrunk = 0.5f; s.flexBranch = 0.7f; s.flutter = 0.6f;
+        s.bark = new float[]{0.10f, 0.085f, 0.07f};
+        s.spring = new float[]{0.06f, 0.14f, 0.04f}; s.summer = new float[]{0.022f, 0.065f, 0.022f};
+        s.leafOut = 120;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.4f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    // ------------------------------------------------------------ seit Brocken Phase 9: Bergfichtenwald nach dem Borkenkäfer
+
+    /** Fichte, frisch abgestorben (Picea abies): die Nadeln hängen noch, rotbraun („rote Phase“, ein bis zwei Jahre nach dem Befall). */
+    public static Species spruceRed() {
+        Species s = spruce().copy("Fichte, frisch abgestorben", "Picea abies");
+        s.dead = 1;
+        s.summer = new float[]{0.15f, 0.07f, 0.035f}; s.spring = s.summer; s.shoots = null;
+        s.cones = 0.8f;
+        return s;
+    }
+
+    /** Fichte, lange tot: kahl, kürzere Äste mit wenigen dürren Zweigen, Rinde abgeblättert, das Holz silbergrau („graue Phase“). */
+    public static Species spruceDead() {
+        Species s = spruce().copy("Fichte, abgestorben", "Picea abies");
+        s.dead = 2;
+        s.bark = new float[]{0.22f, 0.21f, 0.195f};
+        s.flexTrunk = 0.35f; s.flexBranch = 0.3f;
+        s.tropism = new float[]{0, -0.08f, -0.3f};   // dürre Äste hängen
+        return s;
+    }
+
+    /** Fichte, gebrochen: ein grauer Stumpf, 30 bis 60 % der Höhe stehen noch. */
+    public static Species spruceSnag() {
+        Species s = spruceDead().copy("Fichte, gebrochen", "Picea abies");
+        s.snag = 0.45f;
+        return s;
+    }
+
+    /** Fichte, liegend (Windwurf oder umgestürztes Totholz): grau, mit Aststummeln, entlang +x. */
+    public static Species spruceLog() {
+        Species s = spruceDead().copy("Fichte, liegend", "Picea abies");
+        s.lying = true;
+        s.heightMin = 16; s.heightMax = 30;
+        s.bark = new float[]{0.17f, 0.16f, 0.145f};
+        return s;
+    }
+
+    /** Junge Fichte (Naturverjüngung unter und zwischen dem Totholz): 1,5 bis 6 m, bis zum Boden beastet. */
+    public static Species spruceYoung() {
+        Species s = spruce().copy("Fichte, jung", "Picea abies");
+        s.heightMin = 1.5f; s.heightMax = 6f; s.crownBase = 0.02f; s.trunkRatio = 0.03f; s.trunkSegments = 8;
+        s.count = new float[]{0, 60, 5}; s.lengthRatio = new float[]{0, 0.26f, 0.35f};
+        s.summer = new float[]{0.025f, 0.07f, 0.03f}; s.spring = s.summer; s.cones = 0;
+        return s;
+    }
+
+    /**
+     * Windflüchter an der Baumgrenze (Krüppelfichte): 2 bis 7 m, gedrungen, auf der Wetterseite fast ohne Äste
+     * ({@link #flagging} 0,85, Wind aus 250°), die Krone als Fahne nach Lee; unten oft ein dichter Schurz.
+     */
+    public static Species spruceFlag() {
+        Species s = spruce().copy("Fichte, Windflüchter", "Picea abies");
+        s.heightMin = 2f; s.heightMax = 7f; s.crownBase = 0.03f; s.trunkRatio = 0.04f; s.trunkWobble = 0.06f; s.trunkSegments = 9;
+        s.crown = Crown.NARROW;
+        s.count = new float[]{0, 70, 5}; s.lengthRatio = new float[]{0, 0.3f, 0.35f}; s.tropism = new float[]{0, -0.01f, -0.2f};
+        s.flagging = 0.85f; s.flagFromDeg = 250;
+        s.summer = new float[]{0.022f, 0.055f, 0.03f}; s.spring = s.summer; s.cones = 0.3f;
+        return s;
+    }
+
+    /**
+     * Eberesche (Sorbus aucuparia): Pionier der Hochlagen, 3 bis 12 m, lockere ovale Krone aus gefiederten Blättern,
+     * im August rote Beeren in Dolden (als Zapfen gezeichnet), im Herbst orange bis rot.
+     */
+    public static Species rowan() {
+        Species s = new Species("Eberesche", "Sorbus aucuparia");
+        s.deciduous = true; s.heightMin = 3; s.heightMax = 12; s.trunkRatio = 0.02f; s.trunkEnd = 0.8f; s.crownBase = 0.3f; s.crown = Crown.OVOID;
+        s.trunkWobble = 0.06f; s.levels = 3;
+        s.count = new float[]{0, 12, 6, 4}; s.angle = new float[]{0, 40, 45, 40}; s.lengthRatio = new float[]{0, 0.42f, 0.5f, 0.45f};
+        s.tropism = new float[]{0, 0.06f, 0.02f, 0.0f}; s.radiusRatio = new float[]{0, 0.5f, 0.5f, 0.5f};
+        s.leafLevel = 2; s.leafDensity = 13; s.leaf = Leaf.SMALL; s.leafSize = 0.07f; s.leafAspect = 0.45f; s.cluster = 0.45f;
+        s.flexTrunk = 1.0f; s.flexBranch = 1.2f; s.flutter = 1.4f;
+        s.bark = new float[]{0.20f, 0.19f, 0.17f};
+        s.spring = new float[]{0.14f, 0.32f, 0.06f}; s.summer = new float[]{0.06f, 0.17f, 0.035f};
+        s.autumn = new float[][]{{0.62f, 0.12f, 0.03f}, {0.70f, 0.30f, 0.03f}, {0.50f, 0.20f, 0.04f}};
+        s.leafOut = 140; s.colorStart = 255; s.colorFull = 275; s.bare = 300;
+        s.cones = 1.2f; s.coneSize = 0.08f; s.coneColor = new float[]{0.55f, 0.06f, 0.03f}; s.coneZone = 0.7f;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.3f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    /** Moorbirke (Betula pubescens): kleiner und krummer als die Hängebirke, aufrechte Zweige; am Moorrand und im Bruch. */
+    public static Species downyBirch() {
+        Species s = birch().copy("Moorbirke", "Betula pubescens");
+        s.heightMin = 4; s.heightMax = 14; s.trunkWobble = 0.08f; s.tropism = new float[]{0, 0.05f, 0.02f, 0.0f};
+        s.bark = new float[]{0.52f, 0.50f, 0.46f};
+        s.barkStyle = BarkStyle.PAPER; s.lichen = 0.05f;   // W6 Runde 5 [G]
+        return s;
+    }
+
+    // ------------------------------------------------------------ seit LituyaBay1958 Phase 6: Küstenregenwald Südostalaskas
+
+    /**
+     * Sitka-Fichte (Picea sitchensis): der große Baum des Küstenregenwalds, in Lituya Bay 30 bis 50 m [G]; kegelförmig,
+     * dichte Quirle, die Äste waagerecht, die Zweige hängen; steife, stechende Nadeln, oben grün, unten silbrig, im Bestand
+     * blaugrün; dünne, graubraune Schuppenrinde; Stammfuß breit. Hängende Zapfen 6 bis 10 cm im oberen Drittel.
+     */
+    public static Species sitkaSpruce() {
+        Species s = new Species("Sitka-Fichte", "Picea sitchensis");
+        s.conifer = true; s.heightMin = 28; s.heightMax = 50; s.trunkRatio = 0.03f; s.crownBase = 0.28f; s.crown = Crown.CONICAL;
+        s.trunkWobble = 0.012f; s.trunkSegments = 16; s.levels = 2; s.whorl = 5;
+        s.count = new float[]{0, 165, 7}; s.angle = new float[]{0, 84, 65}; s.lengthRatio = new float[]{0, 0.17f, 0.38f};
+        s.start = new float[]{0, 0, 0.1f}; s.tropism = new float[]{0, -0.025f, -0.32f}; s.radiusRatio = new float[]{0, 0.3f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 5.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.4f;
+        s.flexTrunk = 0.45f; s.flexBranch = 0.85f; s.flutter = 0.3f;
+        s.bark = new float[]{0.13f, 0.105f, 0.09f};
+        s.summer = new float[]{0.024f, 0.064f, 0.052f}; s.spring = s.summer; s.shoots = new float[]{0.10f, 0.23f, 0.12f};
+        s.leafOut = 150;
+        s.cones = 2.2f; s.coneSize = 0.08f; s.coneColor = new float[]{0.26f, 0.17f, 0.09f}; s.coneZone = 0.35f;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.35f; s.moss = 0.6f; s.beard = 0.5f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    /**
+     * Westliche Hemlocktanne (Tsuga heterophylla): schmaler Kegel, 25 bis 45 m [G], der Leittrieb nickt ({@link #leaderDroop}),
+     * die Zweige hängen weich herab; kurze, flache, dunkelgelbgrüne Nadeln; rotbraune, gefurchte Rinde; viele kleine hängende
+     * Zapfen (2 bis 3 cm). Schattenbaum: wächst unter der Fichte auf und bildet mit ihr den Wald an der Bucht.
+     */
+    public static Species westernHemlock() {
+        Species s = new Species("Westliche Hemlocktanne", "Tsuga heterophylla");
+        s.conifer = true; s.heightMin = 24; s.heightMax = 44; s.trunkRatio = 0.024f; s.crownBase = 0.2f; s.crown = Crown.NARROW;
+        s.trunkWobble = 0.02f; s.trunkSegments = 16; s.levels = 2; s.whorl = 0;
+        s.count = new float[]{0, 120, 8}; s.angle = new float[]{0, 78, 55}; s.angleVar = new float[]{0, 12, 18};
+        s.lengthRatio = new float[]{0, 0.17f, 0.42f}; s.start = new float[]{0, 0, 0.1f};
+        s.tropism = new float[]{0, -0.04f, -0.45f}; s.radiusRatio = new float[]{0, 0.32f, 0.45f};
+        s.leafLevel = 1; s.leafDensity = 6.5f; s.leaf = Leaf.NEEDLES; s.leafSize = 0.3f;
+        s.flexTrunk = 0.6f; s.flexBranch = 1.1f; s.flutter = 0.35f;
+        s.bark = new float[]{0.12f, 0.066f, 0.045f};
+        s.summer = new float[]{0.022f, 0.055f, 0.020f}; s.spring = s.summer; s.shoots = new float[]{0.09f, 0.20f, 0.06f};
+        s.leafOut = 150;
+        s.cones = 4; s.coneSize = 0.025f; s.coneColor = new float[]{0.22f, 0.14f, 0.08f}; s.coneZone = 0.6f;
+        s.leaderDroop = 0.7f;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.3f; s.moss = 0.65f; s.beard = 0.6f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    /** Junge Sitka-Fichte (Verjüngung im Unterstand und auf Totholz): 2 bis 8 m, bis zum Boden beastet. */
+    public static Species sitkaSpruceYoung() {
+        Species s = sitkaSpruce().copy("Sitka-Fichte, jung", "Picea sitchensis");
+        s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
+        s.count = new float[]{0, 60, 5}; s.lengthRatio = new float[]{0, 0.28f, 0.35f}; s.cones = 0;
+        s.barkStyle = BarkStyle.SCALY; s.lichen = 0.25f; s.moss = 0.5f; s.beard = 0.2f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    /** Junge Hemlocktanne: 2 bis 8 m, schattenfest, mit nickender Spitze. */
+    public static Species westernHemlockYoung() {
+        Species s = westernHemlock().copy("Westliche Hemlocktanne, jung", "Tsuga heterophylla");
+        s.heightMin = 2; s.heightMax = 8; s.crownBase = 0.03f; s.trunkRatio = 0.03f; s.trunkSegments = 9;
+        s.count = new float[]{0, 50, 6}; s.lengthRatio = new float[]{0, 0.3f, 0.42f}; s.cones = 0;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.2f; s.moss = 0.5f; s.beard = 0.3f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    /**
+     * Roterle (Alnus rubra): Pionier an Ufern, auf Schwemmfächern und im Vorfeld, 12 bis 24 m; glatte, hellgraue Rinde mit
+     * weißen Flechtenflecken; eiförmige, gesägte Blätter, im Herbst kaum gefärbt. Grundlage ist die Schwarzerle.
+     */
+    public static Species redAlder() {
+        Species s = alder().copy("Roterle", "Alnus rubra");
+        s.heightMin = 12; s.heightMax = 24; s.trunkRatio = 0.018f; s.crown = Crown.OVOID;
+        s.bark = new float[]{0.30f, 0.30f, 0.27f}; s.barkMarks = 0.3f; s.barkMark = new float[]{0.55f, 0.56f, 0.52f};
+        s.leaf = Leaf.OVAL; s.leafSize = 0.1f; s.leafAspect = 0.65f;
+        s.leafOut = 125; s.colorStart = 280; s.colorFull = 300; s.bare = 315;
+        s.barkStyle = BarkStyle.SMOOTH; s.lichen = 0.7f; s.moss = 0.55f; s.beard = 0.1f;   // W6 Runde 5, Moos und Bartflechten Runde 6 [G]
+        return s;
+    }
+
+    /**
+     * Eine geschädigte Form der Art (seit LituyaBay1958 Phase 6): gebrochen, entrindet oder umgelegt, wie im Band der Welle
+     * 1958 (FRITZ01: gebrochen, entrindet, bis 10 m über die Spurlinie geschleudert). Alle Formen sind lange tot (ohne
+     * Nadeln oder Blätter); gebrochene behalten die Rinde, entrindete und umgelegte zeigen frisches Holz ({@link #FRESH_WOOD}).
+     */
+    public static Species damaged(Species base, Damage d) {
+        Species s = base.copy(base.name + switch (d) { case BROKEN -> ", gebrochen"; case STRIPPED -> ", entrindet"; case FELLED -> ", umgelegt"; },
+                base.latin);
+        s.dead = 2;
+        s.cones = 0;
+        s.flexTrunk = 0.3f; s.flexBranch = 0.3f;
+        s.shoots = null;
+        s.barkTop = null;
+        s.barkMarks = 0;
+        switch (d) {
+            case BROKEN -> { s.snag = 0.3f; s.branchKeep = 0.5f; }
+            case STRIPPED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.15f; s.barkStyle = BarkStyle.NONE; s.lichen = 0; s.moss = 0; s.beard = 0; }
+            case FELLED -> { s.bark = FRESH_WOOD.clone(); s.branchKeep = 0.1f; s.lying = true; s.barkStyle = BarkStyle.NONE; s.lichen = 0; s.moss = 0; s.beard = 0; }
+        }
+        return s;
+    }
+
+    // ------------------------------------------------------------ seit HalligHooge P12c (F137 A): Gehölze der Warften
+    // Windschutz um die Häuser: vom Westwind geformt (flagging, Wind aus 250°), niedrig und breit [G]. Laubjahr nach
+    // Wuchsbeschreibungen genähert, nicht vermessen: Esche treibt spät aus und wirft das Laub grün; Holunder treibt früh.
+
+    /** Esche (Fraxinus excelsior): lichte, hochgewölbte Krone, Fiederblätter, kahl im späten Oktober, oft fast grün. */
+    public static Species ash() {
+        Species s = new Species("Esche", "Fraxinus excelsior");
+        s.deciduous = true; s.heightMin = 8; s.heightMax = 22; s.trunkRatio = 0.022f; s.trunkEnd = 0.75f; s.crownBase = 0.3f;
+        s.crown = Crown.OVOID; s.trunkWobble = 0.05f; s.levels = 3;
+        s.count = new float[]{0, 14, 6, 4}; s.angle = new float[]{0, 45, 40, 40}; s.angleVar = new float[]{0, 12, 15, 15};
+        s.lengthRatio = new float[]{0, 0.45f, 0.5f, 0.45f}; s.start = new float[]{0, 0, 0.2f, 0.25f};
+        s.tropism = new float[]{0, 0.04f, 0.02f, 0.04f}; s.radiusRatio = new float[]{0, 0.55f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 18; s.leaf = Leaf.OVAL; s.leafSize = 0.08f; s.leafAspect = 0.4f; s.cluster = 1.2f;
+        s.flexTrunk = 0.8f; s.flexBranch = 1.0f; s.flutter = 1.0f;
+        s.bark = new float[]{0.14f, 0.135f, 0.12f};
+        s.spring = new float[]{0.12f, 0.28f, 0.05f}; s.summer = new float[]{0.045f, 0.13f, 0.03f};
+        s.autumn = new float[][]{{0.07f, 0.13f, 0.03f}, {0.15f, 0.15f, 0.04f}, {0.25f, 0.20f, 0.05f}};
+        s.leafOut = 135; s.colorStart = 285; s.colorFull = 298; s.bare = 306;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.35f; s.moss = 0.2f;
+        s.flagging = 0.35f; s.flagFromDeg = 250;
+        return s;
+    }
+
+    /** Salweide (Salix caprea): mehrstämmig, breit rundlich, an Gräben und Fethingen; Laub spät gelb. */
+    public static Species goatWillow() {
+        Species s = new Species("Salweide", "Salix caprea");
+        s.deciduous = true; s.heightMin = 3; s.heightMax = 10; s.trunkRatio = 0.03f; s.trunkEnd = 0.4f; s.crownBase = 0.12f;
+        s.crown = Crown.ROUND; s.trunkWobble = 0.09f; s.levels = 3;
+        s.count = new float[]{0, 9, 7, 5}; s.angle = new float[]{0, 35, 40, 40}; s.angleVar = new float[]{0, 18, 18, 15};
+        s.lengthRatio = new float[]{0, 0.6f, 0.5f, 0.45f}; s.start = new float[]{0, 0, 0.15f, 0.2f};
+        s.tropism = new float[]{0, 0.05f, 0.02f, 0.02f}; s.radiusRatio = new float[]{0, 0.6f, 0.5f, 0.5f};
+        s.leafLevel = 3; s.leafDensity = 22; s.leaf = Leaf.OVAL; s.leafSize = 0.08f; s.leafAspect = 0.55f; s.cluster = 1.1f;
+        s.flexTrunk = 1.1f; s.flexBranch = 1.3f; s.flutter = 1.2f;
+        s.bark = new float[]{0.11f, 0.11f, 0.095f};
+        s.spring = new float[]{0.13f, 0.27f, 0.06f}; s.summer = new float[]{0.05f, 0.12f, 0.04f};
+        s.autumn = new float[][]{{0.20f, 0.18f, 0.04f}, {0.30f, 0.24f, 0.05f}, {0.14f, 0.14f, 0.04f}};
+        s.leafOut = 105; s.colorStart = 290; s.colorFull = 310; s.bare = 325;
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.4f; s.moss = 0.3f;
+        s.flagging = 0.3f; s.flagFromDeg = 250;
+        return s;
+    }
+
+    /** Schwarzer Holunder (Sambucus nigra): Strauch mit bogig überhängenden Ruten, treibt früh, Laub bis in den November. */
+    public static Species elder() {
+        Species s = new Species("Holunder", "Sambucus nigra");
+        s.deciduous = true; s.heightMin = 2; s.heightMax = 7; s.trunkRatio = 0.035f; s.trunkEnd = 0.25f; s.crownBase = 0.08f;
+        s.crown = Crown.SPREADING; s.trunkWobble = 0.12f; s.levels = 3;
+        s.count = new float[]{0, 8, 6, 4}; s.angle = new float[]{0, 30, 50, 45}; s.angleVar = new float[]{0, 20, 18, 15};
+        s.lengthRatio = new float[]{0, 0.75f, 0.5f, 0.45f}; s.start = new float[]{0, 0, 0.2f, 0.2f};
+        s.tropism = new float[]{0, -0.02f, -0.04f, -0.02f}; s.radiusRatio = new float[]{0, 0.65f, 0.5f, 0.5f};
+        s.leafLevel = 2; s.leafDensity = 22; s.leaf = Leaf.OVAL; s.leafSize = 0.09f; s.leafAspect = 0.5f; s.cluster = 1.1f;
+        s.flexTrunk = 1.2f; s.flexBranch = 1.4f; s.flutter = 1.0f;
+        s.bark = new float[]{0.16f, 0.15f, 0.13f};
+        s.spring = new float[]{0.12f, 0.28f, 0.05f}; s.summer = new float[]{0.04f, 0.12f, 0.03f};
+        s.autumn = new float[][]{{0.08f, 0.12f, 0.03f}, {0.18f, 0.16f, 0.05f}, {0.22f, 0.10f, 0.08f}};
+        s.leafOut = 95; s.colorStart = 290; s.colorFull = 308; s.bare = 320;
+        s.cones = 0.8f; s.coneSize = 0.10f; s.coneColor = new float[]{0.02f, 0.015f, 0.025f}; s.coneZone = 0.6f;   // Beerendolden
+        s.barkStyle = BarkStyle.FURROWED; s.lichen = 0.25f;
+        s.flagging = 0.3f; s.flagFromDeg = 250;
+        return s;
+    }
+
+    /** Hundsrose (Rosa canina): dichter, niedriger Strauch aus bogigen Trieben, im Herbst rote Hagebutten. */
+    public static Species dogRose() {
+        Species s = new Species("Hundsrose", "Rosa canina");
+        s.deciduous = true; s.heightMin = 1; s.heightMax = 3; s.trunkRatio = 0.025f; s.trunkEnd = 0.15f; s.crownBase = 0.03f;
+        s.crown = Crown.SPREADING; s.trunkWobble = 0.15f; s.levels = 2;
+        s.count = new float[]{0, 10, 8, 0}; s.angle = new float[]{0, 35, 55, 0}; s.angleVar = new float[]{0, 25, 20, 0};
+        s.lengthRatio = new float[]{0, 0.9f, 0.45f, 0}; s.start = new float[]{0, 0, 0.15f, 0};
+        s.tropism = new float[]{0, -0.06f, -0.03f, 0}; s.radiusRatio = new float[]{0, 0.7f, 0.5f, 0};
+        s.leafLevel = 2; s.leafDensity = 32; s.leaf = Leaf.SMALL; s.leafSize = 0.04f; s.leafAspect = 0.6f; s.cluster = 0.8f;
+        s.flexTrunk = 1.3f; s.flexBranch = 1.5f; s.flutter = 0.9f;
+        s.bark = new float[]{0.10f, 0.09f, 0.06f};
+        s.spring = new float[]{0.11f, 0.26f, 0.05f}; s.summer = new float[]{0.045f, 0.11f, 0.03f};
+        s.autumn = new float[][]{{0.25f, 0.16f, 0.04f}, {0.35f, 0.10f, 0.04f}, {0.15f, 0.12f, 0.04f}};
+        s.leafOut = 110; s.colorStart = 280; s.colorFull = 300; s.bare = 318;
+        s.cones = 2.5f; s.coneSize = 0.025f; s.coneColor = new float[]{0.55f, 0.04f, 0.02f}; s.coneZone = 1f;   // Hagebutten
+        s.flagging = 0.25f; s.flagFromDeg = 250;
+        return s;
+    }
+
+    /** Alle fertigen Arten: erst die drei aus Yellowstone, dann Eiche, Buche, Birke, Fichte, dann die weiteren Nadelbäume, die Schwarzerle, die drei Südbuchen aus Glacier, der Bergwald des Brockens, zuletzt der Küstenregenwald aus LituyaBay1958 mit Schäden der Welle. */
+    public static final List<java.util.function.Supplier<Species>> ALL = List.of(Species::lodgepolePine, Species::aspen, Species::douglasFir,
+            Species::oak, Species::beech, Species::birch, Species::spruce,
+            Species::engelmannSpruce, Species::subalpineFir, Species::whitebarkPine,
+            Species::silverFir, Species::scotsPine, Species::larch, Species::stonePine, Species::alder,
+            Species::lenga, Species::nire, Species::guindo,
+            Species::spruceRed, Species::spruceDead, Species::spruceSnag, Species::spruceLog, Species::spruceYoung, Species::spruceFlag,
+            Species::rowan, Species::downyBirch,
+            Species::sitkaSpruce, Species::westernHemlock, Species::sitkaSpruceYoung, Species::westernHemlockYoung, Species::redAlder,
+            () -> damaged(sitkaSpruce(), Damage.BROKEN), () -> damaged(sitkaSpruce(), Damage.STRIPPED), () -> damaged(sitkaSpruce(), Damage.FELLED),
+            () -> damaged(westernHemlock(), Damage.BROKEN),
+            Species::ash, Species::goatWillow, Species::elder, Species::dogRose);
+
+    /** Die Art mit diesem deutschen oder lateinischen Namen (oder null). */
+    public static Species byName(String n) {
+        for (java.util.function.Supplier<Species> f : ALL) {
+            Species s = f.get();
+            if (s.name.equalsIgnoreCase(n) || s.latin.equalsIgnoreCase(n)) return s;
+        }
+        return null;
+    }
+
+    @Override public String toString() { return name + " (" + latin + ")"; }
+}

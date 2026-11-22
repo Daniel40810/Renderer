@@ -46,6 +46,14 @@ public final class Kino {
     public volatile double filmStaerke = 1.0;
     /** Ob Untertitel gezeigt werden. */
     public volatile boolean untertitelAn = true;
+    /**
+     * Seit W4 (Werkbuch HalligHooge 121, F206 A): Der Abspann rollt von unten nach oben durch das Bild ({@link #rolle()}),
+     * statt als feste Tafel zu stehen; seine Dauer folgt der Zahl der Zeilen ({@link #rollS}). false: wie bisher.
+     */
+    public volatile boolean rollen = true;
+    /** Seit W4: Sekunden je Zeile des Rolltitels und kürzeste Dauer (s). */
+    public volatile double rollJeZeileS = 1.6, rollMindestS = 10;
+    private double rollS = 8;
 
     private Lage lage = Lage.AUS;
     private double t;                  // Sekunden in der Lage
@@ -100,6 +108,7 @@ public final class Kino {
     public synchronized void beenden(List<String> zeilen) {
         if (lage == Lage.AUS || lage == Lage.ABSPANN || lage == Lage.AUSKLANG) return;
         abspann = zeilen == null ? List.of() : List.copyOf(zeilen);
+        rollS = rollen ? Math.max(rollMindestS, 4 + rollJeZeileS * abspann.size()) : abspannS;
         lage = Lage.ABSPANN;
         t = 0;
         utText = null;
@@ -158,7 +167,7 @@ public final class Kino {
             case ABSPANN -> {
                 soll = 1;
                 schwarz = glatt(t / abblendeS);
-                if (t >= abblendeS + abspannS) { lage = Lage.AUSKLANG; t = 0; }
+                if (t >= abblendeS + rollS) { lage = Lage.AUSKLANG; t = 0; }
             }
             case AUSKLANG -> {
                 soll = 0;
@@ -184,8 +193,8 @@ public final class Kino {
         } else if (lage == Lage.ABSPANN && t > abblendeS * 0.6) {
             art = Art.ABSPANN;
             z = abspann;
-            double u = t - abblendeS * 0.6, len = abspannS + abblendeS * 0.4;
-            a = Math.min(glatt(u / 1.4), 1 - glatt((u - (len - 1.4)) / 1.2));
+            double u = t - abblendeS * 0.6, len = rollS + abblendeS * 0.4;
+            a = rollen ? glatt(u / 0.8) : Math.min(glatt(u / 1.4), 1 - glatt((u - (len - 1.4)) / 1.2));
         } else if (utText != null && untertitelAn && lage != Lage.AUS) {
             art = Art.UNTERTITEL;
             z = List.of(utText);
@@ -200,6 +209,18 @@ public final class Kino {
     // ------------------------------------------------------------------ Abfragen (Bildlauf)
 
     public synchronized Lage lage() { return lage; }
+
+    /**
+     * Seit W4: wie weit der Rolltitel ist, 0 (der Kopf steht unter dem Bild) bis 1 (das Ende ist oben hinaus); gleichmäßig
+     * in der Zeit. NaN: kein Rolltitel jetzt.
+     */
+    public synchronized double rolle() {
+        if (!rollen || lage != Lage.ABSPANN || t <= abblendeS * 0.6) return Double.NaN;
+        return Math.min(1, (t - abblendeS * 0.6) / (rollS + abblendeS * 0.4));
+    }
+
+    /** Seit W4: Dauer des Abspanns (s) nach {@link #beenden}: Abblenden und Rollen. */
+    public synchronized double abspannDauer() { return abblendeS + rollS; }
 
     /** Ob der Film läuft (Vorspann bis Ausklang); die App blendet so lange Bedienfeld und HUD aus. */
     public synchronized boolean laeuft() { return lage != Lage.AUS; }

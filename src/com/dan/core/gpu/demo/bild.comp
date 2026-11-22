@@ -1,0 +1,11 @@
+// bild.comp — Prüfkernel von GpuCheck: schreibt in ein Speicherbild (R32F) den Wert x + 1000 · y + Puffer[0].
+#version 460
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, r32f) uniform writeonly image2D ziel;
+layout(std430, binding = 1) readonly buffer Q { float q[]; };
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy), g = imageSize(ziel);
+    if (p.x >= g.x || p.y >= g.y) return;
+    imageStore(ziel, p, vec4(float(p.x) + 1000.0 * float(p.y) + q[0]));
+}

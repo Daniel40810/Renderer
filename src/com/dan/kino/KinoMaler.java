@@ -76,6 +76,58 @@ public final class KinoMaler {
         }
     }
 
+    /**
+     * Seit W4 (F206 A): der Rolltitel als ein hohes Bild der Breite w – die erste Zeile groß, darunter alle Zeilen, lange
+     * umbrochen (höchstens 70 % der Breite); „Rolle: Name“ in zwei Farben. Die Schrift folgt der Bildhöhe h.
+     */
+    public BufferedImage rolle(List<String> z, int w, int h) {
+        BufferedImage mess = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D gm = mess.createGraphics();
+        Font ft = new Font(titelSchrift, Font.PLAIN, px(h, 0.05, 20));
+        Font fz = new Font(textSchrift, Font.PLAIN, px(h, 0.022, 12));
+        FontMetrics mt = gm.getFontMetrics(ft), mz = gm.getFontMetrics(fz);
+        int zeile = (int) (mz.getHeight() * 1.45), absatz = (int) (mz.getHeight() * 0.9), luft = (int) (h * 0.06);
+        java.util.List<java.util.List<String>> teile = new java.util.ArrayList<>();
+        for (int i = 1; i < z.size(); i++) teile.add(umbrechen(mz, z.get(i), (int) (w * 0.7), 6));
+        gm.dispose();
+        int hoehe = (z.isEmpty() ? 0 : mt.getHeight() + luft);
+        for (java.util.List<String> t : teile) hoehe += t.size() * zeile + absatz;
+        BufferedImage im = new BufferedImage(Math.max(1, w), Math.max(1, hoehe), BufferedImage.TYPE_INT_ARGB);
+        if (z.isEmpty()) return im;
+        Graphics2D g = im.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS, RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+        int y = 0;
+        g.setFont(ft);
+        g.setColor(titelFarbe);
+        mitte(g, z.get(0), w, y + mt.getAscent());
+        y += mt.getHeight() + luft;
+        g.setFont(fz);
+        for (java.util.List<String> t : teile) {
+            for (int k = 0; k < t.size(); k++) {
+                String l = t.get(k);
+                int c = k == 0 ? l.indexOf(": ") : -1;
+                if (c > 0 && c < 60) {
+                    String a = l.substring(0, c + 1) + " ", b = l.substring(c + 2);
+                    int x = (w - mz.stringWidth(a + b)) / 2;
+                    g.setColor(kopfFarbe);
+                    g.drawString(a, x, y + mz.getAscent());
+                    g.setColor(zeileFarbe);
+                    g.drawString(b, x + mz.stringWidth(a), y + mz.getAscent());
+                } else {
+                    g.setColor(zeileFarbe);
+                    mitte(g, l, w, y + mz.getAscent());
+                }
+                y += zeile;
+            }
+            y += absatz;
+        }
+        g.dispose();
+        return im;
+    }
+
     private void abspann(Graphics2D g, List<String> z, int w, int h) {
         if (z.isEmpty()) return;
         Font ft = new Font(titelSchrift, Font.PLAIN, px(h, 0.05, 20));

@@ -1,0 +1,109 @@
+#version 460
+// kimmung.comp – render.air (P10b, F94 A): die Kimmung als Durchgang über den Streifen um den Horizont, nach Gelände,
+// Wasser und Himmel. Je Bildpunkt: der Tangens tn seines Sehwinkels; aus der Tafel, um wie viel der gekrümmte Strahl
+// im gesenkten Bild über der Geraden liegt (δ je Sehwinkel und Entfernung). Dann von unten nach oben durch die Zeilen
+// der Spalte, die der Strahl überstreicht: Jede zeigt im geraden Bild einen Punkt in der Entfernung d (aus der Tiefe);
+// liegt der Strahl dort nicht mehr über ihm (um die Sperrhöhe), ist er zwischen dieser und der vorigen Zeile getroffen.
+// Erreicht der Strahl vorher die Fläche (Entfernung aus der Tafel), zeigt er das Wasser dort; trifft er nichts, den
+// Himmel in seiner Richtung am Ende. Die Farbe kommt aus der Kopie des geraden Bilds, linear zwischen zwei Zeilen.
+// Derselbe Gang wie com.dan.render.air.Kimmung.punkt (Prüfung auf dem Prozessor).
+#include "/com/dan/core/gpu/luft.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba16f) uniform image2D hdr;
+layout(set = 0, binding = 1) uniform sampler2D kopie;
+layout(set = 0, binding = 2) uniform sampler2D tiefe;
+layout(set = 0, binding = 3, std430) readonly buffer Tafel { float delta[]; };
+layout(set = 0, binding = 4, std430) readonly buffer Rand { vec4 rand[]; };     // je Sehwinkel: Entfernung bis zur Fläche (−1: nie), δ am Ende, kleinstes, größtes δ
+layout(set = 0, binding = 5, std430) readonly buffer Werte {
+    float tanHalb, dNah, logSpanne, auge;           // Tangens des halben Streifens; nächste Entfernung (m); ln(fern / nah); Auge über der Fläche (m)
+    float sperr, senkung, jeTan, fenster;           // Sperrhöhe (m); 1 / (2 R′); Zeilen je Einheit des Tangens; größte Zahl der Zeilen
+    float nb, nd, frei0, frei1;
+    vec4 frei2;
+} w;
+layout(set = 0, binding = 6, std430) readonly buffer HimmelsW { Himmelswerte hw; };
+layout(push_constant) uniform Push { int y0; int y1; } q;
+
+// Richtung (nicht normiert) durch die Mitte des Bildpunkts; py darf gebrochen sein.
+vec3 richtung(float px, float py) {
+    float nx = (px + 0.5) / hw.bild.x * 2.0 - 1.0, ny = (py + 0.5) / hw.bild.y * 2.0 - 1.0;
+    return hw.vorn.xyz + hw.rechts.xyz * (nx * hw.rechts.w) - hw.oben.xyz * (ny * hw.oben.w);
+}
+
+// Zeile (gebrochen), in der die Spalte px den Tangens tn der Höhe zeigt.
+float zeile(float px, float tn) {
+    float X = ((px + 0.5) / hw.bild.x * 2.0 - 1.0) * hw.rechts.w, Y = 0.0;
+    for (int it = 0; it < 3; it++) {
+        vec2 wag = hw.vorn.xz + hw.rechts.xz * X - hw.oben.xz * Y;
+        Y = (hw.vorn.y - tn * length(wag)) / hw.oben.y;
+    }
+    return (Y / hw.oben.w + 1.0) * 0.5 * hw.bild.y - 0.5;
+}
+
+float tafel(int i, int j, float f) {
+    int k = i * int(w.nd) + j;
+    return mix(delta[k], delta[k + 1], f);
+}
+
+// δ in der gebrochenen Zeile v der Tafel zur Entfernung d
+float deltaBei(float v, float d) {
+    float u = clamp(log(max(d, w.dNah) / w.dNah) / w.logSpanne * (w.nd - 1.0), 0.0, w.nd - 1.0);
+    int j = int(min(w.nd - 2.0, floor(u))), i = int(min(w.nb - 2.0, floor(v)));
+    float fu = u - float(j);
+    return mix(tafel(i, j, fu), tafel(i + 1, j, fu), v - float(i));
+}
+
+float grenzen(float z, int py, int H) { return max(float(max(0, py - int(w.fenster))), min(float(min(H - 1, py + int(w.fenster))), z)); }
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, q.y0);
+    int W = int(hw.bild.x), H = int(hw.bild.y);
+    if (p.x >= W || p.y > q.y1 || p.y >= H) return;
+    float px = float(p.x);
+    vec3 v = richtung(px, float(p.y));
+    float tn = v.y / length(v.xz);
+    if (abs(tn) >= w.tanHalb) return;
+    float vz = clamp((tn + w.tanHalb) / (2.0 * w.tanHalb) * (w.nb - 1.0), 0.0, w.nb - 1.0);
+    int i = int(floor(vz + 0.5));
+    vec4 r = rand[i];
+    if (max(abs(r.z), abs(r.w)) * w.jeTan < 0.25) return;
+    int i0 = int(min(w.nb - 2.0, floor(vz)));
+    if ((rand[i0].x >= 0.0) != (rand[i0 + 1].x >= 0.0)) vz = float(i);
+    int F = int(w.fenster);
+    int unten = min(H - 1, int(ceil(zeile(px, tn + r.z))) + 1), oben = max(0, int(floor(zeile(px, tn + r.w))) - 1);
+    if (unten - oben > F) {
+        unten = min(unten, p.y + F / 2);
+        oben = max(oben, unten - F);
+    }
+    float ziel = -1.0, sVor = 0.0;
+    int vor = -1;
+    bool himmel = false, fertig = false;
+    for (int rr = unten; rr >= oben; rr--) {
+        float D = texelFetch(tiefe, ivec2(p.x, rr), 0).r;
+        if (D <= 0.0) { himmel = true; break; }
+        vec3 ww = richtung(px, float(rr));
+        float wag = length(ww.xz), d = hw.vorn.w / D / dot(ww, hw.vorn.xyz) * wag;
+        if (r.x >= 0.0 && d >= r.x) {
+            ziel = grenzen(zeile(px, (w.sperr - w.auge) / r.x - r.x * w.senkung), p.y, H);
+            fertig = true;
+            break;
+        }
+        float s = (tn - ww.y / wag + deltaBei(vz, d)) * d - w.sperr;
+        if (s <= 0.0) {
+            ziel = vor < 0 ? float(rr) : float(vor) + sVor / (sVor - s) * float(rr - vor);
+            fertig = true;
+            break;
+        }
+        vor = rr;
+        sVor = s;
+    }
+    if (!fertig) {
+        if (r.x >= 0.0) {
+            if (vor < 0) return;
+            ziel = himmel ? float(vor) : float(oben);
+        } else ziel = grenzen(zeile(px, tn + r.y), p.y, H);
+    }
+    float y = clamp(ziel, 0.0, float(H - 1));
+    int ya = int(min(float(H - 2), floor(y)));
+    vec4 c = mix(texelFetch(kopie, ivec2(p.x, ya), 0), texelFetch(kopie, ivec2(p.x, ya + 1), 0), y - float(ya));
+    imageStore(hdr, p, vec4(c.rgb, 1.0));
+}

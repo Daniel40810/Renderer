@@ -1,0 +1,25 @@
+#version 460
+// probe.comp – render.water.demo (P6d): rechnet die Regeln von wasser.glsl an gegebenen Orten (für WaterCheck).
+// Push: x Art (0 η_Bild an Orten, 1 Optik), y Zahl. Art 0: Orte (x Ost, z Süd relativ zum Auge) → η_Bild, Gitter.
+// Art 1: je Eintrag cos θ → Fresnel; dazu die Durchlässigkeit von 1 m reinem Wasser je Kanal und die Dämpfung K.
+#include "/com/dan/render/water/wasser.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 6, std430) writeonly buffer Aus { float aus[]; };
+layout(set = 0, binding = 7, std430) readonly buffer Orte { vec2 ort[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.y) return;
+    if (p.x == 0) {
+        int g;
+        float e = etaBild(ort[i], g);
+        aus[2 * i] = e;
+        aus[2 * i + 1] = float(g);
+    } else {
+        aus[8 * i] = fresnel(ort[i].x, aW.w);
+        vec3 T = exp(-aW.rgb * 1.0), K = daempfung();
+        aus[8 * i + 1] = T.r; aus[8 * i + 2] = T.g; aus[8 * i + 3] = T.b;
+        aus[8 * i + 4] = K.r; aus[8 * i + 5] = K.g; aus[8 * i + 6] = K.b;
+        aus[8 * i + 7] = gebrochen(ort[i].x, aW.w);
+    }
+}

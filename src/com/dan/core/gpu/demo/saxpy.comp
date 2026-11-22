@@ -1,0 +1,15 @@
+// saxpy.comp — Prüfkernel von GpuCheck: y = a · x + y für die ersten n Werte. Mit „precise“ fasst der Übersetzer
+// Multiplikation und Addition nicht zusammen; das Ergebnis ist dann bitgleich mit der Rechnung in Java (float).
+#version 460
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer X { float x[]; };
+layout(std430, binding = 1) buffer Y { float y[]; };
+layout(push_constant) uniform Werte { int n; float a; };
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(n)) return;
+    precise float p = a * x[i];
+    precise float r = p + y[i];
+    y[i] = r;
+}

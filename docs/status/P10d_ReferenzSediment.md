@@ -1,0 +1,51 @@
+# P10d ReferenzSediment – ReferenzCheck (mit Seegang, Stufe 2)
+
+Attest für `com.dan.render.reference`, Version 0.2. Stand 18.11.2026 20:56, OpenJDK 64-Bit Server VM 21.0.11, 16 Kerne.
+
+14 Prüfsteine, 6 Verstöße. Die Grenzwerte standen vor der Messung fest; [G] heißt gesetzt.
+
+| Teil | Größe | Wert | Grenze | Urteil |
+|---|---|---|---|---|
+|  | Gebiet | D:\Daten\HalligHooge\gebiet; Archiv D:\Daten\HalligHooge\_p7\archiv; ruhiger Tag D:\Daten\HalligHooge\_p7\archiv_ruhig |  | – |
+|  | Bilder | Referenz 480 × 270, 256 Pfade je Bildpunkt, spektral (Heldenwellenlänge, 16 Bahnen), Dichte der Stöße 1,0, Keule 0,25; Echtzeit 1920 × 1080, gemittelt je 4 × 4; 16 Kerne |  | – |
+|  | Gerät | AMD Radeon(TM) Graphics (AMD proprietary driver 26.10.1 (AMD proprietary shader compiler)) |  | – |
+| 1 Szene | Archiv | D:\Daten\HalligHooge\_p9b\archiv; Zeit 2026-10-25T15:00:00Z; Blick O 466600, N 6043700, 500,0 m NHN, Richtung 350,0°, Neigung -30,00°, Bildwinkel 60,0°; Schwebstoff der Szene 20 g/m³ |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Echtzeit | Belichtung EV -12,37 (Faktor 0,0001884), Wind am Auge 14,4 m/s |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Seegang (Stufe 2, auch in der Referenz) | am Auge Hs 0,05 m, Tp 8,2 s, mss 0,0004, diss 0,0 W/m²; 2 Netze |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Sediment (S8, auch in der Referenz) | Trübung am Ort ja, Boden mit bed.dz nein; am Auge 45,6 g/m³ (Szene 20 g/m³), größte Hebung 1,321 m |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Prüfstein 6: Höhe der Treffer mit dem Gelände gegen Gelaende.hoehe am Treffer und 10⁻⁷ m davor (20305 Strahlen, davon 0 auf dem Meeresgrund außerhalb) | größte Abweichung 7,33e-08 m | ≤ 1 · 10⁻⁶ m | ok |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Prüfstein 6: η der Treffer mit dem Wasser gegen die Regel des Echtzeitbilds (107315 Strahlen) | 0 nicht bitgleich; Höhe des Treffers gegen η höchstens 7,28e-08 m | bitgleich; ≤ 1 · 10⁻⁶ m | ok |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Arten der Bildpunkte | Himmel 1,5 %, Gelände 15,7 %, Wasser 82,8 %, Meeresgrund außerhalb 0,0 %; Treffer auf einer Stufe der Fläche (Wand) 12 |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Prüfstein 9: Zeit der Referenz | 1000,4 s für 33177600 Pfade (256 je Bildpunkt in 1 Runden), 33164 Pfade/s (2073 je Kern); 16,7 min für die Ansicht; Schnitte 862984531, Proben 9718697652 (11,3 je Schnitt) |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Schnitt, Auskunft | seitlich in den Wasserkörper 193121, Start unter dem Gelände 696703 |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Prüfstein 7: Rauschen, ΔE₀₀ zwischen den Hälften der Pfade in Blöcken zu 8 × 8 Bildpunkten (60 × 33, F56 A) | im Mittel 3,78, größte 28,9 | im Mittel ≤ 1 [G] | **fehlt** |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Prüfstein 8: ΔE₀₀ Echtzeit gegen Referenz in Blöcken zu 8 × 8 Bildpunkten (60 × 33, F56 A) | im Mittel 4,57, größte 25,1 | im Mittel < 3 [G] | **fehlt** |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Je Bildpunkt (Auskunft) | Rauschen im Mittel 14,30, 95 % ≤ 38,27; gegen das Echtzeitbild im Mittel 9,07, 95 % ≤ 23,43, über 3: 85,6 % |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | Zerlegung Echtzeit / Referenz | Himmel 1,5 % (ΔE₀₀ 4,24, Rauschen 6,65, Leuchtdichte 2,40e+03 gegen 2,71e+03 cd/m², Verhältnis 0,885, R 0,887 G 0,881 B 0,924); Gelände 15,7 % (ΔE₀₀ 3,64, Rauschen 5,69, Leuchtdichte 360 gegen 406 cd/m², Verhältnis 0,886, R 0,907 G 0,878 B 0,910); Wasser 82,8 % (ΔE₀₀ 10,19, Rauschen 16,07, Leuchtdichte 698 gegen 831 cd/m², Verhältnis 0,840, R 0,852 G 0,833 B 0,889) |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | F55: Wasser, Leuchtdichte im Mittel der Bildpunkte mit Wasser | Echtzeit 698,1, Referenz 830,6 cd/m², davon Fläche (nie im Wasser; Lauf in Teilen, 64 Pfade, 258 s) 468,0 und Säule mit Grund 359,6 (43 %); Abweichung -132,5 (-16 %); Säule über der halben Abweichung |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | P7f: Wasser des Echtzeitbilds in Teilen (cd/m²) | Spiegelung 118,2, Glitzern 4,666, Streulicht der Luft davor 313,4, Säule aus Sonne und Mond 74,88, Säule aus dem Himmel 171,2, Grund 15,76; Fläche mit Luft 436,2 gegen Referenz 468,0 (Verhältnis 0,93); Säule und Grund 261,8 gegen Referenz 359,6 (Verhältnis 0,73) |  | – |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | P7g: Fläche des Wassers (Spiegelung, Glitzern, Luft davor), Echtzeit durch Referenz | 0,93 | 1 ± 0,10 [G] | ok |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | P7g: Säule und Grund, Echtzeit durch Referenz | 0,73 | 1 ± 0,10 [G] | **fehlt** |
+| 8 Prielmündung im Ebbstrom, Trübung am Ort (2026-10-25 15:00 UTC) | P7h: Wasserkörper in Teilen, Echtzeit gegen Referenz (cd/m²) | Säule aus Sonne und Mond 74,88 gegen 91,25 (Verhältnis 0,82), Säule aus dem Himmel 171,2 gegen 254,3 (0,67), Grund 15,76 gegen 14,06 (1,12); Anteile am Wasserkörper der Referenz 25 / 71 / 4 %; Lauf in Teilen im Ganzen 827,6 gegen den Hauptlauf 830,6 (-0,4 %) |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Echtzeit | Belichtung EV -12,34 (Faktor 0,0001933), Wind am Auge 14,4 m/s |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Seegang (Stufe 2, auch in der Referenz) | am Auge Hs 0,05 m, Tp 8,2 s, mss 0,0004, diss 0,0 W/m²; 2 Netze |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Sediment (S8, auch in der Referenz) | Trübung am Ort nein, Boden mit bed.dz nein; am Auge 45,6 g/m³ (Szene 20 g/m³), größte Hebung 1,321 m |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Prüfstein 6: Höhe der Treffer mit dem Gelände gegen Gelaende.hoehe am Treffer und 10⁻⁷ m davor (20305 Strahlen, davon 0 auf dem Meeresgrund außerhalb) | größte Abweichung 7,33e-08 m | ≤ 1 · 10⁻⁶ m | ok |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Prüfstein 6: η der Treffer mit dem Wasser gegen die Regel des Echtzeitbilds (107315 Strahlen) | 0 nicht bitgleich; Höhe des Treffers gegen η höchstens 7,28e-08 m | bitgleich; ≤ 1 · 10⁻⁶ m | ok |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Arten der Bildpunkte | Himmel 1,5 %, Gelände 15,7 %, Wasser 82,8 %, Meeresgrund außerhalb 0,0 %; Treffer auf einer Stufe der Fläche (Wand) 12 |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Prüfstein 9: Zeit der Referenz | 239,1 s für 8294400 Pfade (64 je Bildpunkt in 1 Runden), 34695 Pfade/s (2168 je Kern); 4,0 min für die Ansicht; Schnitte 203949155, Proben 2412028653 (11,8 je Schnitt) |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Schnitt, Auskunft | seitlich in den Wasserkörper 48267, Start unter dem Gelände 173476 |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Prüfstein 7: Rauschen, ΔE₀₀ zwischen den Hälften der Pfade in Blöcken zu 8 × 8 Bildpunkten (60 × 33, F56 A) | im Mittel 6,22, größte 39,2 | im Mittel ≤ 1 [G] | **fehlt** |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Prüfstein 8: ΔE₀₀ Echtzeit gegen Referenz in Blöcken zu 8 × 8 Bildpunkten (60 × 33, F56 A) | im Mittel 5,03, größte 35,5 | im Mittel < 3 [G] | **fehlt** |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Je Bildpunkt (Auskunft) | Rauschen im Mittel 18,55, 95 % ≤ 48,79; gegen das Echtzeitbild im Mittel 12,26, 95 % ≤ 28,74, über 3: 93,6 % |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | Zerlegung Echtzeit / Referenz | Himmel 1,5 % (ΔE₀₀ 5,83, Rauschen 10,11, Leuchtdichte 2,40e+03 gegen 2,68e+03 cd/m², Verhältnis 0,897, R 0,905 G 0,892 B 0,929); Gelände 15,7 % (ΔE₀₀ 5,18, Rauschen 8,48, Leuchtdichte 360 gegen 406 cd/m², Verhältnis 0,886, R 0,906 G 0,878 B 0,912); Wasser 82,8 % (ΔE₀₀ 13,72, Rauschen 20,61, Leuchtdichte 689 gegen 810 cd/m², Verhältnis 0,850, R 0,867 G 0,842 B 0,890) |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | F55: Wasser, Leuchtdichte im Mittel der Bildpunkte mit Wasser | Echtzeit 688,7, Referenz 810,2 cd/m², davon Fläche (nie im Wasser; Lauf in Teilen, 16 Pfade, 62 s) 467,5 und Säule mit Grund 337,8 (42 %); Abweichung -121,5 (-15 %); Säule über der halben Abweichung |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | P7f: Wasser des Echtzeitbilds in Teilen (cd/m²) | Spiegelung 118,3, Glitzern 4,783, Streulicht der Luft davor 313,3, Säule aus Sonne und Mond 71,34, Säule aus dem Himmel 164,6, Grund 16,53; Fläche mit Luft 436,3 gegen Referenz 467,5 (Verhältnis 0,93); Säule und Grund 252,4 gegen Referenz 337,8 (Verhältnis 0,75) |  | – |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | P7g: Fläche des Wassers (Spiegelung, Glitzern, Luft davor), Echtzeit durch Referenz | 0,93 | 1 ± 0,10 [G] | ok |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | P7g: Säule und Grund, Echtzeit durch Referenz | 0,75 | 1 ± 0,10 [G] | **fehlt** |
+| 9 Prielmündung im Ebbstrom, Trübung überall gleich (2026-10-25 15:00 UTC) | P7h: Wasserkörper in Teilen, Echtzeit gegen Referenz (cd/m²) | Säule aus Sonne und Mond 71,34 gegen 85,16 (Verhältnis 0,84), Säule aus dem Himmel 164,6 gegen 237,9 (0,69), Grund 16,53 gegen 14,69 (1,13); Anteile am Wasserkörper der Referenz 25 / 70 / 4 %; Lauf in Teilen im Ganzen 805,3 gegen den Hauptlauf 810,2 (-0,6 %) |  | – |
+| Prüfstein 17 (S8) | Prüfstein 17: Säule und Grund, Echtzeit durch Referenz, mit Trübung am Ort gegen überall gleich | 0,728 gegen 0,747 (-2,6 %) | Unterschied ≤ 5 % [G] | ok |
+| Prüfstein 17 (S8) | Prüfstein 10: Status-Bild (Sichtprüfung) | docs\status\P7_Referenz.png, 1440 × 540 |  | – |
+| Aufräumen | Speicherkonto | ReferenzCheck 0,0 MB von 3,0 GB, Spitze 448,3 MB | 0 belegt | ok |
+
+6 Verstöße.

@@ -1,0 +1,6 @@
+#version 460
+// pfad_luft.comp – Befund P11a: wie pfad_ebenen.comp, ohne den Weg ins Wasser (Pfade, die eintauchen, enden)
+#define OHNE_WASSER
+#include "/com/dan/render/reference/gpu/kopf.glsl"
+#include "/com/dan/render/reference/gpu/szene_ebenen.glsl"
+#include "/com/dan/render/reference/gpu/pfad.glsl"

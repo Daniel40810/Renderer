@@ -1,0 +1,84 @@
+#version 460
+// licht.comp – render.water (P7d, Werkbuch HalligHooge Teil A, 12.8): Licht des Himmels auf die waagerechte Fläche am
+// Auge, E = ∫ L cos θ dω über die Himmelsansicht (64 × 32 Richtungen gleicher Fläche [G], wie render.terrain), einmal an
+// der Luft und einmal durch die Fläche ins Wasser (mal 1 − Fresnel; seit P11d mal dem Durchlass der rauen Fläche, A23). Ohne Vorbelichtung.
+// Seit P10d (F104 A): das Licht ins Wasser dazu nach seiner Richtung unter der Fläche auf die acht Stufen μ_s der Tafel der
+// Säule verteilt (je Richtung linear auf die zwei nächsten, wie core.szene.Saeule.himmelStufe), und daraus je Tafel (Grund-
+// tafel und die Stufen der Trübung) und Kanal: L des Himmels [x][μ_v] = Σ_q E_q L(x, μ_q, μ_v) und ln T des Himmels [x]
+// = ln Σ_q E_q T(x, μ_q) – statt des im Kegel gleich verteilten Himmels der Tafel (S_LH, S_TH). Wie Saeule.wertStufen.
+// Bindungen: 0–5 wie wasser.glsl, 6 Licht (geschrieben; wasser.frag liest es als Bindung 9), 7 die Tafeln der Säule.
+#include "/com/dan/render/water/wasser.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 6, std430) writeonly buffer Licht { vec4 himmelLuft; vec4 himmelWasser; vec4 himmelStufe[8]; float hl[]; };
+layout(set = 0, binding = 7, std430) readonly buffer Saeule { float sae[]; };
+// wie wasser.frag
+const int S_NX = 32;
+const int S_JE = 2 * S_NX * 64 + S_NX * 8 + S_NX * 8 + S_NX + S_NX * 8 + S_NX, S_T = 2 * S_NX * 64;
+const float S_MU = 0.665;
+const int S_FL = 3 * S_JE, FL_NMU = 32, FL_NS = 12, FL_JE = 8, S_STUFEN = 6, S_ORT = S_FL + FL_NMU * FL_NS * FL_JE;
+const float FL_S2 = 0.12;
+const int HL_JE = 32 * 8 + 32, HL_SAETZE = 1 + S_STUFEN;
+// Durchlass der wirksamen Fläche (core.szene.Flaeche, Wert 3) für cos mu und die Varianz s2, bilinear wie wasser.frag
+float flDurch(float mu, float s2) {
+    float a = float(FL_NMU - 1) * sqrt(clamp(mu, 0.0, 1.0)), b = float(FL_NS - 1) * sqrt(clamp(s2 / FL_S2, 0.0, 1.0));
+    int i = min(FL_NMU - 2, int(a)), j = min(FL_NS - 2, int(b));
+    float fa = a - float(i), fb = b - float(j);
+    int o = S_FL + (i * FL_NS + j) * FL_JE + 3;
+    return mix(mix(sae[o], sae[o + FL_JE], fb), mix(sae[o + FL_NS * FL_JE], sae[o + FL_NS * FL_JE + FL_JE], fb), fa);
+}
+shared vec3 luft[64], wasser[64], stufe[64][8], summe[8];
+void main() {
+    int a = int(gl_LocalInvocationID.x);
+    float h = hw.sonne.w, n = aW.w;
+    vec3 sl = vec3(0.0), sw = vec3(0.0);
+    vec3 st[8];
+    for (int q = 0; q < 8; q++) st[q] = vec3(0.0);
+    float phi = (float(a) + 0.5) / 64.0 * 2.0 * L_PI;
+    for (int b = 0; b < 32; b++) {
+        float cz = (float(b) + 0.5) / 32.0, sz = sqrt(1.0 - cz * cz);
+        vec3 L = ansicht(ansichtT, vec3(sz * sin(phi), cz, -sz * cos(phi)), h) * cz;
+        // seit P11d (A23, A27): durch die raue Fläche wie die Sonne seit F104 A (Varianz des Winds aus dem Kopf), sonst glatt
+        vec3 Lw = L * (licht.w > 0.5 ? flDurch(cz, bild.z) : 1.0 - fresnel(cz, n));
+        sl += L;
+        sw += Lw;
+        float ct = sqrt(max(0.0, 1.0 - (1.0 - cz * cz) / (n * n)));
+        float c = clamp((ct - S_MU) / (1.0 - S_MU) * 7.0, 0.0, 7.0);
+        int k = min(6, int(c));
+        float fc = c - float(k);
+        st[k] += Lw * (1.0 - fc);
+        st[k + 1] += Lw * fc;
+    }
+    float dw = 2.0 * L_PI / (64.0 * 32.0);
+    luft[a] = sl * dw;
+    wasser[a] = sw * dw;
+    for (int q = 0; q < 8; q++) stufe[a][q] = st[q] * dw;
+    barrier();
+    if (a < 8) {
+        vec3 s = vec3(0.0);
+        for (int i = 0; i < 64; i++) s += stufe[i][a];
+        summe[a] = s;
+        himmelStufe[a] = vec4(s, 0.0);
+    }
+    if (a == 0) {
+        vec3 s1 = vec3(0.0), s2 = vec3(0.0);
+        for (int i = 0; i < 64; i++) { s1 += luft[i]; s2 += wasser[i]; }
+        himmelLuft = vec4(s1, 0.0);
+        himmelWasser = vec4(s2, 0.0);
+    }
+    barrier();
+    // die Tafeln des Himmels: je Satz, Kanal und Eintrag ein Wert
+    for (int idx = a; idx < HL_SAETZE * 3 * HL_JE; idx += 64) {
+        int satz = idx / (3 * HL_JE), k = (idx / HL_JE) % 3, e = idx % HL_JE;
+        int o = (satz == 0 ? 0 : S_ORT + (satz - 1) * 3 * S_JE) + k * S_JE;
+        float v = 0.0;
+        if (e < 256) {
+            int j = e / 8, m = e % 8;
+            for (int q = 0; q < 8; q++) v += summe[q][k] * sae[o + (j * 8 + q) * 8 + m];
+        } else {
+            int j = e - 256;
+            for (int q = 0; q < 8; q++) v += summe[q][k] * exp(sae[o + S_T + j * 8 + q]);
+            v = log(max(v, 1e-30));
+        }
+        hl[idx] = v;
+    }
+}

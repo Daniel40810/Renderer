@@ -1,0 +1,47 @@
+// aussengrenze.comp — Schachtel auf der Karte (grobes Gitter, P4d): in jeder Masse des feinen Gitters, nach der
+// Begrenzung je Zelle und vor dem Volumen, ziehen die Flüsse über den Rand hinein aus den Zellen außen höchstens deren
+// Volumen (wie Kette.aussenBegrenzen). P.m = 0: je Zelle außen der Anteil aus Zug Σ (Gewicht · Fluss hinein) über P.dt
+// und Volumen; P.m = 1: je Randindex Fluss und u des feinen mit dem kleineren Anteil seiner beiden Zellen.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+#define SCHACHTEL_BINDUNG 20
+#include "/com/dan/physics/hydro/gpu/schachtel.glsl"
+bool nass(int c) { return vol[c] > 0.0; }
+#define KOPPLUNG_BINDUNG 21
+#include "/com/dan/physics/hydro/gpu/kopplung.glsl"
+layout(local_size_x = 64) in;
+// je Zelle außen: Anfang ihrer Einträge (nAussen + 1 Werte), dann je Eintrag Randindex · 2 (+ 1: als Nachbarin)
+layout(std430, binding = 24) readonly buffer Liste { int liste[]; };
+layout(std430, binding = 25) buffer FlussF { float flussF[]; };
+layout(std430, binding = 26) buffer Anteil { float anteil[]; };
+layout(std430, binding = 27) buffer UF { float uF[]; };
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (P.m == 0) {
+        if (i >= K.nAussen) return;
+        float zug = 0.0;
+        for (int l = liste[i]; l < liste[i + 1]; l++) {
+            int x = liste[K.nAussen + 1 + l], rr = x >> 1;
+            float fl = float(kop[4 * rr + 1]) * flussF[kop[4 * rr]];
+            if (!(fl > 0.0)) continue;
+            float w = gewicht(rr);
+            zug += (x & 1) != 0 ? w * fl : (1.0 - w) * fl;
+        }
+        float v = vol[zelleO[i]];
+        anteil[i] = zug > 0.0 && zug * P.dt > v ? v / (zug * P.dt) : 1.0;
+        return;
+    }
+    if (i >= K.nRandF || kop[4 * i + 1] == 0) return;
+    int e = kop[4 * i];
+    float fl = float(kop[4 * i + 1]) * flussF[e];
+    if (!(fl > 0.0)) return;
+    float w = gewicht(i), fk = 1.0;
+    if (w < 1.0) fk = min(fk, anteil[kop[4 * i + 2]]);
+    if (w > 0.0) fk = min(fk, anteil[kop[4 * i + 3]]);
+    if (fk < 1.0) {
+        flussF[e] = flussF[e] * fk;
+        uF[e] = uF[e] * fk;
+    }
+}

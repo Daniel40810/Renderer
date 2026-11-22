@@ -1,0 +1,54 @@
+#version 460
+// himmel.comp – render.air (P6c): je Bildpunkt nach Gelände und Wasser. Wo die Tiefe 0 ist (unendlich fern), der
+// Himmel aus der Himmelsansicht mit Sonnen- und Mondscheibe; sonst die Luftperspektive auf dem Weg vom Auge zum Punkt:
+// HDR · Durchlässigkeit + gestreutes Licht (gleiche Schritte, Tabellen wie der Himmel; seit P7e J je Lichtquelle einmal in
+// der Mitte des Wegs [G], wie Scattering.strecke). Ausgabe mal Vorbelichtung.
+#include "/com/dan/core/gpu/luft.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba16f) uniform image2D hdr;
+layout(set = 0, binding = 1) uniform sampler2D tiefe;
+layout(set = 0, binding = 2) uniform sampler2D durch;
+layout(set = 0, binding = 3) uniform sampler2D mehr;      // J (Streuordnungen, drei Kanäle)
+layout(set = 0, binding = 4) uniform sampler2D ansichtT;
+layout(set = 0, binding = 5, std430) readonly buffer Werte { Himmelswerte hw; };
+const float HDR_MAX = 60000.0;
+
+/** Anteil eines Bildpunkts in der Scheibe (Rand über einen Bildpunkt geglättet). */
+float anteil(float theta, float radius) { return clamp((radius - theta) / hw.mondE.w + 0.5, 0.0, 1.0); }
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    int W = int(hw.bild.x), H = int(hw.bild.y);
+    if (p.x >= W || p.y >= H) return;
+    float nx = (float(p.x) + 0.5) / float(W) * 2.0 - 1.0, ny = (float(p.y) + 0.5) / float(H) * 2.0 - 1.0;
+    vec3 d = normalize(hw.vorn.xyz + hw.rechts.xyz * nx * hw.rechts.w - hw.oben.xyz * ny * hw.oben.w);
+    float t = texelFetch(tiefe, p, 0).r, h = hw.sonne.w, vb = hw.sonneE.w;
+    vec3 o;
+    if (t <= 0.0) {
+        vec3 L = ansicht(ansichtT, d, h);
+        vec3 tv = trifftBoden(R_BOTTOM + h, qAus(h), d.y) ? vec3(0.0) : durchlaessigkeit(durch, R_BOTTOM + h, qAus(h), d.y);
+        // Sonnenscheibe mit Randverdunklung I(µ) = 1 − u (1 − µ)
+        float c = dot(d, hw.sonneS.xyz);
+        if (c > hw.sonneS.w - 1e-4) {
+            float th = 2.0 * asin(0.5 * length(d - hw.sonneS.xyz)), rad = asin(hw.sonneL.z);
+            float x = min(1.0, sin(th) / hw.sonneL.z), mu = sqrt(max(0.0, 1.0 - x * x));
+            L += hw.sonneL.x * (1.0 - hw.sonneL.y * (1.0 - mu)) * anteil(th, rad) * tv;
+        }
+        // Mondscheibe: Lambert-Kugel, beleuchtet aus der Richtung der Sonne
+        float cm = dot(d, hw.mondS.xyz);
+        if (cm > hw.mondS.w - 1e-4) {
+            float th = 2.0 * asin(0.5 * length(d - hw.mondS.xyz)), rad = asin(hw.mondK.w), s = min(1.0, sin(th) / hw.mondK.w);
+            vec3 quer = d - hw.mondS.xyz * cm;
+            float lq = length(quer);
+            vec3 n = (lq > 1e-12 ? quer / lq : vec3(0.0)) * s - hw.mondS.xyz * sqrt(max(0.0, 1.0 - s * s));
+            L += hw.mondK.rgb * max(0.0, dot(n, hw.sonne.xyz)) * anteil(th, rad) * tv;
+        }
+        o = L * vb;
+    } else {
+        float weg = hw.vorn.w / t / max(1e-6, dot(d, hw.vorn.xyz));
+        vec3 L, tp;
+        strahl(h, d, hw.sonne.xyz, hw.sonneE.rgb, hw.mond.xyz, hw.mondE.rgb, int(hw.bild.z), false, weg, hw.atm, RAYLEIGH, OZONE, durch, mehr, true, L, tp);
+        o = imageLoad(hdr, p).rgb * tp + L * vb;
+    }
+    imageStore(hdr, p, vec4(min(o, vec3(HDR_MAX)), 1.0));
+}

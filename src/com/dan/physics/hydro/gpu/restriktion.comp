@@ -1,0 +1,39 @@
+// restriktion.comp — Schachtel auf der Karte (grobes Gitter): grob unter fein. η = Mittel der feinen η, gewichtet mit
+// der benetzten Fläche (sind alle gleich, genau dieser Wert), Volumen aus der eigenen Tabelle; ohne Nässe trocken.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+#define SCHACHTEL_BINDUNG 20
+#include "/com/dan/physics/hydro/gpu/schachtel.glsl"
+layout(local_size_x = 64) in;
+layout(std430, binding = 21) readonly buffer EtaF { float etaF[]; };
+layout(std430, binding = 22) readonly buffer FlaecheF { float aF[]; };
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= K.ni * K.nj) return;
+    int ic = t % K.ni, jc = t / K.ni;
+    float sw = 0.0, se = 0.0, mn = 3e38, mx = -3e38;
+    for (int jf = jc * K.r; jf < (jc + 1) * K.r; jf++)
+        for (int iff = ic * K.r; iff < (ic + 1) * K.r; iff++) {
+            int c = iff + K.nxF * jf;
+            float a = aF[c];
+            if (!(a > 0.0)) continue;
+            sw += a;
+            se += a * etaF[c];
+            mn = min(mn, etaF[c]);
+            mx = max(mx, etaF[c]);
+        }
+    int cg = K.i0 + ic + W.nx * (K.j0 + jc);
+    if (sw == 0.0) {
+        vol[cg] = 0.0;
+        vol[W.zellen + cg] = 0.0;
+        eta[cg] = grund(cg);
+        return;
+    }
+    float h = max(mn == mx ? mn : se / sw, grund(cg));
+    float v = volumen(cg, h);
+    vol[cg] = v;
+    vol[W.zellen + cg] = 0.0;
+    eta[cg] = v > 0.0 ? h : grund(cg);
+}

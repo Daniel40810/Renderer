@@ -1,0 +1,216 @@
+// quellen.comp — ein Schritt der Quellen des Seegangs auf der Karte (Werkbuch HalligHooge Teil A, 12.9, P8a).
+// Dieselben Formeln wie com.dan.physics.waves.Waves.quellen, in float: Wind (Cavaleri und Malanotte-Rizzoli mit dem
+// Filter nach Tolman; Komen), Schaumkronen (Komen, WAM 3) und Vierwellen (DIA mit Tiefenskalierung) halb implizit mit
+// dem Begrenzer von WAM; danach Bodenreibung (JONSWAP) und Brechen (Battjes–Janssen) implizit, ohne Begrenzer.
+// Eine Gruppe je Zelle (Gruppen nx × ny). Die Vierwellen-Wechselwirkung verteilt auf dem Prozessor die Beiträge auf die
+// Nachbarn; hier sammelt jede Stufe sie ein (erst alle Beiträge in den gemeinsamen Speicher, dann je Ziel die Summe),
+// so ohne atomare Addition. Die Bilanz bucht die Karte nicht (das tut die Referenz, Prüfstein 7).
+#version 460
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) readonly buffer QWerte {
+    int nx, ny, nf, nd, qOben, mitWind, mitSchaum, mitQuad, mitReibung, mitBrechen;
+    int qmP0, qmP1, qmM0, qmM1;
+    int qkP[4], qkM[4];                       // Index s · 2 + y
+    float cds, steilheitPM, cReibung, alphaBJ, gammaBJ, cQuad, begrenzer, schweif;
+    float stufe, f0, dTheta, q1, q2, q3, zug, fP0, fP1, fM0, fM1, qwP0, qwP1, qwM0, qwM1;
+    float qvP[4], qvM[4];
+} Q;
+layout(std430, binding = 1) readonly buffer Zelle { vec4 zelle[]; };   // nass (0/1), Gefälle der Tiefe in x, in y, Tiefe
+layout(std430, binding = 2) readonly buffer Freq { vec4 freq[]; };    // je Zelle und Frequenz: c_g, σ/sinh(2kd), k, –
+layout(std430, binding = 3) readonly buffer Winkel { vec2 winkel[]; }; // cos, sin je Richtung
+layout(std430, binding = 4) buffer Spektrum { float e[]; };            // E(f, θ), wird hier ersetzt
+layout(std430, binding = 5) readonly buffer Strom { vec4 strom[]; };  // je Zelle drei: (U, V, ∂U/∂x, ∂U/∂y), (∂V/∂x, ∂V/∂y, Wind x, Wind y), (u*, –, –, –)
+layout(std430, binding = 6) readonly buffer Stufen { vec4 stufen[]; }; // je Frequenz: σ, Δf, f, –
+layout(std430, binding = 7) writeonly buffer Diss { float diss[]; };   // je Zelle: Leistung aus Schaumkronen und Brechen (W/m²)
+
+layout(push_constant) uniform Schritt { float dt; float kappung; } P;   // kappung: 1 = H_rms ≤ γ d am Ende (P8c, W7)
+
+const int GR = 128, NF_MAX = 32, ND_MAX = 72, QO_MAX = 4;
+const float G = 9.81, RHO_A = 1.28, RHO_W = 1025.0, ZWEI_PI = 6.28318530718;
+
+shared float es[NF_MAX * ND_MAX];
+shared float dsA[(NF_MAX + QO_MAX) * ND_MAX * 2];
+shared float zeile[NF_MAX];
+shared float sEt, sSigMittel, sKMittel, sGam, sBrech, sVor;
+shared float teil[GR], teilM0[GR];
+shared float sFaktor;
+
+int qmod(int q) { int r = q % Q.nd; return r < 0 ? r + Q.nd : r; }
+
+/** E an Stufe m (über der höchsten Frequenz der Schweif), Richtung q (im Kreis); unter der tiefsten 0. */
+float lies(int m, int q) {
+    if (m < 0) return 0.0;
+    q = qmod(q);
+    if (m < Q.nf) return es[m * Q.nd + q];
+    return es[(Q.nf - 1) * Q.nd + q] * pow(Q.zug, float(m - Q.nf + 1));
+}
+
+/** Anteil brechender Wellen nach Battjes und Janssen (1978): 1 − Q = −β² ln Q. */
+float brecheranteil(float beta) {
+    if (beta >= 1.0) return 1.0;
+    if (beta < 0.15) return 0.0;
+    float b2 = beta * beta, lo = 0.0, hi = 1.0 - min(0.5, (1.0 - b2) / b2);
+    for (int it = 0; it < 40; it++) {
+        float q = 0.5 * (lo + hi);
+        if (1.0 - q + b2 * log(q) > 0.0) hi = q; else lo = q;
+    }
+    return 0.5 * (lo + hi);
+}
+
+void main() {
+    int c = int(gl_WorkGroupID.y) * Q.nx + int(gl_WorkGroupID.x);
+    int lid = int(gl_LocalInvocationID.x);
+    if (zelle[c].x < 0.5) {                                         // trocken: gleich für die ganze Gruppe
+        if (lid == 0) diss[c] = 0.0;
+        return;
+    }
+    int nf = Q.nf, nd = Q.nd, n = nf * nd, basis = c * n, bz = c * nf;
+    float d = zelle[c].w, dt = P.dt;
+    for (int o = lid; o < n; o += GR) es[o] = e[basis + o];
+    barrier();
+    // ---- Summen je Stufe
+    for (int m = lid; m < nf; m += GR) {
+        float s = 0.0;
+        for (int q = 0; q < nd; q++) s += es[m * nd + q];
+        zeile[m] = s * stufen[m].y * Q.dTheta;
+    }
+    barrier();
+    if (lid == 0) {
+        float et = 0.0, eSig = 0.0, eK = 0.0, eS1 = 0.0;
+        for (int m = 0; m < nf; m++) {
+            float s = zeile[m], sg = stufen[m].x;
+            et += s; eSig += s / sg; eK += s / sqrt(freq[bz + m].z); eS1 += s * sg;
+        }
+        if (nf > 1) {                                                // Schweif über der höchsten Frequenz
+            float s = 0.0;
+            for (int q = 0; q < nd; q++) s += es[(nf - 1) * nd + q];
+            s *= Q.dTheta * stufen[nf - 1].z * sqrt(Q.stufe) * pow(Q.stufe, -0.5 * Q.schweif);
+            float sg = stufen[nf - 1].x;
+            et += s / (Q.schweif - 1.0); eSig += s / (Q.schweif * sg); eK += s / (Q.schweif * sqrt(freq[bz + nf - 1].z)); eS1 += s * sg / (Q.schweif - 2.0);
+        }
+        float sigM = et > 0.0 ? et / eSig : 0.0, kM = et > 0.0 ? (et / eK) * (et / eK) : 0.0;
+        float gam = 0.0;
+        if (Q.mitSchaum != 0 && et > 0.0) {
+            float st = kM * sqrt(et) / Q.steilheitPM;
+            gam = Q.cds * st * st * st * st;
+        }
+        float gB = 0.0;
+        if (Q.mitBrechen != 0 && et > 0.0) {
+            float hm = Q.gammaBJ * d, qb = brecheranteil(sqrt(8.0 * et) / hm);
+            if (qb > 0.0) gB = 0.25 * Q.alphaBJ * qb * (eS1 / et) / ZWEI_PI * hm * hm / et;
+        }
+        float vor = 0.0;
+        if (Q.mitQuad != 0 && et > 0.0) {
+            float kpd = max(0.5, 0.75 * kM * d);
+            float skal = kpd > 20.0 ? 1.0 : 1.0 + 5.5 / kpd * (1.0 - 5.0 / 6.0 * kpd) * exp(-1.25 * kpd);
+            vor = Q.cQuad * skal / (G * G * G * G);
+        }
+        sEt = et; sSigMittel = sigM; sKMittel = kM; sGam = gam; sBrech = gB; sVor = vor;
+    }
+    barrier();
+    float et = sEt;
+    bool quad = Q.mitQuad != 0 && et > 0.0;
+    // ---- Vierwellen (DIA), erster Teil: je Stufe m < nf + qOben, Richtung q und Seite s der Beitrag ds
+    if (quad) {
+        int nq = (nf + Q.qOben) * nd;
+        int qmP[2] = int[2](Q.qmP0, Q.qmP1), qmM[2] = int[2](Q.qmM0, Q.qmM1);
+        float qwP[2] = float[2](Q.qwP0, Q.qwP1), qwM[2] = float[2](Q.qwM0, Q.qwM1);
+        for (int o = lid; o < nq; o += GR) {
+            int m = o / nd, q = o - m * nd;
+            float e0 = lies(m, q);
+            float v11 = sVor * pow(Q.f0 * pow(Q.stufe, float(m)), 11.0);
+            for (int s = 0; s < 2; s++) {
+                float ds = 0.0;
+                if (e0 > 0.0) {
+                    float ep = 0.0, em = 0.0;
+                    for (int x = 0; x < 2; x++) for (int y = 0; y < 2; y++) {
+                        ep += qwP[x] * Q.qvP[s * 2 + y] * lies(m + qmP[x], q + Q.qkP[s * 2 + y]);
+                        em += qwM[x] * Q.qvM[s * 2 + y] * lies(m + qmM[x], q + Q.qkM[s * 2 + y]);
+                    }
+                    ds = v11 * e0 * (e0 * (ep * Q.q1 + em * Q.q2) - Q.q3 * ep * em);
+                }
+                dsA[o * 2 + s] = ds;
+            }
+        }
+    }
+    barrier();
+    // ---- Wind in der Zelle
+    vec4 s1 = strom[3 * c + 1];
+    float uw = length(s1.zw), us = 0.0, cw = 0.0, sw = 0.0, sPM = 1.0, usFeld = strom[3 * c + 2].x;
+    bool wind = Q.mitWind != 0 && uw > 0.0;
+    if (wind) {
+        float cd = uw < 7.5 ? 1.2875e-3 : (0.8 + 0.065 * uw) * 1e-3;
+        us = usFeld > 0.0 ? usFeld : sqrt(cd) * uw; cw = s1.z / uw; sw = s1.w / uw;
+        sPM = ZWEI_PI * 0.13 * G / (28.0 * us);
+    }
+    // ---- Schritt je Stufe und Richtung
+    int qmP[2] = int[2](Q.qmP0, Q.qmP1), qmM[2] = int[2](Q.qmM0, Q.qmM1);
+    float qwP[2] = float[2](Q.qwP0, Q.qwP1), qwM[2] = float[2](Q.qwM0, Q.qwM1);
+    float fP[2] = float[2](Q.fP0, Q.fP1), fM[2] = float[2](Q.fM0, Q.fM1);
+    int mq = nf + Q.qOben;
+    float verlust = 0.0, m0neu = 0.0;
+    for (int o = lid; o < n; o += GR) {
+        int m = o / nd, q = o - m * nd;
+        vec4 fr = freq[bz + m];
+        float kk = fr.z, sg = stufen[m].x, e0 = es[o];
+        // Wind
+        float quelle = 0.0;
+        if (wind) {
+            float co = winkel[q].x * cw + winkel[q].y * sw;
+            if (co > 0.0) {
+                float ph = sg / kk, x = sg / sPM;
+                float tolman = exp(-1.0 / (x * x * x * x));
+                float uc = us * co;
+                float lin = 1.5e-3 / (G * G) * uc * uc * uc * uc * tolman;
+                float ex = max(0.0, 0.25 * RHO_A / RHO_W * (28.0 * us / ph * co - 1.0)) * sg;
+                quelle = lin + ex * e0;
+            }
+        }
+        // Vierwellen, zweiter Teil: einsammeln
+        float sq = 0.0;
+        if (quad) {
+            sq = -2.0 * (dsA[o * 2] + dsA[o * 2 + 1]);
+            for (int s = 0; s < 2; s++) for (int x = 0; x < 2; x++) {
+                int ms = m - qmP[x];
+                if (ms >= 0 && ms < mq) for (int y = 0; y < 2; y++)
+                    sq += qwP[x] * Q.qvP[s * 2 + y] * dsA[(ms * nd + qmod(q - Q.qkP[s * 2 + y])) * 2 + s] * fP[x];
+                ms = m - qmM[x];
+                if (ms >= 0 && ms < mq) for (int y = 0; y < 2; y++)
+                    sq += qwM[x] * Q.qvM[s * 2 + y] * dsA[(ms * nd + qmod(q - Q.qkM[s * 2 + y])) * 2 + s] * fM[x];
+            }
+        }
+        // Senken
+        float gS = Q.mitSchaum != 0 && et > 0.0 ? sGam * sSigMittel * kk / sKMittel : 0.0;
+        float gR = 0.0;
+        if (Q.mitReibung != 0) {
+            float kd = kk * d;
+            if (kd < 20.0) { float sh = sinh(kd); gR = Q.cReibung * sg * sg / (G * G * sh * sh); }
+        }
+        float grenze = ZWEI_PI * Q.begrenzer * 0.0081 / (2.0 * kk * kk * kk * fr.x);
+        float n1 = 1.0 / (1.0 + dt * gS), n2 = 1.0 / (1.0 + dt * (gR + sBrech));
+        float roh = dt * (quelle + sq - gS * e0) * n1;
+        float e1 = max(0.0, e0 + clamp(roh, -grenze, grenze));
+        e[basis + o] = e1 * n2;
+        es[o] = e1 * n2;
+        m0neu += e1 * n2 * stufen[m].y * Q.dTheta;
+        verlust += (gS * e0 * n1 + sBrech * e1 * n2) * stufen[m].y * Q.dTheta;
+    }
+    teil[lid] = verlust;
+    teilM0[lid] = m0neu;
+    barrier();
+    if (lid == 0) {
+        float v = 0.0, m0 = 0.0;
+        for (int k = 0; k < GR; k++) { v += teil[k]; m0 += teilM0[k]; }
+        // Kappung (P8c, W7): H_rms = √(8 m0) höchstens γ d, das Spektrum gleichmäßig skaliert; das Abgezogene zählt als Brechen
+        float grenzeM0 = Q.gammaBJ * d * Q.gammaBJ * d / 8.0, f = 1.0;
+        if (P.kappung > 0.5 && Q.mitBrechen != 0 && m0 > grenzeM0) {
+            f = grenzeM0 / m0;
+            v += (1.0 - f) * m0 / dt;
+        }
+        sFaktor = f;
+        diss[c] = RHO_W * G * v;
+    }
+    barrier();
+    if (sFaktor < 1.0) for (int o = lid; o < n; o += GR) e[basis + o] = es[o] * sFaktor;
+}

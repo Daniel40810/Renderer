@@ -1,0 +1,20 @@
+#version 460
+// jmisch.comp – render.air (P10d, Werkbuch HalligHooge Teil A, 12.11, Messung d): J für die Bodenalbedo der Szene,
+// linear zwischen den Tabellen für Wasser (Albedo 0,06) und Land (0,23) gemischt statt neu gerechnet. In der Mitte liegt
+// die Mischung bezogen auf den größten Wert auf 1,2 · 10⁻³, im Einzelnen auf 1,1 % neben der Rechnung (gemessen in P10d).
+// Seit F105 A je Kanal (in der Tabelle der drei Kanäle) oder je Wellenlänge (in den Gruppen der Himmelsansicht) mit
+// eigenem Anteil, auch über 1 hinaus (Albedo über der des Lands: J ist linear in der Albedo).
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D ziel;
+layout(set = 0, binding = 1) uniform sampler2D wasser;
+layout(set = 0, binding = 2) uniform sampler2D land;
+layout(push_constant) uniform Anteil {
+    vec4 f;     // rgb: Anteil des Lands je Kanal (Albedo − 0,06) / 0,17
+    vec4 g;     // x, y: Breite, Höhe
+};
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(g.x) || p.y >= int(g.y)) return;
+    vec4 w = texelFetch(wasser, p, 0);
+    imageStore(ziel, p, vec4(w.rgb + (texelFetch(land, p, 0).rgb - w.rgb) * f.rgb, w.a));
+}

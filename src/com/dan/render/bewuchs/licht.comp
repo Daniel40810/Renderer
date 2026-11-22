@@ -1,0 +1,35 @@
+#version 460
+// licht.comp – render.bewuchs (P12c, wie render.bau): Himmel und Boden als Kugelflächenfunktionen bis Grad 2 (9 Glieder
+// je Kanal) aus der Himmelsansicht; die Bestrahlung jeder Fläche nach Ramamoorthi und Hanrahan (2001).
+#include "/com/dan/core/gpu/luft.glsl"
+#include "/com/dan/render/bewuchs/kugel.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 0, std430) readonly buffer Werte { Himmelswerte hw; };
+layout(set = 0, binding = 1) uniform sampler2D ansichtT;
+layout(set = 0, binding = 2, std430) writeonly buffer Licht { vec4 sh[9]; };
+shared vec3 teil[64][9];
+void main() {
+    int a = int(gl_LocalInvocationID.x);
+    float h = hw.sonne.w;
+    vec3 s[9];
+    for (int k = 0; k < 9; k++) s[k] = vec3(0.0);
+    float phi = (float(a) + 0.5) / 64.0 * 2.0 * L_PI;
+    for (int b = 0; b < 32; b++) {
+        float cz = (float(b) + 0.5) / 32.0, sz = sqrt(1.0 - cz * cz);
+        for (int o = 0; o < 2; o++) {
+            vec3 d = vec3(sz * sin(phi), o == 0 ? cz : -cz, -sz * cos(phi));
+            vec3 L = ansicht(ansichtT, d, h);
+            float y[9];
+            kugelY(d, y);
+            for (int k = 0; k < 9; k++) s[k] += L * y[k];
+        }
+    }
+    float dw = 2.0 * L_PI / (64.0 * 32.0);
+    for (int k = 0; k < 9; k++) teil[a][k] = s[k] * dw;
+    barrier();
+    if (a < 9) {
+        vec3 t = vec3(0.0);
+        for (int i = 0; i < 64; i++) t += teil[i][a];
+        sh[a] = vec4(t, 0.0);
+    }
+}

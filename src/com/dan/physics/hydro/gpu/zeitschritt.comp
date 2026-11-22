@@ -1,0 +1,63 @@
+// zeitschritt.comp — Grenzen des Zeitschritts je Zelle, je Gruppe zu einem Wert gefaltet (red[Gruppe]), wie
+// Hydro.dtTeile (seit P5, F32 A: Wellen in zwei Richtungen):
+// P.m = 0: Welle, 1 / √(r_x² + r_y²) mit r das Größte von (|u| + √(g h)) / Δ über die Kanten in x und in y, Minimum;
+// P.m = 1: Speicher je nasser Zelle, g Σ (A_e / Δ_e) (1 / S_Zelle + 1 / S_Nachbar), Maximum. Den Rest faltet der Prozessor.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 256) in;
+shared float teil[256];
+
+/** Rate an einer Kante (1/s); 0: trocken, Bauwerk oder Randkante ohne Wasserstand. */
+float rate(int e) {
+    if (bauNr[e] >= 0) return 0.0;
+    int s = seite(e);
+    if (s >= 0 && art(s) != WASSERSTAND) return 0.0;
+    int a = links(e), b = rechts(e);
+    float h = max(a >= 0 ? eta[a] : -1e30, b >= 0 ? eta[b] : -1e30) - kantenGrund(e);
+    if (!(h > 0.0)) return 0.0;
+    return (abs(u[e]) + sqrt(W.g * h)) / abstand(e);
+}
+
+float welle(int c) {
+    if (c >= W.zellen) return 3.0e38;
+    int i = c % W.nx, j = c / W.nx;
+    float rx = max(rate(kanteX(i, j)), rate(kanteX(i + 1, j)));
+    float ry = max(rate(kanteY(i, j)), rate(kanteY(i, j + 1)));
+    float r = sqrt(rx * rx + ry * ry);
+    return r > 0.0 ? 1.0 / r : 3.0e38;
+}
+
+float speicher(int c) {
+    if (c >= W.zellen || !(vol[c] > 0.0)) return 0.0;
+    float ac = speicher(c, eta[c]);
+    if (!(ac > 0.0)) return 0.0;
+    int i = c % W.nx, j = c / W.nx;
+    int k[4] = int[4](kanteX(i, j), kanteX(i + 1, j), kanteY(i, j), kanteY(i, j + 1));
+    float sum = 0.0;
+    for (int n = 0; n < 4; n++) {
+        int e = k[n];
+        if (bauNr[e] >= 0) continue;
+        int s = seite(e);
+        if (s >= 0 && art(s) != WASSERSTAND) continue;
+        int nb = links(e) == c ? rechts(e) : links(e);
+        float hoch = nb >= 0 ? max(eta[c], eta[nb]) : eta[c];
+        float ae = laenge(e) * hA(e, hoch);
+        if (!(ae > 0.0)) continue;
+        float an = nb >= 0 ? speicher(nb, eta[nb]) : 0.0;
+        sum += ae / abstand(e) * (1.0 / ac + (an > 0.0 ? 1.0 / an : 0.0));
+    }
+    return W.g * sum;
+}
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x), l = int(gl_LocalInvocationID.x);
+    bool minimum = P.m == 0;
+    teil[l] = minimum ? welle(t) : speicher(t);
+    barrier();
+    for (int s = 128; s > 0; s >>= 1) {
+        if (l < s) teil[l] = minimum ? min(teil[l], teil[l + s]) : max(teil[l], teil[l + s]);
+        barrier();
+    }
+    if (l == 0) red[gl_WorkGroupID.x] = teil[0];
+}

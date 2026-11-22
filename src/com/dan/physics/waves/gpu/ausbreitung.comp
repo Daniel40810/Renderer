@@ -1,0 +1,130 @@
+// ausbreitung.comp — ein Teilschritt der Ausbreitung des Seegangs auf der Karte (Werkbuch HalligHooge Teil A, 12.9, P8a).
+// Dieselben Formeln wie com.dan.physics.waves.Waves.ausbreitung, in float: Flussform, aufwind in x und y; in Richtung
+// und Frequenz dazu die zweite Ordnung, begrenzt nach van Leer. Mit Strömung: Transport mit c_g + U, Drehung am Strom,
+// Verschiebung der Frequenz (Fluss der Wirkung E/σ über σ). Ein Faden je Zelle und Frequenz; er rechnet alle Richtungen.
+#version 460
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Werte {
+    int nx, ny, nf, nd, periodischY, raender, strom, verschiebung;   // raender: Bits 1 West, 2 Ost, 4 Süd, 8 Nord
+    float dx, dy, dTheta, drehGrenze, zugAus, pad0, pad1, pad2;     // zugAus = stufe^(−schweif − 1)
+} W;
+layout(std430, binding = 1) readonly buffer Zelle { vec4 zelle[]; };   // nass (0/1), Gefälle der Tiefe in x, in y, Tiefe
+layout(std430, binding = 2) readonly buffer Freq { vec4 freq[]; };    // je Zelle und Frequenz: c_g, σ/sinh(2kd), k, –
+layout(std430, binding = 3) readonly buffer Winkel { vec2 winkel[]; }; // cos, sin je Richtung
+layout(std430, binding = 4) readonly buffer Alt { float a[]; };
+layout(std430, binding = 5) writeonly buffer Neu { float b[]; };
+layout(std430, binding = 6) readonly buffer Rand { float rand[]; };   // einlaufendes Spektrum je Randzelle (Folge von Gitter.rand), (r · nf + m) · nd + q
+layout(std430, binding = 7) readonly buffer Strom { vec4 strom[]; };  // je Zelle drei: (U, V, ∂U/∂x, ∂U/∂y), (∂V/∂x, ∂V/∂y, Wind x, Wind y), (u*, –, –, –)
+layout(std430, binding = 8) readonly buffer Stufen { vec4 stufen[]; }; // je Frequenz: σ, Δf, f, –
+
+layout(push_constant) uniform Schritt { float h; float pad; } P;
+
+const int ND_MAX = 72;
+const float ZWEI_PI = 6.28318530718;
+
+float fluss(float v, float ell, float el, float er, float err, float hd) {
+    float auf = v > 0.0 ? el : er;
+    float ab = v > 0.0 ? er : el, dahinter = v > 0.0 ? ell : err, d = ab - auf;
+    if (d == 0.0) return v * auf;
+    float x = auf - dahinter;
+    if (x == 0.0 || (x > 0.0) != (d > 0.0)) return v * auf;
+    float phi = 2.0 * x / (x + d);
+    return v * (auf + 0.5 * phi * max(0.0, 1.0 - abs(v) * hd) * d);
+}
+
+/** Abfluss über eine Seite der Zelle (s = −1 oder +1), Nachbar nb (−1: Rand des Gebiets), Bit des Rands, Randzelle ri; uNb: Strom des Nachbarn in dieser Achse. */
+float seite(float vo, float co, int nb, float uNb, int m, int q, float e0, float s, int bit, int ri) {
+    if (nb >= 0 && zelle[nb].x > 0.5) {
+        float vf = s * 0.5 * (vo + freq[nb * W.nf + m].x * co + uNb);
+        return vf > 0.0 ? vf * e0 : vf * a[(nb * W.nf + m) * W.nd + q];
+    }
+    float vf = s * vo;
+    if (vf > 0.0) return vf * e0;
+    return nb < 0 && (W.raender & bit) != 0 ? vf * rand[(ri * W.nf + m) * W.nd + q] : 0.0;
+}
+
+/** c_σ in Zelle c, Frequenz m, Richtung (co, si). */
+float schub(int c, int m, float co, float si) {
+    vec4 fr = freq[c * W.nf + m], s0 = strom[3 * c], s1 = strom[3 * c + 1];
+    vec4 z = zelle[c];
+    return fr.z * (fr.y * (s0.x * z.y + s0.y * z.z) - fr.x * (co * co * s0.z + si * co * (s0.w + s1.x) + si * si * s1.y));
+}
+
+void main() {
+    int id = int(gl_GlobalInvocationID.x);
+    int nc = W.nx * W.ny;
+    if (id >= nc * W.nf) return;
+    int c = id / W.nf, m = id - c * W.nf, basis = id * W.nd;
+    if (zelle[c].x < 0.5) {
+        for (int q = 0; q < W.nd; q++) b[basis + q] = 0.0;
+        return;
+    }
+    int i = c % W.nx, j = c / W.nx;
+    int cw = i > 0 ? c - 1 : -1, co = i < W.nx - 1 ? c + 1 : -1;
+    int cs = j > 0 ? c - W.nx : (W.periodischY != 0 ? c + (W.ny - 1) * W.nx : -1);
+    int cn = j < W.ny - 1 ? c + W.nx : (W.periodischY != 0 ? c - (W.ny - 1) * W.nx : -1);
+    float g = freq[id].x, r = freq[id].y;
+    vec4 s0 = strom[3 * c], s1 = strom[3 * c + 1];
+    float uc = s0.x, vc = s0.y;
+    float uW = cw >= 0 ? strom[3 * cw].x : 0.0, uO = co >= 0 ? strom[3 * co].x : 0.0;
+    float vS = cs >= 0 ? strom[3 * cs].y : 0.0, vN = cn >= 0 ? strom[3 * cn].y : 0.0;
+    int rW = 2 * W.nx + W.ny + (W.ny - 1 - j), rO = W.nx + j, rS = i, rN = W.nx + W.ny + (W.nx - 1 - i);
+    float ct[ND_MAX];
+    for (int q = 0; q < W.nd; q++) {
+        float cq = winkel[q].x, sq = winkel[q].y;
+        float w = r * (sq * zelle[c].y - cq * zelle[c].z);
+        if (W.strom != 0) w += sq * (cq * s0.z + sq * s1.x) - cq * (cq * s0.w + sq * s1.y);
+        float grenze = W.drehGrenze * W.dTheta * (abs(g * cq + uc) / W.dx + abs(g * sq + vc) / W.dy);
+        ct[q] = clamp(w, -grenze, grenze);
+    }
+    float hd = P.h / W.dTheta;
+    float sg = stufen[m].x, ds = ZWEI_PI * stufen[m].y;
+    for (int q = 0; q < W.nd; q++) {
+        float cq = winkel[q].x, sq = winkel[q].y;
+        float e0 = a[basis + q], de = 0.0;
+        // ---- x
+        float vo = g * cq + uc;
+        de -= seite(vo, cq, cw, uW, m, q, e0, -1.0, 1, rW) * P.h / W.dx;
+        de -= seite(vo, cq, co, uO, m, q, e0, 1.0, 2, rO) * P.h / W.dx;
+        // ---- y
+        if (W.ny > 1) {
+            vo = g * sq + vc;
+            de -= seite(vo, sq, cs, vS, m, q, e0, -1.0, 4, rS) * P.h / W.dy;
+            de -= seite(vo, sq, cn, vN, m, q, e0, 1.0, 8, rN) * P.h / W.dy;
+        }
+        // ---- θ
+        int qp = q + 1 < W.nd ? q + 1 : 0, qm = q > 0 ? q - 1 : W.nd - 1;
+        int qpp = qp + 1 < W.nd ? qp + 1 : 0, qmm = qm > 0 ? qm - 1 : W.nd - 1;
+        float vp = 0.5 * (ct[q] + ct[qp]), vm = 0.5 * (ct[qm] + ct[q]);
+        float eP = a[basis + qp], eM = a[basis + qm];
+        float fp = fluss(vp, eM, e0, eP, a[basis + qpp], hd), fm = fluss(vm, a[basis + qmm], eM, e0, eP, hd);
+        de -= (fp - fm) * hd;
+        // ---- σ: Fluss der Wirkung E/σ
+        if (W.verschiebung != 0) {
+            int bz = c * W.nf;
+            float c0 = schub(c, m, cq, sq), n0 = e0 / sg;
+            float gp, gm;
+            if (m + 1 < W.nf) {
+                float sR = stufen[m + 1].x;
+                float vpp = 0.5 * (c0 + schub(c, m + 1, cq, sq)), nR = a[(bz + m + 1) * W.nd + q] / sR;
+                float nLL = m > 0 ? a[(bz + m - 1) * W.nd + q] / stufen[m - 1].x : n0;
+                float nRR = m + 2 < W.nf ? a[(bz + m + 2) * W.nd + q] / stufen[m + 2].x : nR * W.zugAus;
+                gp = fluss(vpp, nLL, n0, nR, nRR, P.h / ds);
+            } else {
+                gp = c0 > 0.0 ? c0 * n0 : c0 * n0 * W.zugAus;
+            }
+            if (m > 0) {
+                float sL = stufen[m - 1].x;
+                float vmm = 0.5 * (c0 + schub(c, m - 1, cq, sq)), nL = a[(bz + m - 1) * W.nd + q] / sL;
+                float nLL = m > 1 ? a[(bz + m - 2) * W.nd + q] / stufen[m - 2].x : nL;
+                float nRR = m + 1 < W.nf ? a[(bz + m + 1) * W.nd + q] / stufen[m + 1].x : n0 * W.zugAus;
+                gm = fluss(vmm, nLL, nL, n0, nRR, P.h / (ZWEI_PI * stufen[m - 1].y));
+            } else {
+                gm = c0 < 0.0 ? c0 * n0 : 0.0;
+            }
+            de -= (gp - gm) * P.h / ds * sg;
+        }
+        b[basis + q] = e0 + de;
+    }
+}

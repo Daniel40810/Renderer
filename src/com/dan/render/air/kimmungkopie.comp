@@ -1,0 +1,13 @@
+#version 460
+// kimmungkopie.comp – render.air (P10b): die Zeilen y0..y1 des HDR-Bilds in ein zweites Bild, aus dem die Kimmung liest,
+// während sie ins HDR-Bild schreibt.
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba16f) uniform image2D hdr;
+layout(set = 0, binding = 1, rgba16f) uniform image2D kopie;
+layout(push_constant) uniform Push { int y0; int y1; } q;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy) + ivec2(0, q.y0), s = imageSize(hdr);
+    if (p.x >= s.x || p.y > q.y1 || p.y >= s.y) return;
+    imageStore(kopie, p, imageLoad(hdr, p));
+}

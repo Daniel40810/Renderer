@@ -1,0 +1,4 @@
+#version 460
+// gruppe4.comp – render.air (F62 A): Gruppe 4 der Himmelsansicht, siehe gruppe.glsl
+#define GRUPPE 4
+#include "/com/dan/render/air/gruppe.glsl"

@@ -1,0 +1,25 @@
+// stufe.comp — Prüfkernel von GpuCheck: ein Schritt eines Ausgleichs auf einem Gitter nx · ny (Nachbarn am Rand
+// gespiegelt). Gelesen wird aus EIN, geschrieben nach AUS; zwei Puffer wechseln sich ab. Nur Addition, Subtraktion und
+// Multiplikation, jede für sich gerundet („precise“): bitgleich mit der Rechnung in Java.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/core/gpu/demo/gitter.glsl"
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Ein { float u[]; };
+layout(std430, binding = 1) writeonly buffer Aus { float w[]; };
+layout(push_constant) uniform Werte { int nx, ny; float k; };
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t >= nx * ny) return;
+    int i = t % nx, j = t / nx;
+    float c = u[zelle(i, j, nx)];
+    precise float ost = u[zelle(min(i + 1, nx - 1), j, nx)] + u[zelle(max(i - 1, 0), j, nx)];
+    precise float nord = u[zelle(i, min(j + 1, ny - 1), nx)] + u[zelle(i, max(j - 1, 0), nx)];
+    precise float summe = ost + nord;
+    precise float vier = 4.0 * c;
+    precise float d = summe - vier;
+    precise float kd = k * d;
+    precise float neu = c + kd;
+    w[t] = neu;
+}

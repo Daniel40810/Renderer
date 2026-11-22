@@ -1,0 +1,39 @@
+#version 460
+// tafeln.comp – Referenz Stufe 2 (P11a): Prüfung der Tafeln auf der Karte (Modi 4 Fournier-Forand, 5 Spektrum), getrennt
+// vom Pfadverfolger, damit dessen Kernel klein bleibt. Bindungen und Ausgabe wie pfad_ebenen.comp.
+#define NUR_TAFELN
+#include "/com/dan/render/reference/gpu/kopf.glsl"
+#include "/com/dan/render/reference/gpu/szene_ebenen.glsl"
+#include "/com/dan/render/reference/gpu/pfad.glsl"
+
+void main() {
+    uint gi = gl_GlobalInvocationID.x;
+    if (gi >= uint(pc.faeden)) return;
+    uint fi = gi + uint(pc.versatz);
+    rs = pcgHash(fi ^ pcgHash(uint(pc.runde) * 2654435769u ^ pcgHash(pc.saat)));
+    int base = int(fi) * 24;
+    if (pc.modus == 5) {                                                   // Tafeln: Werte bei λ
+        float l = LMIN + float(fi) * (LBREITE / float(max(1, pc.gesamt - 1)));
+        vec3 g = gewichte(vec3(W[W_ALB], W[W_ALB + 1], W[W_ALB + 2]));
+        A[base + 0] = tafel(S_X, l);
+        A[base + 1] = tafel(S_Y, l);
+        A[base + 2] = tafel(S_Z, l);
+        A[base + 3] = tafel(S_SONNE, l);
+        A[base + 4] = tafel(S_AW, l);
+        A[base + 5] = tafel(S_O3, l);
+        A[base + 6] = rayleighSp(l);
+        A[base + 7] = reflexion(g, l);
+        A[base + 8] = l;
+        return;
+    }
+    vec3 s0 = vec3(0.0), s1 = vec3(0.0);                                   // Modus 4: 1/p und 1 − cos θ
+    for (int j = 0; j < pc.pfade; j++) {
+        float x = ffZiehe(zufall()), pd = ffDichte(x);
+        vec3 v = vec3(pd > 0.0 ? 1.0 / pd : 0.0, x, 0.0);
+        s0 += v;
+        s1 += v * v;
+    }
+    A[base + 0] += s0.x; A[base + 1] += s0.y; A[base + 2] += s0.z;
+    A[base + 3] += s1.x; A[base + 4] += s1.y; A[base + 5] += s1.z;
+    A[base + 8] += float(pc.pfade);
+}

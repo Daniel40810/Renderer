@@ -1,0 +1,36 @@
+#version 460
+// licht.comp – render.bau (P12a): das Licht von Himmel und Boden als Kugelflächenfunktionen bis Grad 2 (9 Glieder je
+// Kanal), L_lm = ∫ L(ω) Y_lm(ω) dω über die Himmelsansicht (oben 64 × 32 Richtungen gleicher Fläche [G], unten dasselbe
+// vom Boden, wie render.terrain). Daraus die Bestrahlung jeder Fläche nach Ramamoorthi und Hanrahan (2001):
+// E(n) = Σ Â_l L_lm Y_lm(n), Â = π, 2π/3, π/4. Für senkrechte Wände zählt so die Seite zur Sonne und die zum Boden.
+#include "/com/dan/render/bau/bau.glsl"
+#include "/com/dan/render/bau/kugel.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 5, std430) writeonly buffer Licht { vec4 sh[9]; };
+layout(set = 0, binding = 6) uniform sampler2D ansichtT;
+shared vec3 teil[64][9];
+void main() {
+    int a = int(gl_LocalInvocationID.x);
+    float h = hw.sonne.w;
+    vec3 s[9];
+    for (int k = 0; k < 9; k++) s[k] = vec3(0.0);
+    float phi = (float(a) + 0.5) / 64.0 * 2.0 * L_PI;
+    for (int b = 0; b < 32; b++) {
+        float cz = (float(b) + 0.5) / 32.0, sz = sqrt(1.0 - cz * cz);
+        for (int o = 0; o < 2; o++) {
+            vec3 d = vec3(sz * sin(phi), o == 0 ? cz : -cz, -sz * cos(phi));
+            vec3 L = ansicht(ansichtT, d, h);
+            float y[9];
+            kugelY(d, y);
+            for (int k = 0; k < 9; k++) s[k] += L * y[k];
+        }
+    }
+    float dw = 2.0 * L_PI / (64.0 * 32.0);
+    for (int k = 0; k < 9; k++) teil[a][k] = s[k] * dw;
+    barrier();
+    if (a < 9) {
+        vec3 t = vec3(0.0);
+        for (int i = 0; i < 64; i++) t += teil[i][a];
+        sh[a] = vec4(t, 0.0);
+    }
+}

@@ -1,0 +1,18 @@
+// halb.comp — Prüfkernel von GpuCheck: float16 im Puffer (braucht die Fähigkeit float16).
+// Liest eine in Java gepackte Tabelle als float16 und packt float-Werte selbst nach float16.
+#version 460
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Tabelle { float16_t tabelle[]; };
+layout(std430, binding = 1) writeonly buffer Aus { float aus[]; };
+layout(std430, binding = 2) readonly buffer Ein { float ein[]; };
+layout(std430, binding = 3) writeonly buffer Gepackt { float16_t gepackt[]; };
+layout(push_constant) uniform Werte { int n; };
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(n)) return;
+    aus[i] = float(tabelle[i]);
+    gepackt[i] = float16_t(ein[i]);
+}
