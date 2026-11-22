@@ -17,10 +17,16 @@ import java.util.List;
  * <p>
  * Knotenfaktoren als Reihen in N nach Doodson (Pugh 1987, Tab. 4.3); Flachwassertiden aus ihren Eltern
  * (M4 = M2·M2, MS4 = M2·S2, MN4 = M2·N2, M6 = M2·M2·M2). Sonnentiden haben f = 1, u = 0.
+ * <p>
+ * Seit DB5 (Werkbuch HalligHooge 176) die Flachwassertiden des Wattenmeers für die harmonische Analyse der Pegel:
+ * 2SM2 = 2·S2 − M2, MK3 = M2 + K1, MO3 = M2 + O1, S4 = 2·S2, 2MS6 = 2·M2 + S2, 2MN6 = 2·M2 + N2, MSN6 = M2 + S2 + N2,
+ * M8 = 4·M2, 3MS8 = 3·M2 + S2 – Argument die Summe der Eltern, f das Produkt, u die Summe –, dazu L2 und M3 (Tide dritten
+ * Grades, f = f(M2)^1,5). L2 hat einen Knotenfaktor, der auch vom Perigäum abhängt; hier vereinfacht wie M2 (wie NU2,
+ * MU2, 2N2).
  */
 public final class Partialtide {
     /** Familien mit gleicher Knotenkorrektur. */
-    public enum Knoten { KEINE, MM, MF, O1, K1, J1, M2, K2, M4, MS4, M6 }
+    public enum Knoten { KEINE, MM, MF, O1, K1, J1, M2, K2, M4, MS4, M6, M3, MK3, MO3, M8, M2_KEHR }
 
     /** Änderung der Grundargumente in Grad je Stunde: τ, s, h, p, N′, p₁. */
     static final double[] RATE = {15.0 - 0.54901653 + 0.04106864, 0.54901653, 0.04106864, 0.00464183, 0.00220641, 0.00000196};
@@ -63,12 +69,27 @@ public final class Partialtide {
             M4 = new Partialtide("M4", 0, Knoten.M4, 0, 4, 0, 0, 0, 0, 0),
             MS4 = new Partialtide("MS4", 0, Knoten.MS4, 0, 4, 2, -2, 0, 0, 0),
             MN4 = new Partialtide("MN4", 0, Knoten.M4, 0, 4, -1, 0, 1, 0, 0),
-            M6 = new Partialtide("M6", 0, Knoten.M6, 0, 6, 0, 0, 0, 0, 0);
+            M6 = new Partialtide("M6", 0, Knoten.M6, 0, 6, 0, 0, 0, 0, 0),
+            // seit DB5: für die Analyse der Pegel im Wattenmeer
+            L2 = new Partialtide("L2", 0.00669, Knoten.M2, 180, 2, 1, 0, -1, 0, 0),
+            ZWEI_SM2 = new Partialtide("2SM2", 0, Knoten.M2_KEHR, 0, 2, 4, -4, 0, 0, 0),
+            M3 = new Partialtide("M3", 0.00319, Knoten.M3, 180, 3, 0, 0, 0, 0, 0),
+            MK3 = new Partialtide("MK3", 0, Knoten.MK3, 90, 3, 1, 0, 0, 0, 0),
+            MO3 = new Partialtide("MO3", 0, Knoten.MO3, -90, 3, -1, 0, 0, 0, 0),
+            S4 = new Partialtide("S4", 0, Knoten.KEINE, 0, 4, 4, -4, 0, 0, 0),
+            ZWEI_MS6 = new Partialtide("2MS6", 0, Knoten.M4, 0, 6, 2, -2, 0, 0, 0),
+            ZWEI_MN6 = new Partialtide("2MN6", 0, Knoten.M6, 0, 6, -1, 0, 1, 0, 0),
+            MSN6 = new Partialtide("MSN6", 0, Knoten.M4, 0, 6, 1, -2, 1, 0, 0),
+            M8 = new Partialtide("M8", 0, Knoten.M8, 0, 8, 0, 0, 0, 0, 0),
+            DREI_MS8 = new Partialtide("3MS8", 0, Knoten.M6, 0, 8, 2, -2, 0, 0, 0);
 
     /** Die 17 Partialtiden von EOT20 (Hart-Davis u. a. 2021). */
     public static final List<Partialtide> EOT20 = List.of(ZWEI_N2, J1, K1, K2, M2, M4, MF, MM, N2, O1, P1, Q1, S1, S2, SA, SSA, T2);
     /** Alle Partialtiden, die der Kern kennt. */
-    public static final List<Partialtide> ALLE = List.of(M2, S2, N2, K2, ZWEI_N2, T2, NU2, MU2, K1, O1, P1, Q1, J1, S1, MF, MM, SSA, SA, M4, MS4, MN4, M6);
+    public static final List<Partialtide> ALLE = List.of(M2, S2, N2, K2, ZWEI_N2, T2, NU2, MU2, K1, O1, P1, Q1, J1, S1, MF, MM, SSA, SA, M4, MS4, MN4, M6,
+            L2, ZWEI_SM2, M3, MK3, MO3, S4, ZWEI_MS6, ZWEI_MN6, MSN6, M8, DREI_MS8);
+    /** Seit DB5: die Flachwassertiden und L2, M3, die die Analyse der Pegel dazunimmt. */
+    public static final List<Partialtide> WATT = List.of(L2, ZWEI_SM2, M3, MK3, MO3, S4, ZWEI_MS6, ZWEI_MN6, MSN6, M8, DREI_MS8);
 
     /** Die Partialtide mit diesem Namen (ohne Groß und Klein) oder null. */
     public static Partialtide nach(String name) {
@@ -86,7 +107,7 @@ public final class Partialtide {
     /** Periode in Stunden. */
     public double periodeStunden() { return 360 / gradJeStunde(); }
 
-    /** Zahl der Wellen je Tag: 0 langperiodisch, 1 eintägig, 2 halbtägig, 4 und 6 Flachwasser. */
+    /** Zahl der Wellen je Tag: 0 langperiodisch, 1 eintägig, 2 halbtägig, 3, 4, 6 und 8 Flachwasser (M3 drittelstägig). */
     public int art() { return doodson[0]; }
 
     /** Astronomisches Argument V (Grad, 0..360) zum Zeitpunkt, ohne u. */
@@ -121,6 +142,11 @@ public final class Partialtide {
             case MS4: return fu(Knoten.M2, nGrad);
             case M4: { double[] m = fu(Knoten.M2, nGrad); return new double[] {m[0] * m[0], 2 * m[1]}; }
             case M6: { double[] m = fu(Knoten.M2, nGrad); return new double[] {m[0] * m[0] * m[0], 3 * m[1]}; }
+            case M3: { double[] m = fu(Knoten.M2, nGrad); return new double[] {Math.pow(m[0], 1.5), 1.5 * m[1]}; }
+            case MK3: { double[] m = fu(Knoten.M2, nGrad), k1 = fu(Knoten.K1, nGrad); return new double[] {m[0] * k1[0], m[1] + k1[1]}; }
+            case MO3: { double[] m = fu(Knoten.M2, nGrad), o = fu(Knoten.O1, nGrad); return new double[] {m[0] * o[0], m[1] + o[1]}; }
+            case M8: { double[] m = fu(Knoten.M2, nGrad); return new double[] {m[0] * m[0] * m[0] * m[0], 4 * m[1]}; }
+            case M2_KEHR: { double[] m = fu(Knoten.M2, nGrad); return new double[] {m[0], -m[1]}; }
             default: return new double[] {1, 0};
         }
     }
