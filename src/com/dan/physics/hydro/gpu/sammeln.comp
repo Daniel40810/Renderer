@@ -1,0 +1,22 @@
+// sammeln.comp — Summe der Flüsse je Kante über die Massen eines Kopplungsintervalls (water.q als Zeitmittel, seit P5c):
+// summe[3e] += fluss[e] · Δt, kompensiert (Kahan) mit dem Ausgleich in summe[3e + 1]; dazu der Umsatz Σ |fluss| · Δt in
+// summe[3e + 2] (Maßstab der Rundung für die Prüfung). Nach jeder Masse aufgenommen, auch in den Hälften der Schachtel;
+// gesperrte Kanten tragen dort den Fluss 0.
+#version 460
+layout(std430, binding = 0) readonly buffer Fluss { float fluss[]; };
+layout(std430, binding = 1) buffer Summe { float summe[]; };
+layout(push_constant) uniform Schritt { float dt; int kanten; } P;
+layout(local_size_x = 64) in;
+
+void main() {
+    int e = int(gl_GlobalInvocationID.x);
+    if (e >= P.kanten) return;
+    precise float s = summe[3 * e];
+    precise float c = summe[3 * e + 1];
+    precise float x = fluss[e] * P.dt;
+    precise float y = x - c;
+    precise float t = s + y;
+    summe[3 * e + 1] = (t - s) - y;
+    summe[3 * e] = t;
+    summe[3 * e + 2] += abs(x);
+}

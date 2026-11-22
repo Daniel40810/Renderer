@@ -1,4 +1,27 @@
-/_p5/
+# Build- und Ausgabeordner (Ant/NetBeans)
 /build/
 /dist/
+*.class
+
+# Lokale NetBeans-Einstellungen
+/nbproject/private/
+
+# LWJGL nicht im Repo (F258 B), siehe README, Abschnitt Bibliotheken
+/lib/lwjgl/
+
+# Arbeitsstaende, Vorlagen, Absturzprotokolle
+/_p5/
+/_to_delete/
 /templates/
+/.claude/
+hs_err_pid*.log
+
+# Python-Zwischenstaende
+__pycache__/
+*.pyc
+
+# Backups und temporaere Dateien
+*.bak
+*~
+Thumbs.db
+.DS_Store

@@ -1,0 +1,16 @@
+# Zeilenenden normalisieren
+* text=auto
+
+# Batch-Dateien brauchen CRLF, damit cmd.exe sie sauber ausfuehrt
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaerdateien
+*.jar binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.wav binary
+*.pdf binary
+*.zip binary
+*.tgz binary

@@ -1,0 +1,24 @@
+// flaeche.comp — Schachtel auf der Karte (feines Gitter): benetzte Fläche je Zelle nach faktor (0, wenn trocken), für
+// das Mittel grob unter fein; durchfluss: je Kante der Durchfluss im jetzigen Stand nach q (m³/s, Bauwerke: ihr Fluss).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    if (t < W.zellen) faktor[t] = vol[t] > 0.0 ? benetzt(t, eta[t]) : 0.0;
+    if (t < W.kanten) {
+        int e = t;
+        float qq;
+        if (seite(e) < 0 && bauNr[e] >= 0) qq = fluss[e];
+        else if (u[e] == 0.0) qq = 0.0;
+        else {
+            float h;
+            bool ok = obenEta(e, u[e], P.m, h);
+            float a = ok ? hA(e, h) : 0.0;
+            qq = a < W.hTrocken ? 0.0 : u[e] * laenge(e) * a;
+        }
+        q[e] = qq;
+    }
+}

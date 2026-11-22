@@ -1,0 +1,38 @@
+// rutsch.comp — ein Durchgang des Böschungsrutsches (Werkbuch HalligHooge Teil A, 12.10, P9a), wie Sediment.rutsch:
+// über jede Kante geht ein Anteil dessen, was über dem Ruhewinkel liegt, bergab. Ein Faden je Zelle; er sammelt über
+// seine vier Kanten (dieselbe Rechnung wie die Nachbarzelle mit umgekehrtem Vorzeichen: das Volumen bleibt).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/sediment/gpu/sediment.glsl"
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 1) readonly buffer Fest { vec4 fest[]; };
+layout(std430, binding = 2) readonly buffer Abg { vec4 abg[]; };
+layout(std430, binding = 3) readonly buffer BettAlt { vec4 bett[]; };
+layout(std430, binding = 4) writeonly buffer BettNeu { vec4 bettN[]; };
+
+float boden(int c) { return fest[3 * c].x + bett[2 * c].x + bett[2 * c].z; }
+
+// Zuwachs der Zelle a über die Kante zur Zelle b (b liegt in +x bzw. +y von a, wenn vor = true)
+float ueber(int a, int b, float delta, bool vor) {
+    int lo = vor ? a : b, hi = vor ? b : a;                 // wie rutschKante(lo, hi): d = z[hi] − z[lo]
+    float d = boden(hi) - boden(lo), grenze = (d > 0.0 ? abg[4 * hi + 2].w : abg[4 * lo + 2].w) * delta, mehr = abs(d) - grenze;
+    if (mehr <= 0.0) return 0.0;
+    float t = W.rutschAnteil * 0.5 * mehr * sign(d);        // lo gewinnt t, hi verliert t
+    return vor ? t : -t;
+}
+
+void main() {
+    int c = int(gl_GlobalInvocationID.x);
+    if (c >= W.nx * W.ny) return;
+    int i = c % W.nx, j = c / W.nx;
+    float z = 0.0;
+    if (i + 1 < W.nx) z += ueber(c, c + 1, W.dx, true);
+    if (i > 0) z += ueber(c, c - 1, W.dx, false);
+    if (j + 1 < W.ny) z += ueber(c, c + W.nx, W.dy, true);
+    if (j > 0) z += ueber(c, c - W.nx, W.dy, false);
+    vec4 b0 = bett[2 * c];
+    if (z != 0.0) dazu(b0.x, b0.y, z);
+    bettN[2 * c] = b0;
+    bettN[2 * c + 1] = bett[2 * c + 1];
+}

@@ -1,0 +1,22 @@
+#version 460
+// durchlaessigkeit.comp – render.air (P6c): Tabelle der Durchlässigkeit als optische Tiefe (seit P7e; 256 × 64, RGBA32F) von Höhe r in Richtung
+// mu bis zur Oberkante, 64 quadratisch wachsende Schritte wie Scattering.transmittanceExact.
+#include "/com/dan/core/gpu/luft.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D ziel;
+layout(set = 0, binding = 1, std430) readonly buffer Werte { Himmelswerte hw; };
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= TRANS_W || p.y >= TRANS_H) return;
+    float h, r, mu;
+    durchRMu(vec2(p) / vec2(TRANS_W - 1, TRANS_H - 1), h, r, mu);
+    float q = qAus(h), d = bisOben(r, mu);
+    vec3 od = vec3(0.0);
+    const int N = 64;
+    for (int k = 0; k < N; k++) {
+        float a = float(k) / float(N), b = float(k + 1) / float(N);
+        float t0 = d * a * a, t1 = d * b * b, t = 0.5 * (t0 + t1);
+        od += ausloeschung(hAus(max(0.0, qWeiter(r, q, mu, t))), hw.atm) * (t1 - t0);
+    }
+    imageStore(ziel, p, vec4(od, 1.0));   // seit P7e (F59 A): optische Tiefe, luft.glsl liest e^−τ
+}

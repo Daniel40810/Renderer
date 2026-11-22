@@ -1,0 +1,50 @@
+#version 460
+// histogramm.comp – render.frame (P6a): Histogramm der Leuchtdichte des HDR-Bilds in log2, wie exposure/gl/luminance.comp
+// (64 Fächer, jeder Bildpunkt im Raster mit Schritt `schritt`, zur Bildmitte bis viermal so schwer, vier Kopien der
+// Fächer im geteilten Speicher), nach Vulkan umgesetzt.
+// F49 A (12.7, Nachlauf P6): zwei Histogramme, f[0..63] über die Bildpunkte mit Tiefe (Gelände und Wasser; Tiefe 0
+// ist die unendlich ferne Hinterebene, also Himmel), f[64..127] über alle; f[128] und f[129] zählen die Bildpunkte
+// mit Tiefe und alle ohne Gewicht. Welches gilt, wählt render.frame.Belichtung.waehle.
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0) uniform sampler2D hdr;
+layout(std430, set = 0, binding = 1) buffer Faecher { uint f[130]; };
+layout(set = 0, binding = 2) uniform sampler2D tiefe;
+layout(push_constant) uniform Q { ivec2 groesse; int schritt; float logMin; float logMax; } q;
+shared uint shBoden[256];
+shared uint shAlle[256];
+shared uint nBoden, nAlle;
+void main() {
+    uint li = gl_LocalInvocationIndex;
+    shBoden[li] = 0u;
+    shAlle[li] = 0u;
+    if (li == 0u) { nBoden = 0u; nAlle = 0u; }
+    barrier();
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy) * q.schritt + q.schritt / 2;
+    if (all(lessThan(p, q.groesse))) {
+        vec3 c = texelFetch(hdr, p, 0).rgb;
+        float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        if (L > 0.0 && !isnan(L) && !isinf(L)) {
+            float t = clamp((log2(L) - q.logMin) / (q.logMax - q.logMin), 0.0, 0.99999);
+            vec2 m = (vec2(p) + 0.5) / vec2(q.groesse) * 2.0 - 1.0;
+            uint w = 1u + uint(3.0 * (1.0 - clamp(dot(m, m), 0.0, 1.0)));
+            uint fach = (li & 3u) * 64u + uint(t * 64.0);
+            atomicAdd(shAlle[fach], w);
+            atomicAdd(nAlle, 1u);
+            if (texelFetch(tiefe, p, 0).r > 0.0) {
+                atomicAdd(shBoden[fach], w);
+                atomicAdd(nBoden, 1u);
+            }
+        }
+    }
+    barrier();
+    if (li < 64u) {
+        uint s = shBoden[li] + shBoden[64u + li] + shBoden[128u + li] + shBoden[192u + li];
+        if (s > 0u) atomicAdd(f[li], s);
+        uint a = shAlle[li] + shAlle[64u + li] + shAlle[128u + li] + shAlle[192u + li];
+        if (a > 0u) atomicAdd(f[64u + li], a);
+    }
+    if (li == 64u) {
+        if (nBoden > 0u) atomicAdd(f[128], nBoden);
+        if (nAlle > 0u) atomicAdd(f[129], nAlle);
+    }
+}

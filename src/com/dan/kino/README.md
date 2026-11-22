@@ -57,3 +57,7 @@ Alle Zeiten sind Felder von `Kino` (`balkenS`, `titelS`, `aufblendeS`, `ueberble
 - Die Balken verdecken einen Teil des Bilds. Gerechnet wird trotzdem das ganze Bild; ein engerer Bildausschnitt ist nicht vorgesehen.
 - Es gibt immer nur eine Texttafel. Der Titel und der Abspann gehen dem Untertitel vor.
 - Es gibt keine Musik. Der Ton ist der der Szene.
+
+## Seit W4: Rolltitel (HalligHooge, Steuerhaus)
+
+`Kino.rollen` (Vorgabe an): Der Abspann rollt von unten durch das Bild nach oben; seine Dauer folgt der Zahl der Zeilen (`rollJeZeileS` 1,6 s, mindestens `rollMindestS` 10 s, dazu 4 s). `rolle()` sagt, wie weit er ist (0 … 1, NaN: kein Rolltitel), `abspannDauer()` die Dauer nach `beenden`. `KinoMaler.rolle(zeilen, w, h)` malt ihn als ein hohes Bild: erste Zeile groß, die übrigen umbrochen (höchstens 70 % der Breite), „Rolle: Name“ in zwei Farben. `rollen = false`: die feste Tafel wie bisher (`KinoGl` nutzt sie weiter).

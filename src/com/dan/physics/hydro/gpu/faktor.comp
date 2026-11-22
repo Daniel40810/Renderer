@@ -1,0 +1,18 @@
+// faktor.comp — Masse, zweiter Teil (je Zelle): Anteil, auf den die abfließenden Flüsse begrenzt werden (das Volumen).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+void main() {
+    int c = int(gl_GlobalInvocationID.x);
+    if (c >= W.zellen) return;
+    int i = c % W.nx, j = c / W.nx;
+    int k[4] = int[4](kanteX(i, j), kanteX(i + 1, j), kanteY(i, j), kanteY(i, j + 1));
+    float aus = 0.0;
+    for (int n = 0; n < 4; n++) {
+        float fl = fluss[k[n]];
+        if (links(k[n]) == c && fl > 0.0 || rechts(k[n]) == c && fl < 0.0) aus += abs(fl);
+    }
+    faktor[c] = aus * P.dt > vol[c] ? vol[c] / (aus * P.dt) : 1.0;
+}

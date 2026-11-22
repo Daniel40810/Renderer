@@ -1,0 +1,1178 @@
+_amdgpu_cs_main:
+	s_version UC_VERSION_GFX10|UC_VERSION_W64_BIT ;  b0802004
+	s_getpc_b64 s[6:7]                      ;  be861f80
+	s_inst_prefetch 0x3                     ;  bfa00003
+	s_mov_b32 s0, s3                        ;  be800303
+	s_mov_b32 s1, s7                        ;  be810307
+	s_mov_b32 s6, s2                        ;  be860302
+	s_load_dword s3, s[0:1], 0x1c           ;  f40000c0 fa00001c
+	v_lshl_add_u32 v0, s4, 6, v0            ;  d7460000 04010c04
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_cmp_ge_u32_e64 s4, v0, s3             ;  d4c60004 00000700
+	s_andn1_saveexec_b64 s[8:9], s[4:5]     ;  be883704
+	s_cbranch_execz _L208                   ;  bf880073
+	s_load_dwordx4 s[12:15], s[6:7], null   ;  f4080303 fa000000
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_buffer_load_dword s16, s[12:15], 0x30 ;  f4200406 fa000030
+	s_buffer_load_dword s2, s[12:15], 0x104 ;  f4200086 fa000104
+	s_buffer_load_dwordx2 s[10:11], s[12:15], 0x10c ;  f4240286 fa00010c
+	s_buffer_load_dword s17, s[12:15], null ;  f4200446 fa000000
+	s_buffer_load_dwordx2 s[18:19], s[12:15], 0x1b8 ;  f4240486 fa0001b8
+	s_buffer_load_dword s20, s[12:15], 0x38 ;  f4200506 fa000038
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_cmp_gt_f32_e64 s22, s16, 0.5          ;  d4040016 0001e010
+	v_max_f32_e64 v1, s2, 1.0               ;  d5100001 0001e402
+	v_cvt_i32_f32_e32 v2, s11               ;  7e04100b
+	v_readfirstlane_b32 s11, v1             ;  7e160501
+	v_readfirstlane_b32 s2, v2              ;  7e040502
+	v_cndmask_b32_e64 v67, 0, 1.0, s22      ;  d5010043 0059e480
+	v_cmp_ngt_f32_e64 vcc_lo, s16, 0.5      ;  d40b006a 0001e010
+	s_cbranch_vccz _Lec                     ;  bf860010
+	s_buffer_load_dwordx8 s[40:47], s[12:15], 0x48 ;  f42c0a06 fa000048
+	s_buffer_load_dwordx4 s[36:39], s[12:15], 0x68 ;  f4280906 fa000068
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_add_f32_e64 v1, s37, s40              ;  d5030001 00005025
+	v_add_f32_e64 v2, s38, s41              ;  d5030002 00005226
+	v_add_f32_e64 v66, s39, s42             ;  d5030042 00005427
+	s_mov_b32 s16, s46                      ;  be90032e
+	s_mov_b32 s21, s47                      ;  be95032f
+	s_mov_b32 s26, s44                      ;  be9a032c
+	s_mov_b32 s27, s45                      ;  be9b032d
+	s_branch _L110                          ;  bf820009
+_Lec:
+	v_mov_b32_e32 v1, 0                     ;  7e020280
+	v_mov_b32_e32 v2, 0                     ;  7e040280
+	v_mov_b32_e32 v66, 0                    ;  7e840280
+	s_movk_i32 s16, 0x0                     ;  b0100000
+	s_movk_i32 s21, 0x0                     ;  b0150000
+	s_movk_i32 s36, 0x0                     ;  b0240000
+	s_movk_i32 s43, 0x0                     ;  b02b0000
+	s_movk_i32 s26, 0x0                     ;  b01a0000
+	s_movk_i32 s27, 0x0                     ;  b01b0000
+_L110:
+	s_load_dwordx4 s[28:31], s[6:7], 0x40   ;  f4080703 fa000040
+	s_buffer_load_dwordx2 s[32:33], s[12:15], 0xe8 ;  f4240806 fa0000e8
+	s_buffer_load_dword s34, s[12:15], 0xe0 ;  f4200886 fa0000e0
+	s_buffer_load_dword s35, s[12:15], 0xf0 ;  f42008c6 fa0000f0
+	s_buffer_load_dwordx2 s[12:13], s[12:15], 0xf8 ;  f4240306 fa0000f8
+	s_load_dword s0, s[0:1], 0x4            ;  f4000000 fa000004
+	v_lshlrev_b32_e32 v5, 2, v0             ;  340a0082
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	buffer_load_dword v5, v5, s[28:31], 0 offen ;  e0301000 80070505
+	s_cmp_eq_i32 s0, 3                      ;  bf008300
+	s_cselect_b32 s0, -1, 0                 ;  850080c1
+	v_cmp_gt_f32_e64 vcc_lo, s32, 0.5       ;  d404006a 0001e020
+	v_cndmask_b32_e64 v16, 0, -1, vcc_lo    ;  d5010010 01a98280
+	v_cmp_gt_f32_e64 vcc_lo, s33, 0.5       ;  d404006a 0001e021
+	v_cndmask_b32_e64 v15, 0, -1, vcc_lo    ;  d501000f 01a98280
+	v_cmp_gt_f32_e64 vcc_lo, s35, 0.5       ;  d404006a 0001e023
+	v_cndmask_b32_e64 v14, 0, -1, vcc_lo    ;  d501000e 01a98280
+	v_cmp_gt_f32_e64 vcc_lo, s12, 0.5       ;  d404006a 0001e00c
+	v_cndmask_b32_e64 v13, 0, -1, vcc_lo    ;  d501000d 01a98280
+	v_cmp_gt_f32_e64 vcc_lo, s34, 0.5       ;  d404006a 0001e022
+	v_cndmask_b32_e64 v19, 0, -1, vcc_lo    ;  d5010013 01a98280
+	v_cmp_gt_f32_e64 vcc_lo, s13, 0.5       ;  d404006a 0001e00d
+	v_cndmask_b32_e64 v20, 0, -1, vcc_lo    ;  d5010014 01a98280
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_cmp_ne_i32_e32 vcc_lo, 1, v5          ;  7d0a0a81
+	v_cndmask_b32_e64 v26, 0, -1, vcc_lo    ;  d501001a 01a98280
+	v_cndmask_b32_e64 v17, 0, -1, s22       ;  d5010011 00598280
+	v_mov_b32_e32 v4, s11                   ;  7e08020b
+	v_mov_b32_e32 v5, s20                   ;  7e0a0214
+	v_mov_b32_e32 v34, s16                  ;  7e440210
+	v_mov_b32_e32 v35, s21                  ;  7e460215
+	v_mov_b32_e32 v36, s36                  ;  7e480224
+	v_mov_b32_e32 v10, s43                  ;  7e14022b
+	v_mov_b32_e32 v12, s26                  ;  7e18021a
+	v_mov_b32_e32 v9, s27                   ;  7e12021b
+	v_mov_b32_e32 v18, s0                   ;  7e240200
+	v_mov_b32_e32 v21, s19                  ;  7e2a0213
+	v_mov_b32_e32 v22, s18                  ;  7e2c0212
+	v_mov_b32_e32 v23, s17                  ;  7e2e0211
+	v_mov_b32_e32 v24, s10                  ;  7e30020a
+	v_mov_b32_e32 v25, s2                   ;  7e320202
+_L208:
+	s_andn2_b64 exec, s[8:9], exec          ;  8afe7e08
+	s_cbranch_execz _L27c                   ;  bf88001b
+	v_cndmask_b32_e64 v26, 0, -1, s4        ;  d501001a 00118280
+	v_mov_b32_e32 v1, 0                     ;  7e020280
+	v_mov_b32_e32 v2, 0                     ;  7e040280
+	v_mov_b32_e32 v66, 0                    ;  7e840280
+	v_mov_b32_e32 v4, 1.0                   ;  7e0802f2
+	v_mov_b32_e32 v5, 0                     ;  7e0a0280
+	v_mov_b32_e32 v67, 0                    ;  7e860280
+	v_mov_b32_e32 v34, 0                    ;  7e440280
+	v_mov_b32_e32 v35, 0                    ;  7e460280
+	v_mov_b32_e32 v36, 0                    ;  7e480280
+	v_mov_b32_e32 v10, 0                    ;  7e140280
+	v_mov_b32_e32 v12, 0                    ;  7e180280
+	v_mov_b32_e32 v9, 0                     ;  7e120280
+	v_mov_b32_e32 v13, 0                    ;  7e1a0280
+	v_mov_b32_e32 v14, 0                    ;  7e1c0280
+	v_mov_b32_e32 v15, 0                    ;  7e1e0280
+	v_mov_b32_e32 v16, 0                    ;  7e200280
+	v_mov_b32_e32 v17, 0                    ;  7e220280
+	v_mov_b32_e32 v18, 0                    ;  7e240280
+	v_mov_b32_e32 v19, 0                    ;  7e260280
+	v_mov_b32_e32 v20, 0                    ;  7e280280
+	v_mov_b32_e32 v21, 0                    ;  7e2a0280
+	v_mov_b32_e32 v22, 0                    ;  7e2c0280
+	v_mov_b32_e32 v23, 0                    ;  7e2e0280
+	v_mov_b32_e32 v24, 0                    ;  7e300280
+	v_mov_b32_e32 v25, 0                    ;  7e320280
+_L27c:
+	s_mov_b64 exec, s[8:9]                  ;  befe0408
+	v_cmp_eq_u32_e32 vcc_lo, 0, v26         ;  7d843480
+	s_and_b64 exec, s[8:9], vcc             ;  87fe6a08
+	s_cbranch_execz _L1644                  ;  bf8804ee
+	s_load_dwordx4 s[12:15], s[6:7], 0x40   ;  f4080303 fa000040
+	v_lshl_add_u32 v26, s3, 1, v0           ;  d746001a 04010203
+	v_lshlrev_b32_e32 v26, 2, v26           ;  34343482
+	s_lshl2_add_u32 s0, s3, s3              ;  97800303
+	v_add_lshl_u32 v27, v0, s0, 2           ;  d747001b 02080100
+	v_lshl_add_u32 v31, s3, 4, v0           ;  d746001f 04010803
+	v_lshlrev_b32_e32 v31, 2, v31           ;  343e3e82
+	s_mul_i32 s1, 14, s3                    ;  9301038e
+	s_mul_i32 s2, 15, s3                    ;  9302038f
+	s_lshl4_add_u32 s10, s3, s3             ;  988a0303
+	v_add_lshl_u32 v28, v0, s10, 2          ;  d747001c 02081500
+	v_add_lshl_u32 v29, v0, s2, 2           ;  d747001d 02080500
+	v_add_lshl_u32 v30, v0, s1, 2           ;  d747001e 02080300
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_clause 0x5                            ;  bfa10005
+	buffer_load_dword v32, v27, s[12:15], 0 offen ;  e0301000 8003201b
+	buffer_load_dword v33, v26, s[12:15], 0 offen ;  e0301000 8003211a
+	buffer_load_dword v69, v30, s[12:15], 0 offen ;  e0301000 8003451e
+	buffer_load_dword v70, v29, s[12:15], 0 offen ;  e0301000 8003461d
+	buffer_load_dword v71, v31, s[12:15], 0 offen ;  e0301000 8003471f
+	buffer_load_dword v37, v28, s[12:15], 0 offen ;  e0301000 8003251c
+	s_waitcnt vmcnt(5)                      ;  bf8c3f75
+	v_add_nc_u32_e32 v32, 1, v32            ;  4a404081
+	s_waitcnt vmcnt(4)                      ;  bf8c3f74
+	v_and_b32_e32 v39, 2, v33               ;  364e4282
+	v_and_b32_e32 v38, 0x80, v33            ;  364c42ff 00000080
+	v_and_b32_e32 v40, 4, v33               ;  36504284
+	v_cmp_ne_i32_e64 s10, v39, 0            ;  d485000a 00010127
+	v_and_b32_e32 v39, 8, v33               ;  364e4288
+	v_cmp_ne_i32_e32 vcc_lo, 0, v38         ;  7d0a4c80
+	v_cndmask_b32_e64 v38, 0, -1, vcc_lo    ;  d5010026 01a98280
+	v_cmp_ne_i32_e64 s0, v40, 0             ;  d4850000 00010128
+	v_and_b32_e32 v40, 64, v33              ;  365042c0
+	v_and_b32_e32 v41, 0x100, v33           ;  365242ff 00000100
+	v_cmp_ne_i32_e64 s16, v39, 0            ;  d4850010 00010127
+	v_and_b32_e32 v39, 0x200, v33           ;  364e42ff 00000200
+	v_cmp_ge_i32_e32 vcc_lo, 0x1e8480, v32  ;  7d0c40ff 001e8480
+	v_cndmask_b32_e32 v56, -1, v38, vcc_lo  ;  02704cc1
+	v_cmp_ne_i32_e64 s18, v40, 0            ;  d4850012 00010128
+	v_cmp_ne_i32_e64 s20, v41, 0            ;  d4850014 00010129
+	v_cmp_ne_i32_e64 s22, v39, 0            ;  d4850016 00010127
+	s_mov_b64 s[24:25], exec                ;  be98047e
+	v_cmpx_eq_u32_e64 v56, 0                ;  d4d2007e 00010138
+	s_cbranch_execz _L154c                  ;  bf88046b
+	v_lshl_add_u32 v38, s3, 2, v0           ;  d7460026 04010403
+	v_lshlrev_b32_e32 v38, 2, v38           ;  344c4c82
+	buffer_load_dword v39, v38, s[12:15], 0 offen ;  e0301000 80032726
+	s_mov_b64 s[26:27], exec                ;  be9a047e
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_cmpx_lt_i32_e64 v39, v25              ;  d491007e 00023327
+	s_cbranch_execz _L1514                  ;  bf880453
+	v_lshl_add_u32 v25, s3, 3, v0           ;  d7460019 04010603
+	s_lshl3_add_u32 s2, s3, s3              ;  98020303
+	v_lshlrev_b32_e32 v25, 2, v25           ;  34323282
+	s_mul_i32 s28, 10, s3                   ;  931c038a
+	s_mul_i32 s29, 11, s3                   ;  931d038b
+	s_mul_i32 s30, 12, s3                   ;  931e038c
+	s_mul_i32 s31, 13, s3                   ;  931f038d
+	v_add_lshl_u32 v39, v0, s2, 2           ;  d7470027 02080500
+	v_add_lshl_u32 v40, v0, s31, 2          ;  d7470028 02083f00
+	v_add_lshl_u32 v41, v0, s30, 2          ;  d7470029 02083d00
+	v_add_lshl_u32 v42, v0, s29, 2          ;  d747002a 02083b00
+	v_add_lshl_u32 v43, v0, s28, 2          ;  d747002b 02083900
+	s_clause 0x5                            ;  bfa10005
+	buffer_load_dword v44, v25, s[12:15], 0 offen ;  e0301000 80032c19
+	buffer_load_dword v45, v39, s[12:15], 0 offen ;  e0301000 80032d27
+	buffer_load_dword v46, v43, s[12:15], 0 offen ;  e0301000 80032e2b
+	buffer_load_dword v47, v42, s[12:15], 0 offen ;  e0301000 80032f2a
+	buffer_load_dword v48, v41, s[12:15], 0 offen ;  e0301000 80033029
+	buffer_load_dword v49, v40, s[12:15], 0 offen ;  e0301000 80033128
+	v_cmp_class_f32_e64 s28, v69, 0x204     ;  d488001c 0001ff45 00000204
+	v_cmp_class_f32_e64 s30, v70, 0x204     ;  d488001e 0001ff46 00000204
+	v_cmp_class_f32_e64 s32, v71, 0x204     ;  d4880020 0001ff47 00000204
+	s_or_b64 vcc, s[28:29], s[30:31]        ;  88ea1e1c
+	s_or_b64 s[28:29], s[32:33], vcc        ;  889c6a20
+	v_cmp_class_f32_e64 vcc_lo, v37, 0x204  ;  d488006a 0001ff25 00000204
+	s_or_b64 vcc, vcc, s[28:29]             ;  88ea1c6a
+	v_cndmask_b32_e64 v50, 0, -1, vcc_lo    ;  d5010032 01a98280
+	v_cmp_class_f32_e64 s28, v37, 3         ;  d488001c 00010725
+	v_cmp_class_f32_e64 s30, v71, 3         ;  d488001e 00010747
+	v_cmp_class_f32_e64 s32, v69, 3         ;  d4880020 00010745
+	v_cmp_class_f32_e64 vcc_lo, v70, 3      ;  d488006a 00010746
+	s_or_b64 vcc, s[32:33], vcc             ;  88ea6a20
+	s_or_b64 vcc, s[30:31], vcc             ;  88ea6a1e
+	s_or_b64 vcc, s[28:29], vcc             ;  88ea6a1c
+	s_waitcnt vmcnt(5)                      ;  bf8c3f75
+	v_cmp_class_f32_e64 s28, v44, 3         ;  d488001c 0001072c
+	v_cndmask_b32_e64 v50, v50, -1, vcc_lo  ;  d5010032 01a98332
+	s_waitcnt vmcnt(4)                      ;  bf8c3f74
+	v_cmp_class_f32_e64 s30, v45, 3         ;  d488001e 0001072d
+	s_waitcnt vmcnt(3)                      ;  bf8c3f73
+	v_cmp_class_f32_e64 s32, v46, 3         ;  d4880020 0001072e
+	s_or_b64 vcc, s[28:29], s[30:31]        ;  88ea1e1c
+	s_or_b64 vcc, s[32:33], vcc             ;  88ea6a20
+	v_cndmask_b32_e64 v51, 0, -1, vcc_lo    ;  d5010033 01a98280
+	v_cmp_eq_i32_e32 vcc_lo, 0, v50         ;  7d046480
+	s_waitcnt vmcnt(2)                      ;  bf8c3f72
+	v_cmp_class_f32_e64 s28, v47, 3         ;  d488001c 0001072f
+	v_cndmask_b32_e32 v50, v50, v51, vcc_lo ;  02646732
+	s_waitcnt vmcnt(1)                      ;  bf8c3f71
+	v_cmp_class_f32_e64 s30, v48, 3         ;  d488001e 00010730
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_cmp_class_f32_e64 s32, v49, 3         ;  d4880020 00010731
+	s_or_b64 vcc, s[28:29], s[30:31]        ;  88ea1e1c
+	s_or_b64 vcc, s[32:33], vcc             ;  88ea6a20
+	v_cndmask_b32_e64 v51, 0, -1, vcc_lo    ;  d5010033 01a98280
+	v_cmp_eq_i32_e32 vcc_lo, 0, v50         ;  7d046480
+	v_cndmask_b32_e32 v50, v50, v51, vcc_lo ;  02646732
+	s_mov_b64 s[28:29], exec                ;  be9c047e
+	v_cmpx_eq_u32_e64 v50, 0                ;  d4d2007e 00010132
+	s_cbranch_execz _L14d8                  ;  bf8803e5
+	s_load_dwordx4 s[32:35], s[6:7], null   ;  f4080803 fa000000
+	v_cndmask_b32_e64 v68, 0x7f61b1e6, v24, s22 ;  d5010044 005a30ff 7f61b1e6
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_buffer_load_dword s30, s[32:35], 0x8  ;  f4200790 fa000008
+	s_buffer_load_dword s2, s[32:35], 0x14  ;  f4200090 fa000014
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_cmp_ngt_f32_e64 vcc_lo, s30, 0.5      ;  d40b006a 0001e01e
+	s_cbranch_vccz _L590                    ;  bf860005
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v51, 1.0                  ;  7e6602f2
+	v_mov_b32_e32 v52, 0                    ;  7e680280
+	v_mov_b32_e32 v6, 0                     ;  7e0c0280
+	s_branch _L6f8                          ;  bf82005a
+_L590:
+	s_buffer_load_dword s30, s[32:35], 0x4  ;  f4200790 fa000004
+	v_cmp_ngt_f32_e64 vcc_lo, s2, 0.5       ;  d40b006a 0001e002
+	s_cbranch_vccz _L600                    ;  bf860017
+	s_mov_b64 s[36:37], exec                ;  bea4047e
+	v_cmpx_eq_f32_e64 v48, 0                ;  d412007e 00010130
+	v_mov_b32_e32 v6, 0                     ;  7e0c0280
+	s_andn2_b64 exec, s[36:37], exec        ;  8afe7e24
+	s_cbranch_execz _L5ec                   ;  bf88000c
+	v_rcp_f32_e32 v52, v48                  ;  7e685530
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_sub_f32_e32 v53, s30, v45             ;  086a5a1e
+	v_mul_f32_e32 v52, v53, v52             ;  10686935
+	v_cmp_gt_f32_e64 s30, v52, 0x3089705f   ;  d404001e 0001ff34 3089705f
+	v_cmp_gt_f32_e32 vcc_lo, v68, v52       ;  7c086944
+	s_and_b64 vcc, s[30:31], vcc            ;  87ea6a1e
+	v_cndmask_b32_e64 v6, 0, 1, vcc_lo      ;  d5010006 01a90280
+	v_cndmask_b32_e32 v68, v68, v52, vcc_lo ;  02886944
+_L5ec:
+	s_mov_b64 exec, s[36:37]                ;  befe0424
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v51, 1.0                  ;  7e6602f2
+	v_mov_b32_e32 v52, 0                    ;  7e680280
+	s_branch _L6f8                          ;  bf82003e
+_L600:
+	s_buffer_load_dword s31, s[32:35], 0x1b8 ;  f42007d0 fa0001b8
+	v_mul_f32_e32 v54, v44, v47             ;  106c5f2c
+	v_mul_f32_e32 v55, v46, v46             ;  106e5d2e
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_add_f32_e32 v52, s30, v45             ;  06685a1e
+	v_fmac_f32_e32 v54, v45, v48            ;  566c612d
+	v_fmac_f32_e32 v55, v44, v44            ;  566e592c
+	v_subrev_f32_e32 v57, s30, v45          ;  0a725a1e
+	v_fmac_f32_e32 v54, v46, v49            ;  566c632e
+	v_add_f32_e32 v53, s31, v23             ;  066a2e1f
+	v_fmac_f32_e32 v52, 2.0, v53            ;  56686af4
+	v_fmac_f32_e32 v54, v48, v53            ;  566c6b30
+	v_fmac_f32_e32 v55, v57, v52            ;  566e6939
+	v_cmp_gt_f32_e32 vcc_lo, 0, v54         ;  7c086c80
+	v_fma_f32 v52, v54, v54, -v55           ;  d54b0034 84de6d36
+	v_cmp_ge_f32_e64 s30, v52, 0            ;  d406001e 00010134
+	s_and_b64 vcc, s[30:31], vcc            ;  87ea6a1e
+	s_andn1_saveexec_b64 s[30:31], vcc      ;  be9e376a
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v51, 1.0                  ;  7e6602f2
+	v_mov_b32_e32 v52, 0                    ;  7e680280
+	v_mov_b32_e32 v6, 0                     ;  7e0c0280
+	s_andn2_b64 exec, s[30:31], exec        ;  8afe7e1e
+	s_cbranch_execz _L6f4                   ;  bf880022
+	v_sqrt_f32_e32 v52, v52                 ;  7e686734
+	v_subrev_f32_e32 v52, v54, v52          ;  0a686936
+	v_rcp_f32_e32 v52, v52                  ;  7e685534
+	v_mul_f32_e32 v54, v55, v52             ;  106c6937
+	v_cmp_gt_f32_e64 s36, v54, 0x3089705f   ;  d4040024 0001ff36 3089705f
+	v_cmp_gt_f32_e32 vcc_lo, v68, v54       ;  7c086d44
+	s_and_b64 s[36:37], s[36:37], vcc       ;  87a46a24
+	s_andn1_saveexec_b64 s[38:39], s[36:37] ;  bea63724
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v51, 1.0                  ;  7e6602f2
+	v_mov_b32_e32 v52, 0                    ;  7e680280
+	s_andn2_b64 exec, s[38:39], exec        ;  8afe7e26
+	s_cbranch_execz _L6e0                   ;  bf88000e
+	v_fma_f32 v52, v47, v54, v44            ;  d54b0034 04b26d2f
+	v_fma_f32 v55, v48, v54, v45            ;  d54b0037 04b66d30
+	v_add_f32_e32 v53, v53, v55             ;  066a6f35
+	v_mul_f32_e32 v55, v52, v52             ;  106e6934
+	v_fma_f32 v56, v49, v54, v46            ;  d54b0038 04ba6d31
+	v_fmac_f32_e32 v55, v53, v53            ;  566e6b35
+	v_fmac_f32_e32 v55, v56, v56            ;  566e7138
+	v_rsq_f32_e32 v55, v55                  ;  7e6e5d37
+	v_mul_f32_e32 v3, v52, v55              ;  10066f34
+	v_mul_f32_e32 v51, v53, v55             ;  10666f35
+	v_mul_f32_e32 v52, v56, v55             ;  10686f38
+_L6e0:
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	v_cndmask_b32_e64 v6, 0, 1, s36         ;  d5010006 00910280
+	v_cndmask_b32_e64 v68, v68, v54, s36    ;  d5010044 00926d44
+_L6f4:
+	s_mov_b64 exec, s[30:31]                ;  befe041e
+_L6f8:
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_buffer_load_dword s30, s[32:35], 0x10 ;  f4200790 fa000010
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_cmp_gt_f32_e64 vcc_lo, s30, 0.5       ;  d404006a 0001e01e
+	s_cbranch_vccz _L878                    ;  bf860059
+	s_buffer_load_dword s30, s[32:35], 0xc  ;  f4200790 fa00000c
+	v_cmp_ngt_f32_e64 vcc_lo, s2, 0.5       ;  d40b006a 0001e002
+	s_cbranch_vccz _L784                    ;  bf860017
+	s_mov_b64 s[36:37], exec                ;  bea4047e
+	v_cmpx_neq_f32_e64 v48, 0               ;  d41d007e 00010130
+	s_cbranch_execz _L77c                   ;  bf880011
+	v_rcp_f32_e32 v56, v48                  ;  7e705530
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_sub_f32_e32 v57, s30, v45             ;  08725a1e
+	v_mul_f32_e32 v56, v57, v56             ;  10707139
+	v_cmp_gt_f32_e64 s30, v56, 0x3089705f   ;  d404001e 0001ff38 3089705f
+	v_cmp_gt_f32_sdwa s38, v68, v56 src0_sel:DWORD src1_sel:DWORD ;  7c0870f9 0606a644
+	s_and_b64 s[40:41], s[30:31], s[38:39]  ;  87a8261e
+	s_nand_b64 vcc, s[30:31], s[38:39]      ;  8cea261e
+	v_cndmask_b32_e32 v3, 0, v3, vcc_lo     ;  02060680
+	v_cndmask_b32_e32 v51, 1.0, v51, vcc_lo ;  026666f2
+	v_cndmask_b32_e32 v52, 0, v52, vcc_lo   ;  02686880
+	v_cndmask_b32_e32 v6, 2, v6, vcc_lo     ;  020c0c82
+	v_cndmask_b32_e64 v68, v68, v56, s40    ;  d5010044 00a27144
+_L77c:
+	s_mov_b64 exec, s[36:37]                ;  befe0424
+	s_branch _L878                          ;  bf82003d
+_L784:
+	s_buffer_load_dword s2, s[32:35], 0x1b8 ;  f4200090 fa0001b8
+	v_mul_f32_e32 v58, v44, v47             ;  10745f2c
+	v_mul_f32_e32 v59, v46, v46             ;  10765d2e
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_add_f32_e32 v56, s30, v45             ;  06705a1e
+	v_fmac_f32_e32 v58, v45, v48            ;  5674612d
+	v_fmac_f32_e32 v59, v44, v44            ;  5676592c
+	v_subrev_f32_e32 v61, s30, v45          ;  0a7a5a1e
+	v_fmac_f32_e32 v58, v46, v49            ;  5674632e
+	v_add_f32_e32 v57, s2, v23              ;  06722e02
+	v_fmac_f32_e32 v56, 2.0, v57            ;  567072f4
+	v_fmac_f32_e32 v58, v48, v57            ;  56747330
+	v_fmac_f32_e32 v59, v61, v56            ;  5676713d
+	v_fma_f32 v56, v58, v58, -v59           ;  d54b0038 84ee753a
+	s_mov_b64 s[30:31], exec                ;  be9e047e
+	v_cmpx_ge_f32_e64 v56, 0                ;  d416007e 00010138
+	s_cbranch_execz _L874                   ;  bf880028
+	v_sqrt_f32_e32 v56, v56                 ;  7e706738
+	v_cmp_gt_f32_e32 vcc_lo, 0, v58         ;  7c087480
+	v_subrev_f32_e32 v60, v58, v56          ;  0a78713a
+	v_add_f32_e64 v56, -v56, -v58           ;  d5030038 60027538
+	v_rcp_f32_e32 v61, v60                  ;  7e7a553c
+	v_rcp_f32_e32 v62, v56                  ;  7e7c5538
+	v_mul_f32_e32 v61, v59, v61             ;  107a7b3b
+	v_mul_f32_e32 v59, v59, v62             ;  10767d3b
+	v_cndmask_b32_e32 v56, v56, v61, vcc_lo ;  02707b38
+	v_cndmask_b32_e32 v58, v59, v60, vcc_lo ;  0274793b
+	v_cmp_lt_f32_e32 vcc_lo, 0x3089705f, v56 ;  7c0270ff 3089705f
+	v_cndmask_b32_e32 v58, v58, v56, vcc_lo ;  0274713a
+	v_cmp_gt_f32_e64 s36, v58, 0x3089705f   ;  d4040024 0001ff3a 3089705f
+	v_cmp_gt_f32_e32 vcc_lo, v68, v58       ;  7c087544
+	s_and_b64 s[36:37], s[36:37], vcc       ;  87a46a24
+	s_and_saveexec_b64 s[38:39], s[36:37]   ;  bea62424
+	s_cbranch_execz _L860                   ;  bf88000e
+	v_fma_f32 v51, v47, v58, v44            ;  d54b0033 04b2752f
+	v_fma_f32 v52, v48, v58, v45            ;  d54b0034 04b67530
+	v_fma_f32 v56, v49, v58, v46            ;  d54b0038 04ba7531
+	v_mul_f32_e32 v53, v51, v51             ;  106a6733
+	v_add_f32_e32 v52, v57, v52             ;  06686939
+	v_fmac_f32_e32 v53, v52, v52            ;  566a6934
+	v_fmac_f32_e32 v53, v56, v56            ;  566a7138
+	v_rsq_f32_e32 v53, v53                  ;  7e6a5d35
+	v_mul_f32_e32 v3, v51, v53              ;  10066b33
+	v_mul_f32_e32 v51, v52, v53             ;  10666b34
+	v_mul_f32_e32 v52, v56, v53             ;  10686b38
+_L860:
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	v_cndmask_b32_e64 v68, v68, v58, s36    ;  d5010044 00927544
+	v_cndmask_b32_e64 v6, v6, 2, s36        ;  d5010006 00910506
+_L874:
+	s_mov_b64 exec, s[30:31]                ;  befe041e
+_L878:
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_cmp_eq_i32_e64 s30, v6, 0             ;  d482001e 00010106
+	s_andn1_saveexec_b64 s[36:37], s[30:31] ;  bea4371e
+	s_cbranch_execz _L8a8                   ;  bf880007
+	s_buffer_load_dwordx4 s[40:43], s[32:35], 0x18 ;  f4280a10 fa000018
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_mov_b32_e32 v56, s41                  ;  7e700229
+	v_mov_b32_e32 v57, s42                  ;  7e72022a
+	v_mov_b32_e32 v58, s43                  ;  7e74022b
+	v_mov_b32_e32 v59, s40                  ;  7e760228
+_L8a8:
+	s_andn2_b64 exec, s[36:37], exec        ;  8afe7e24
+	s_cbranch_execz _L8d4                   ;  bf880009
+	v_mov_b32_e32 v68, 0                    ;  7e880280
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v51, 0                    ;  7e660280
+	v_mov_b32_e32 v52, 0                    ;  7e680280
+	v_mov_b32_e32 v6, 0                     ;  7e0c0280
+	v_mov_b32_e32 v56, 0                    ;  7e700280
+	v_mov_b32_e32 v57, 0                    ;  7e720280
+	v_mov_b32_e32 v58, 0                    ;  7e740280
+	v_mov_b32_e32 v59, 0                    ;  7e760280
+_L8d4:
+	s_mov_b64 exec, s[36:37]                ;  befe0424
+	v_cndmask_b32_e64 v60, -1, 0, s30       ;  d501003c 007900c1
+	s_load_dwordx4 s[36:39], s[6:7], 0x70   ;  f4080903 fa000070
+	v_lshlrev_b32_e32 v61, 2, v0            ;  347a0082
+	v_add_lshl_u32 v62, v0, s3, 2           ;  d747003e 02080700
+	v_cvt_f32_i32_e32 v55, v6               ;  7e6e0b06
+	s_lshl1_add_u32 s2, s3, s3              ;  97020303
+	s_mul_i32 s40, 6, s3                    ;  93280386
+	s_mul_i32 s41, 7, s3                    ;  93290387
+	v_add_lshl_u32 v63, v0, s2, 2           ;  d747003f 02080500
+	v_add_lshl_u32 v65, v0, s40, 2          ;  d7470041 02085100
+	v_add_lshl_u32 v64, v0, s41, 2          ;  d7470040 02085300
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_clause 0x7                            ;  bfa10007
+	buffer_store_dword v68, v61, s[36:39], 0 offen glc ;  e0705000 8009443d
+	buffer_store_dword v3, v62, s[36:39], 0 offen glc ;  e0705000 8009033e
+	buffer_store_dword v51, v26, s[36:39], 0 offen glc ;  e0705000 8009331a
+	buffer_store_dword v52, v63, s[36:39], 0 offen glc ;  e0705000 8009343f
+	buffer_store_dword v55, v38, s[36:39], 0 offen glc ;  e0705000 80093726
+	buffer_store_dword v56, v27, s[36:39], 0 offen glc ;  e0705000 8009381b
+	buffer_store_dword v57, v65, s[36:39], 0 offen glc ;  e0705000 80093941
+	buffer_store_dword v58, v64, s[36:39], 0 offen glc ;  e0705000 80093a40
+	buffer_store_dword v59, v25, s[36:39], 0 offen glc ;  e0705000 80093b19
+	s_andn1_saveexec_b64 s[36:37], s[22:23] ;  bea43716
+	s_cbranch_execz _Ld90                   ;  bf880107
+	v_add_f32_e32 v1, v23, v45              ;  06025b17
+	v_mul_f32_e32 v2, v46, v46              ;  10045d2e
+	v_mul_f32_e32 v3, v44, v47              ;  10065f2c
+	v_fma_f32 v24, v22, 2.0, v1             ;  d54b0018 0405e916
+	v_fmac_f32_e32 v2, v44, v44             ;  5604592c
+	v_fmac_f32_e32 v3, v45, v48             ;  5606612d
+	v_fmac_f32_e32 v2, v1, v24              ;  56043101
+	v_fmac_f32_e32 v3, v46, v49             ;  5606632e
+	v_add_f32_e32 v1, v22, v23              ;  06022f16
+	v_sub_f32_e32 v23, v21, v22             ;  082e2d15
+	v_add_f32_e32 v21, v21, v22             ;  062a2d15
+	v_fmac_f32_e32 v3, v48, v1              ;  56060330
+	v_fma_f32 v1, -v23, v21, v2             ;  d54b0001 240a2b17
+	v_fma_f32 v21, v3, v3, -v1              ;  d54b0015 84060703
+	s_mov_b64 s[38:39], exec                ;  bea6047e
+	v_cmpx_nlt_f32_e64 v21, 0               ;  d41e007e 00010115
+	s_cbranch_execz _L9ec                   ;  bf880009
+	v_sqrt_f32_e32 v21, v21                 ;  7e2a6715
+	v_add_f32_e32 v23, v3, v21              ;  062e2b03
+	v_rcp_f32_e32 v23, v23                  ;  7e2e5517
+	v_subrev_f32_e32 v21, v3, v21           ;  0a2a2b03
+	v_cmp_nlt_f32_e32 vcc_lo, 0, v3         ;  7c1c0680
+	v_mul_f32_e64 v23, -v1, v23             ;  d5080017 20022f01
+	v_cndmask_b32_e32 v1, v23, v21, vcc_lo  ;  02022b17
+	v_max_f32_e32 v1, 0, v1                 ;  20020280
+_L9ec:
+	s_andn2_b64 exec, s[38:39], exec        ;  8afe7e26
+	v_mov_b32_e32 v1, 0                     ;  7e020280
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	v_cmp_eq_i32_e32 vcc_lo, 0, v19         ;  7d042680
+	v_cndmask_b32_e32 v19, 0, v20, vcc_lo   ;  02262880
+	v_cmp_ne_i32_e32 vcc_lo, 0, v17         ;  7d0a2280
+	v_or_b32_e32 v19, v18, v19              ;  38262712
+	s_and_b64 exec, s[38:39], vcc           ;  87fe6a26
+	s_cbranch_execz _La60                   ;  bf880014
+	s_load_dwordx4 s[40:43], s[6:7], 0x60   ;  f4080a03 fa000060
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_clause 0x7                            ;  bfa10007
+	buffer_load_dword v10, v38, s[40:43], 0 offen ;  e0301000 800a0a26
+	buffer_load_dword v12, v27, s[40:43], 0 offen ;  e0301000 800a0c1b
+	buffer_load_dword v9, v65, s[40:43], 0 offen ;  e0301000 800a0941
+	buffer_load_dword v20, v64, s[40:43], 0 offen ;  e0301000 800a1440
+	buffer_load_dword v34, v25, s[40:43], 0 offen ;  e0301000 800a2219
+	buffer_load_dword v35, v39, s[40:43], 0 offen ;  e0301000 800a2327
+	buffer_load_dword v36, v43, s[40:43], 0 offen ;  e0301000 800a242b
+	buffer_load_dword v6, v42, s[40:43], 0 offen ;  e0301000 800a062a
+_La60:
+	s_andn2_b64 exec, s[38:39], exec        ;  8afe7e26
+	v_mov_b32_e32 v6, 0                     ;  7e0c0280
+	v_mov_b32_e32 v20, 0                    ;  7e280280
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	s_not_b64 vcc, s[30:31]                 ;  beea081e
+	v_cndmask_b32_e32 v23, 0x7f61b1e6, v68, vcc_lo ;  022e88ff 7f61b1e6
+	v_min_f32_e32 v21, v23, v1              ;  1e2a0317
+	v_cmp_ge_f32_e32 vcc_lo, 0, v21         ;  7c0c2a80
+	v_cndmask_b32_e64 v24, 0, -1, vcc_lo    ;  d5010018 01a98280
+	v_cmp_class_f32_e64 vcc_lo, v21, 3      ;  d488006a 00010715
+	s_not_b64 vcc, vcc                      ;  beea086a
+	v_cndmask_b32_e32 v24, -1, v24, vcc_lo  ;  023030c1
+	s_mov_b64 s[38:39], exec                ;  bea6047e
+	v_cmpx_eq_u32_e64 v24, 0                ;  d4d2007e 00010118
+	s_cbranch_execz _Lcb8                   ;  bf880083
+	v_fma_f32 v24, v22, v22, v2             ;  d54b0018 040a2d16
+	v_mov_b32_e32 v28, 0x469c4000           ;  7e3802ff 469c4000
+	v_max_f32_e32 v24, 0, v24               ;  20303080
+	v_sqrt_f32_e32 v24, v24                 ;  7e306718
+	v_add_f32_e32 v24, v22, v24             ;  06303116
+	v_rcp_f32_e32 v24, v24                  ;  7e305518
+	v_fma_f32 v25, v2, v24, 0x43fa0000 mul:2 ;  d54b0019 0bfe3102 43fa0000
+	v_mul_f32_e32 v24, v2, v24              ;  10303102
+	v_med3_f32 v28, v25, 0x43480000, v28    ;  d557001c 0471ff19 43480000
+	v_ldexp_f32 v25, v3, 1                  ;  d7620019 00010303
+	v_min3_f32 v17, v23, v1, v28            ;  d5510011 04720317
+	v_med3_f32 v23, -v3, 0, v17             ;  d5570017 24450103
+	v_add_f32_e32 v1, v25, v17              ;  06022319
+	v_add_f32_e32 v25, v25, v23             ;  06322f19
+	v_fma_f32 v1, v17, v1, v2               ;  d54b0001 040a0311
+	v_fma_f32 v23, v23, v25, v2             ;  d54b0017 040a3317
+	v_fma_f32 v25, v22, v22, v1             ;  d54b0019 04062d16
+	v_fma_f32 v29, v22, v22, v23            ;  d54b001d 045e2d16
+	v_max_f32_e32 v25, 0, v25               ;  20323280
+	v_max_f32_e32 v29, 0, v29               ;  203a3a80
+	v_sqrt_f32_e32 v25, v25                 ;  7e326719
+	v_sqrt_f32_e32 v29, v29                 ;  7e3a671d
+	v_add_f32_e32 v25, v22, v25             ;  06323316
+	v_add_f32_e32 v22, v22, v29             ;  062c3b16
+	v_rcp_f32_e32 v30, v25                  ;  7e3c5519
+	v_rcp_f32_e32 v22, v22                  ;  7e2c5516
+	v_mul_f32_e32 v1, v1, v30               ;  10023d01
+	v_mul_f32_e32 v22, v23, v22             ;  102c2d17
+	v_max_f32_e32 v1, v24, v1               ;  20020318
+	s_mov_b64 s[40:41], exec                ;  bea8047e
+	v_cmpx_eq_u32_e64 v16, 0                ;  d4d2007e 00010110
+	v_mov_b32_e32 v30, 0                    ;  7e3c0280
+	s_andn2_b64 exec, s[40:41], exec        ;  8afe7e28
+	s_cbranch_execz _Lb94                   ;  bf88000a
+	s_buffer_load_dword s2, s[32:35], 0x1a8 ;  f4200090 fa0001a8
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_rcp_f32_e32 v16, s2                   ;  7e205402
+	v_max_f32_e32 v23, 0, v22               ;  202e2c80
+	v_mul_f32_e64 v16, -v23, v16            ;  d5080010 20022117
+	v_mul_f32_e32 v16, 0x3fb8aa3b, v16      ;  102020ff 3fb8aa3b
+	v_exp_f32_e32 v30, v16                  ;  7e3c4b10
+_Lb94:
+	s_mov_b64 exec, s[40:41]                ;  befe0428
+	v_cmp_eq_u32_e32 vcc_lo, 0, v15         ;  7d841e80
+	s_and_b64 exec, s[40:41], vcc           ;  87fe6a28
+	v_mov_b32_e32 v15, 0                    ;  7e1e0280
+	s_andn2_b64 exec, s[40:41], exec        ;  8afe7e28
+	s_cbranch_execz _Lbd4                   ;  bf88000a
+	s_buffer_load_dword s2, s[32:35], 0x1ac ;  f4200090 fa0001ac
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_rcp_f32_e32 v15, s2                   ;  7e1e5402
+	v_max_f32_e32 v16, 0, v22               ;  20202c80
+	v_mul_f32_e64 v15, -v16, v15            ;  d508000f 20021f10
+	v_mul_f32_e32 v15, 0x3fb8aa3b, v15      ;  101e1eff 3fb8aa3b
+	v_exp_f32_e32 v15, v15                  ;  7e1e4b0f
+_Lbd4:
+	s_mov_b64 exec, s[40:41]                ;  befe0428
+	v_cmp_eq_i32_e64 s42, v13, 0            ;  d482002a 0001010d
+	v_cmp_eq_u32_e32 vcc_lo, 0, v14         ;  7d841c80
+	s_orn2_b64 vcc, vcc, s[42:43]           ;  8bea2a6a
+	s_and_b64 exec, s[40:41], vcc           ;  87fe6a28
+	v_mov_b32_e32 v1, 0                     ;  7e020280
+	s_andn2_b64 exec, s[40:41], exec        ;  8afe7e28
+	s_cbranch_execz _Lc20                   ;  bf88000a
+	s_buffer_load_dwordx2 s[42:43], s[32:35], 0x1b0 ;  f4240a90 fa0001b0
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_min_f32_e32 v1, s42, v1               ;  1e02022a
+	v_rcp_f32_e32 v13, s43                  ;  7e1a542b
+	v_max_f32_e32 v1, v22, v1               ;  20020316
+	v_subrev_f32_e32 v14, s42, v1           ;  0a1c022a
+	v_fma_f32 v1, -|v14|, v13, 1.0          ;  d54b0101 23ca1b0e
+	v_max_f32_e32 v1, 0, v1                 ;  20020280
+_Lc20:
+	s_mov_b64 exec, s[40:41]                ;  befe0428
+	s_waitcnt vmcnt(3)                      ;  bf8c3f73
+	v_mul_f32_e32 v13, v34, v1              ;  101a0322
+	s_waitcnt vmcnt(2)                      ;  bf8c3f72
+	v_mul_f32_e32 v7, v35, v1               ;  100e0323
+	s_waitcnt vmcnt(1)                      ;  bf8c3f71
+	v_mul_f32_e32 v8, v36, v1               ;  10100324
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_mul_f32_e32 v1, v6, v1                ;  10020306
+	v_fmac_f32_e32 v13, v10, v30            ;  561a3d0a
+	v_fmac_f32_e32 v8, v9, v30              ;  56103d09
+	v_fmac_f32_e32 v1, v20, v30             ;  56023d14
+	v_fmac_f32_e32 v7, v12, v30             ;  560e3d0c
+	v_cndmask_b32_e64 v8, v8, 0, s4         ;  d5010008 00110108
+	v_mul_f32_e32 v1, v67, v1               ;  10020343
+	v_cmp_eq_i32_e64 s40, v18, 0            ;  d4820028 00010112
+	v_cndmask_b32_e64 v9, v13, 0, s4        ;  d5010009 0011010d
+	v_cndmask_b32_e64 v7, v7, 0, s4         ;  d5010007 00110107
+	v_max_f32_e32 v6, v8, v1                ;  200c0308
+	v_cmp_ne_i32_e32 vcc_lo, 0, v19         ;  7d0a2680
+	v_max3_f32 v6, v9, v7, v6               ;  d5540006 041a0f09
+	s_mov_b32 s2, 0x3f800347                ;  be8203ff 3f800347
+	v_fmac_f32_e32 v6, v5, v15              ;  560c1f05
+	s_and_b64 vcc, vcc, s[40:41]            ;  87ea286a
+	v_cndmask_b32_e32 v4, 1.0, v4, vcc_lo   ;  020808f2
+	v_fmaak_f32 v1, s2, v6, 0xda24260       ;  5a020c02 0da24260
+	v_mul_f32_e32 v1, v1, v4                ;  10020901
+	v_min_f32_e32 v4, v17, v1               ;  1e080311
+	v_cmp_lt_f32_e32 vcc_lo, 0, v4          ;  7c020880
+	v_cndmask_b32_e64 v5, 0, -1, vcc_lo     ;  d5010005 01a98280
+_Lcb8:
+	s_andn2_b64 exec, s[38:39], exec        ;  8afe7e26
+	v_mov_b32_e32 v1, 0                     ;  7e020280
+	v_mov_b32_e32 v17, 0                    ;  7e220280
+	v_mov_b32_e32 v5, 0                     ;  7e0a0280
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	s_mul_i32 s2, 28, s3                    ;  9302039c
+	s_mul_i32 s38, 29, s3                   ;  9326039d
+	s_mul_i32 s39, 30, s3                   ;  9327039e
+	s_mul_i32 s40, 31, s3                   ;  9328039f
+	s_mul_i32 s41, 33, s3                   ;  932903a1
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_lshl_add_u32 v6, s3, 5, v0            ;  d7460006 04010a03
+	v_add_lshl_u32 v8, v0, s41, 2           ;  d7470008 02085300
+	v_add_lshl_u32 v7, v0, s40, 2           ;  d7470007 02085100
+	v_lshlrev_b32_e32 v9, 2, v6             ;  34120c82
+	v_add_lshl_u32 v6, v0, s39, 2           ;  d7470006 02084f00
+	v_add_lshl_u32 v10, v0, s38, 2          ;  d747000a 02084d00
+	v_add_lshl_u32 v11, v0, s2, 2           ;  d747000b 02080500
+	v_mov_b32_e32 v12, 0                    ;  7e180280
+	s_clause 0x5                            ;  bfa10005
+	buffer_store_dword v12, v11, s[12:15], 0 offen glc ;  e0705000 80030c0b
+	buffer_store_dword v17, v10, s[12:15], 0 offen glc ;  e0705000 8003110a
+	buffer_store_dword v21, v6, s[12:15], 0 offen glc ;  e0705000 80031506
+	buffer_store_dword v1, v7, s[12:15], 0 offen glc ;  e0705000 80030107
+	buffer_store_dword v2, v9, s[12:15], 0 offen glc ;  e0705000 80030209
+	buffer_store_dword v3, v8, s[12:15], 0 offen glc ;  e0705000 80030308
+	v_cmp_eq_i32_e64 s38, v5, 0             ;  d4820026 00010105
+	s_and_saveexec_b64 s[40:41], s[38:39]   ;  bea82426
+	s_cbranch_execz _Ld74                   ;  bf880005
+	s_mul_i32 s2, 23, s3                    ;  93020397
+	v_add_lshl_u32 v2, v0, s2, 2            ;  d7470002 02080500
+	buffer_store_dword v21, v2, s[12:15], 0 offen glc ;  e0705000 80031502
+_Ld74:
+	s_mov_b64 exec, s[40:41]                ;  befe0428
+	v_mov_b32_e32 v15, v32                  ;  7e1e0320
+	v_mov_b32_e32 v56, 0                    ;  7e700280
+	v_cndmask_b32_e64 v7, -1, 0, s38        ;  d5010007 009900c1
+	v_cndmask_b32_e64 v3, 0, -1, s16        ;  d5010003 00418280
+_Ld90:
+	s_andn2_b64 exec, s[36:37], exec        ;  8afe7e24
+	s_cbranch_execz _L1494                  ;  bf8801bf
+	buffer_load_dword v55, v63, s[12:15], 0 offen ;  e0301000 8003373f
+	s_mov_b64 s[38:39], exec                ;  bea6047e
+	v_cmpx_ne_i32_e64 v17, 0                ;  d495007e 00010111
+	s_cbranch_execz _Lde0                   ;  bf88000c
+	s_load_dwordx4 s[40:43], s[6:7], 0x60   ;  f4080a03 fa000060
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	s_clause 0x3                            ;  bfa10003
+	buffer_load_dword v1, v41, s[40:43], 0 offen ;  e0301000 800a0129
+	buffer_load_dword v2, v40, s[40:43], 0 offen ;  e0301000 800a0228
+	buffer_load_dword v66, v30, s[40:43], 0 offen ;  e0301000 800a421e
+	buffer_load_dword v5, v29, s[40:43], 0 offen ;  e0301000 800a051d
+_Lde0:
+	s_andn2_b64 exec, s[38:39], exec        ;  8afe7e26
+	v_mov_b32_e32 v5, 0                     ;  7e0a0280
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	s_mul_i32 s2, 39, s3                    ;  930203a7
+	v_add_lshl_u32 v7, v0, s2, 2            ;  d7470007 02080500
+	buffer_load_dword v7, v7, s[12:15], 0 offen ;  e0301000 80030707
+	v_cmp_le_f32_e32 vcc_lo, 0x7f61b1e6, v24 ;  7c0630ff 7f61b1e6
+	s_and_b64 vcc, s[30:31], vcc            ;  87ea6a1e
+	s_andn1_saveexec_b64 s[6:7], vcc        ;  be86376a
+	s_cbranch_execz _L1424                  ;  bf880184
+	s_mul_i32 s2, 34, s3                    ;  930203a2
+	v_add_lshl_u32 v8, v0, s2, 2            ;  d7470008 02080500
+	buffer_load_dword v8, v8, s[12:15], 0 offen ;  e0301000 80030808
+	v_cndmask_b32_e64 v9, v68, v24, s30     ;  d5010009 007a3144
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_cmp_lt_f32_e64 s38, v8, 0             ;  d4010026 00010108
+	s_and_saveexec_b64 s[40:41], s[38:39]   ;  bea82426
+	s_cbranch_execz _Le54                   ;  bf880004
+	s_buffer_load_dword s2, s[32:35], 0x40  ;  f4200090 fa000040
+	s_waitcnt lgkmcnt(0)                    ;  bf8cc07f
+	v_mov_b32_e32 v7, s2                    ;  7e0e0202
+_Le54:
+	s_mov_b64 exec, s[40:41]                ;  befe0428
+	s_mul_i32 s2, 37, s3                    ;  930203a5
+	s_mul_i32 s32, 38, s3                   ;  932003a6
+	s_mul_i32 s34, 36, s3                   ;  932203a4
+	s_mul_i32 s33, 35, s3                   ;  932103a3
+	v_add_lshl_u32 v8, v0, s2, 2            ;  d7470008 02080500
+	v_add_lshl_u32 v10, v0, s34, 2          ;  d747000a 02084500
+	v_add_lshl_u32 v12, v0, s32, 2          ;  d747000c 02084100
+	v_add_lshl_u32 v11, v0, s33, 2          ;  d747000b 02084300
+	s_clause 0x3                            ;  bfa10003
+	buffer_load_dword v11, v11, s[12:15], 0 offen ;  e0301000 80030b0b
+	buffer_load_dword v15, v10, s[12:15], 0 offen ;  e0301000 80030f0a
+	buffer_load_dword v8, v8, s[12:15], 0 offen ;  e0301000 80030808
+	buffer_load_dword v10, v12, s[12:15], 0 offen ;  e0301000 80030a0c
+	v_cmp_eq_u32_e32 vcc_lo, 0, v13         ;  7d841a80
+	s_waitcnt vmcnt(3)                      ;  bf8c3f73
+	v_cndmask_b32_e64 v1, v11, v1, s38      ;  d5010001 009a030b
+	s_waitcnt vmcnt(2)                      ;  bf8c3f72
+	v_cndmask_b32_e64 v2, v15, v2, s38      ;  d5010002 009a050f
+	s_waitcnt vmcnt(1)                      ;  bf8c3f71
+	v_cndmask_b32_e64 v3, v8, v66, s38      ;  d5010003 009a8508
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_cndmask_b32_e64 v5, v10, v5, s38      ;  d5010005 009a0b0a
+	v_cndmask_b32_e32 v1, 0, v1, vcc_lo     ;  02020280
+	v_cndmask_b32_e32 v3, 0, v3, vcc_lo     ;  02060680
+	v_cndmask_b32_e32 v5, 0, v5, vcc_lo     ;  020a0a80
+	v_cndmask_b32_e32 v2, 0, v2, vcc_lo     ;  02040480
+	v_cndmask_b32_e64 v8, v3, 0, s4         ;  d5010008 00110103
+	v_mul_f32_e32 v10, v67, v5              ;  10140b43
+	v_cndmask_b32_e64 v11, v2, 0, s4        ;  d501000b 00110102
+	v_max_f32_e32 v8, v8, v10               ;  20101508
+	v_cndmask_b32_e64 v10, v1, 0, s4        ;  d501000a 00110101
+	v_max3_f32 v8, v10, v11, v8             ;  d5540008 0422170a
+	v_add_f32_e32 v8, v7, v8                ;  06101107
+	v_mul_f32_e32 v10, 0x3f800008, v8       ;  101410ff 3f800008
+	v_cmp_ge_f32_e32 vcc_lo, 0, v10         ;  7c0c1480
+	v_cndmask_b32_e64 v11, 0, -1, vcc_lo    ;  d501000b 01a98280
+	v_cmp_class_f32_e64 vcc_lo, v10, 3      ;  d488006a 0001070a
+	s_not_b64 vcc, vcc                      ;  beea086a
+	v_cndmask_b32_e32 v11, -1, v11, vcc_lo  ;  021616c1
+	s_mov_b64 s[32:33], exec                ;  bea0047e
+	v_cmpx_eq_u32_e64 v11, 0                ;  d4d2007e 0001010b
+	s_cbranch_execz _L13c0                  ;  bf88011c
+	v_cndmask_b32_e64 v11, v7, 0, s4        ;  d501000b 00110107
+	v_mul_f32_e32 v6, v67, v7               ;  100c0f43
+	v_mov_b32_e32 v17, v37                  ;  7e220325
+	v_fma_f32 v12, v8, 0x3f800008, -v11     ;  d54b000c 842dff08 3f800008
+	v_fma_f32 v8, v8, 0x3f800008, -v6       ;  d54b0008 8419ff08 3f800008
+	v_mov_b32_e32 v18, 0                    ;  7e240280
+	v_mov_b32_e32 v20, 0                    ;  7e280280
+	v_mov_b32_e32 v21, v32                  ;  7e2a0320
+	v_mov_b32_e32 v38, 0                    ;  7e4c0280
+	v_mov_b32_e32 v39, 0                    ;  7e4e0280
+	v_mov_b32_e32 v40, 0                    ;  7e500280
+	v_mov_b32_e32 v37, 0                    ;  7e4a0280
+	v_mov_b32_e32 v42, 0                    ;  7e540280
+	v_rcp_f32_e32 v7, v10                   ;  7e0e550a
+	v_subrev_f32_e32 v13, v1, v12           ;  0a1a1901
+	v_subrev_f32_e32 v14, v3, v12           ;  0a1c1903
+	v_subrev_f32_e32 v8, v5, v8             ;  0a101105
+	s_mov_b64 s[4:5], exec                  ;  be84047e
+	s_mov_b64 s[34:35], exec                ;  bea2047e
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+	s_nop 0                                 ;  bf800000
+_Lfc0:
+	v_add_f32_e32 v44, v40, v37             ;  06584b28
+	v_add_f32_e32 v43, v39, v44             ;  06565927
+	v_add_f32_e32 v43, v38, v43             ;  06565726
+	s_mov_b64 s[38:39], exec                ;  bea6047e
+	v_cmpx_eq_u32_e64 v43, 0                ;  d4d2007e 0001012b
+	s_andn2_b64 exec, s[38:39], exec        ;  8afe7e26
+	s_andn2_b64 s[34:35], s[34:35], exec    ;  8aa27e22
+	s_cbranch_scc0 _L13bc                   ;  bf8400f6
+	s_and_b64 exec, s[38:39], s[34:35]      ;  87fe2226
+	v_add_nc_u32_e32 v15, 1, v21            ;  4a1e2a81
+	v_cmp_ge_i32_e32 vcc_lo, 0x1e8480, v15  ;  7d0c1eff 001e8480
+	v_cndmask_b32_e32 v56, -1, v20, vcc_lo  ;  027028c1
+	v_cmp_eq_u32_e32 vcc_lo, 0, v56         ;  7d847080
+	v_cndmask_b32_e32 v42, 3, v42, vcc_lo   ;  02545483
+	v_cndmask_b32_e32 v38, 1.0, v38, vcc_lo ;  024c4cf2
+	v_cndmask_b32_e32 v22, 2, v22, vcc_lo   ;  022c2c82
+	v_cndmask_b32_e32 v36, v55, v36, vcc_lo ;  02484937
+	v_cndmask_b32_e32 v35, v17, v35, vcc_lo ;  02464711
+	v_cndmask_b32_e32 v34, v71, v34, vcc_lo ;  02444547
+	v_cndmask_b32_e32 v19, v70, v19, vcc_lo ;  02262746
+	v_cndmask_b32_e32 v25, v69, v25, vcc_lo ;  02323345
+	v_cndmask_b32_e32 v41, 0, v41, vcc_lo   ;  02525280
+	s_mov_b64 s[38:39], exec                ;  bea6047e
+	v_cmpx_eq_u32_e64 v38, 0                ;  d4d2007e 00010126
+	s_cbranch_execz _L13b4                  ;  bf8800e1
+	v_mul_lo_u32 v43, v55, 0x2c9277b5       ;  d569002b 0001ff37 2c9277b5
+	v_add_nc_u32_e32 v45, 0xac564b05, v43   ;  4a5a56ff ac564b05
+	v_lshrrev_b32_e32 v44, 28, v45          ;  2c585a9c
+	v_add_nc_u32_e32 v44, 4, v44            ;  4a585884
+	v_lshrrev_b32_e32 v44, v44, v45         ;  2c585b2c
+	v_xor_b32_e32 v44, v45, v44             ;  3a58592d
+	v_mul_lo_u32 v44, v44, 0x108ef2d9       ;  d569002c 0001ff2c 108ef2d9
+	v_lshrrev_b32_e32 v46, 22, v44          ;  2c5c5896
+	v_xor_b32_e32 v44, v44, v46             ;  3a585d2c
+	v_lshrrev_b32_e32 v44, 8, v44           ;  2c585888
+	v_cvt_f32_u32_e32 v44, v44              ;  7e580d2c
+	v_fma_f32 v44, v44, 0xb3800000, 1.0     ;  d54b002c 03c9ff2c b3800000
+	v_log_f32_e32 v44, v44                  ;  7e584f2c
+	v_mul_f32_e32 v44, 0x3f317218, v44      ;  105858ff 3f317218
+	v_fma_f32 v44, -v44, v7, v18            ;  d54b002c 244a0f2c
+	v_cmp_nge_f32_e32 vcc_lo, v44, v9       ;  7c12132c
+	v_cndmask_b32_e32 v42, 2, v42, vcc_lo   ;  02545482
+	v_cndmask_b32_e32 v39, 1.0, v39, vcc_lo ;  024e4ef2
+	v_cndmask_b32_e32 v22, 0, v22, vcc_lo   ;  022c2c80
+	v_cndmask_b32_e32 v36, v45, v36, vcc_lo ;  0248492d
+	v_cndmask_b32_e32 v35, v17, v35, vcc_lo ;  02464711
+	v_cndmask_b32_e32 v34, v71, v34, vcc_lo ;  02444547
+	v_cndmask_b32_e32 v19, v70, v19, vcc_lo ;  02262746
+	v_cndmask_b32_e32 v25, v69, v25, vcc_lo ;  02323345
+	v_cndmask_b32_e32 v41, v9, v41, vcc_lo  ;  02525309
+	s_mov_b64 s[40:41], exec                ;  bea8047e
+	v_cmpx_eq_u32_e64 v39, 0                ;  d4d2007e 00010127
+	s_cbranch_execz _L13b4                  ;  bf8800bb
+	v_max_f32_e64 v49, |v71|, |v17|         ;  d5100331 00022347
+	v_max3_f32 v24, |v69|, |v70|, v49       ;  d5540318 04c68d45
+	v_cmp_ge_f32_e32 vcc_lo, 0xda24260, v24 ;  7c0c30ff 0da24260
+	v_cndmask_b32_e64 v47, 0, -1, vcc_lo    ;  d501002f 01a98280
+	v_cmp_class_f32_e64 vcc_lo, v24, 3      ;  d488006a 00010718
+	s_not_b64 vcc, vcc                      ;  beea086a
+	v_cndmask_b32_e32 v47, -1, v47, vcc_lo  ;  025e5ec1
+	s_mov_b64 s[42:43], exec                ;  beaa047e
+	v_cmpx_eq_u32_e64 v47, 0                ;  d4d2007e 0001012f
+	s_cbranch_execz _L129c                  ;  bf880065
+	v_rcp_f32_e32 v54, v24                  ;  7e6c5518
+	v_subrev_f32_e32 v51, v2, v12           ;  0a661902
+	v_mul_f32_e64 v24, |v69|, v54           ;  d5080118 00026d45
+	v_mul_f32_e64 v48, |v70|, v54           ;  d5080130 00026d46
+	v_mul_f32_e64 v52, |v71|, v54           ;  d5080134 00026d47
+	v_mul_f32_e32 v47, v1, v24              ;  105e3101
+	v_mul_f32_e32 v49, v11, v24             ;  1062310b
+	v_mul_f32_e64 v53, v24, |v13|           ;  d5080235 00021b18
+	v_fmac_f32_e32 v47, v48, v2             ;  565e0530
+	v_fmac_f32_e32 v49, v48, v11            ;  56621730
+	v_mul_f32_e64 v24, |v17|, v54           ;  d5080118 00026d11
+	v_fmac_f32_e32 v47, v52, v3             ;  565e0734
+	v_fmac_f32_e32 v49, v52, v11            ;  56621734
+	v_fma_f32 v53, v48, |v51|, v53          ;  d54b0235 04d66730
+	v_fmac_f32_e32 v47, v24, v5             ;  565e0b18
+	v_fmac_f32_e32 v49, v24, v6             ;  56620d18
+	v_fma_f32 v53, v52, |v14|, v53          ;  d54b0235 04d61d34
+	v_fma_f32 v53, v24, |v8|, v53           ;  d54b0235 04d61118
+	v_add_f32_e32 v24, v47, v49             ;  0630632f
+	v_add_f32_e32 v48, v53, v24             ;  06603135
+	s_mov_b64 s[44:45], exec                ;  beac047e
+	v_cmpx_nle_f32_e64 v48, 0               ;  d41c007e 00010130
+	s_cbranch_execz _L127c                  ;  bf88003d
+	v_mul_lo_u32 v43, v43, 0x2c9277b5       ;  d569002b 0001ff2b 2c9277b5
+	v_add_nc_u32_e32 v23, 0x4712a88e, v43   ;  4a2e56ff 4712a88e
+	v_lshrrev_b32_e32 v52, 28, v23          ;  2c682e9c
+	v_add_nc_u32_e32 v52, 4, v52            ;  4a686884
+	v_lshrrev_b32_e32 v52, v52, v23         ;  2c682f34
+	v_xor_b32_e32 v52, v23, v52             ;  3a686917
+	v_mul_lo_u32 v52, v52, 0x108ef2d9       ;  d5690034 0001ff34 108ef2d9
+	v_lshrrev_b32_e32 v54, 22, v52          ;  2c6c6896
+	v_xor_b32_e32 v52, v52, v54             ;  3a686d34
+	v_lshrrev_b32_e32 v52, 8, v52           ;  2c686888
+	v_cvt_f32_u32_e32 v52, v52              ;  7e680d34
+	v_mul_f32_e32 v54, 0x33800000, v52      ;  106c68ff 33800000
+	v_mul_f32_e32 v54, v48, v54             ;  106c6d30
+	s_mov_b64 s[46:47], exec                ;  beae047e
+	v_cmpx_ngt_f32_e64 v47, v54             ;  d41b007e 00026d2f
+	s_cbranch_execz _L1260                  ;  bf88001f
+	v_cmp_gt_f32_sdwa s48, v24, v54 src0_sel:DWORD src1_sel:DWORD ;  7c086cf9 0606b018
+	s_andn1_saveexec_b64 s[50:51], s[48:49] ;  beb23730
+	s_cbranch_execz _L1224                  ;  bf88000c
+	v_rcp_f32_e32 v24, v48                  ;  7e305530
+	v_mul_f32_e32 v24, v53, v24             ;  10303135
+	v_mul_f32_e32 v24, v10, v24             ;  1030310a
+	v_rcp_f32_e32 v24, v24                  ;  7e305518
+	v_mul_f32_e32 v47, v13, v24             ;  105e310d
+	v_mul_f32_e32 v48, v51, v24             ;  10603133
+	v_mul_f32_e32 v49, v14, v24             ;  1062310e
+	v_mul_f32_e32 v24, v8, v24              ;  10303108
+	v_mul_f32_e32 v43, v69, v47             ;  10565f45
+	v_mul_f32_e32 v4, v70, v48              ;  10086146
+	v_mul_f32_e32 v47, v71, v49             ;  105e6347
+	v_mul_f32_e32 v24, v17, v24             ;  10303111
+_L1224:
+	s_andn2_b64 exec, s[50:51], exec        ;  8afe7e32
+	s_cbranch_execz _L1254                  ;  bf88000a
+	v_rcp_f32_e32 v24, v48                  ;  7e305530
+	v_mul_f32_e32 v24, v49, v24             ;  10303131
+	v_mul_f32_e32 v24, v10, v24             ;  1030310a
+	v_rcp_f32_e32 v24, v24                  ;  7e305518
+	v_mul_f32_e32 v49, v11, v24             ;  1062310b
+	v_mul_f32_e32 v24, v6, v24              ;  10303106
+	v_mul_f32_e32 v43, v69, v49             ;  10566345
+	v_mul_f32_e32 v4, v70, v49              ;  10086346
+	v_mul_f32_e32 v47, v71, v49             ;  105e6347
+	v_mul_f32_e32 v24, v17, v24             ;  10303111
+_L1254:
+	s_mov_b64 exec, s[50:51]                ;  befe0432
+	v_cndmask_b32_e64 v48, 0, 1, s48        ;  d5010030 00c10280
+_L1260:
+	s_andn2_b64 exec, s[46:47], exec        ;  8afe7e2e
+	v_mov_b32_e32 v43, v69                  ;  7e560345
+	v_mov_b32_e32 v4, v70                   ;  7e080346
+	v_mov_b32_e32 v47, v71                  ;  7e5e0347
+	v_mov_b32_e32 v24, v17                  ;  7e300311
+	v_mov_b32_e32 v48, 2                    ;  7e600282
+	s_mov_b64 exec, s[46:47]                ;  befe042e
+_L127c:
+	s_andn2_b64 exec, s[44:45], exec        ;  8afe7e2c
+	v_mov_b32_e32 v43, v69                  ;  7e560345
+	v_mov_b32_e32 v4, v70                   ;  7e080346
+	v_mov_b32_e32 v47, v71                  ;  7e5e0347
+	v_mov_b32_e32 v24, v17                  ;  7e300311
+	v_mov_b32_e32 v23, v45                  ;  7e2e032d
+	v_mov_b32_e32 v48, 0                    ;  7e600280
+	s_mov_b64 exec, s[44:45]                ;  befe042c
+_L129c:
+	s_andn2_b64 exec, s[42:43], exec        ;  8afe7e2a
+	v_mov_b32_e32 v43, v69                  ;  7e560345
+	v_mov_b32_e32 v4, v70                   ;  7e080346
+	v_mov_b32_e32 v47, v71                  ;  7e5e0347
+	v_mov_b32_e32 v24, v17                  ;  7e300311
+	v_mov_b32_e32 v23, v45                  ;  7e2e032d
+	v_mov_b32_e32 v48, 2                    ;  7e600282
+	s_mov_b64 exec, s[42:43]                ;  befe042a
+	v_cmp_ne_i32_e32 vcc_lo, 1, v48         ;  7d0a6081
+	v_cndmask_b32_e32 v42, 1, v42, vcc_lo   ;  02545481
+	v_cndmask_b32_e32 v40, 1.0, v40, vcc_lo ;  025050f2
+	v_cndmask_b32_e32 v22, 1, v22, vcc_lo   ;  022c2c81
+	v_cndmask_b32_e32 v36, v23, v36, vcc_lo ;  02484917
+	v_cndmask_b32_e32 v35, v24, v35, vcc_lo ;  02464718
+	v_cndmask_b32_e32 v34, v47, v34, vcc_lo ;  0244452f
+	v_cndmask_b32_e32 v19, v4, v19, vcc_lo  ;  02262704
+	v_cndmask_b32_e32 v25, v43, v25, vcc_lo ;  0232332b
+	v_cndmask_b32_e32 v41, v44, v41, vcc_lo ;  0252532c
+	v_cmp_eq_u32_e32 vcc_lo, 0, v40         ;  7d845080
+	s_and_b64 exec, s[42:43], vcc           ;  87fe6a2a
+	s_cbranch_execz _L13b4                  ;  bf880031
+	s_mov_b64 s[44:45], exec                ;  beac047e
+	v_cmpx_eq_i32_e64 v48, 2                ;  d492007e 00010530
+	s_cbranch_execz _L1380                  ;  bf880020
+	s_mov_b64 s[46:47], exec                ;  beae047e
+	v_cmpx_ne_i32_e64 v42, 1                ;  d495007e 0001032a
+	s_cbranch_execz _L1354                  ;  bf880011
+	v_cmp_eq_i32_e64 s50, v42, 3            ;  d4820032 0001072a
+	v_cmp_eq_i32_e64 s48, v42, 2            ;  d4820030 0001052a
+	v_cndmask_b32_e64 v32, v23, v55, s50    ;  d5010020 00ca6f17
+	v_cndmask_b32_e64 v22, 2, 0, s48        ;  d5010016 00c10082
+	v_cndmask_b32_e64 v41, 0, v9, s48       ;  d5010029 00c21280
+	v_cndmask_b32_e64 v36, v32, v45, s48    ;  d5010024 00c25b20
+	s_or_b64 vcc, s[50:51], s[48:49]        ;  88ea3032
+	v_cndmask_b32_e32 v35, v24, v17, vcc_lo ;  02462318
+	v_cndmask_b32_e32 v34, v47, v71, vcc_lo ;  02448f2f
+	v_cndmask_b32_e32 v19, v4, v70, vcc_lo  ;  02268d04
+	v_cndmask_b32_e32 v25, v43, v69, vcc_lo ;  02328b2b
+_L1354:
+	s_andn2_b64 exec, s[46:47], exec        ;  8afe7e2e
+	s_cbranch_execz _L1378                  ;  bf880007
+	v_mov_b32_e32 v41, v44                  ;  7e52032c
+	v_mov_b32_e32 v25, v43                  ;  7e32032b
+	v_mov_b32_e32 v19, v4                   ;  7e260304
+	v_mov_b32_e32 v34, v47                  ;  7e44032f
+	v_mov_b32_e32 v35, v24                  ;  7e460318
+	v_mov_b32_e32 v36, v23                  ;  7e480317
+	v_mov_b32_e32 v22, 1                    ;  7e2c0281
+_L1378:
+	s_mov_b64 exec, s[46:47]                ;  befe042e
+	v_mov_b32_e32 v37, 1.0                  ;  7e4a02f2
+_L1380:
+	s_mov_b64 exec, s[44:45]                ;  befe042c
+	v_cmp_eq_u32_e64 s44, v37, 0            ;  d4c2002c 00010125
+	v_add_co_ci_u32_e64 v21, vcc_lo, v21, 0, s44 ;  d5286a15 00b10115
+	s_not_b64 vcc, s[44:45]                 ;  beea082c
+	v_cndmask_b32_e32 v20, 0, v20, vcc_lo   ;  02282880
+	v_cndmask_b32_e32 v55, v23, v55, vcc_lo ;  026e6f17
+	v_cndmask_b32_e32 v18, v44, v18, vcc_lo ;  0224252c
+	v_cndmask_b32_e32 v17, v24, v17, vcc_lo ;  02222318
+	v_cndmask_b32_e32 v71, v47, v71, vcc_lo ;  028e8f2f
+	v_cndmask_b32_e32 v70, v4, v70, vcc_lo  ;  028c8d04
+	v_cndmask_b32_e32 v69, v43, v69, vcc_lo ;  028a8b2b
+_L13b4:
+	s_mov_b64 exec, s[38:39]                ;  befe0426
+	s_branch _Lfc0                          ;  bf82ff01
+_L13bc:
+	s_mov_b64 exec, s[4:5]                  ;  befe0404
+_L13c0:
+	s_andn2_b64 exec, s[32:33], exec        ;  8afe7e20
+	s_cbranch_execz _L13ec                  ;  bf880009
+	v_mov_b32_e32 v15, v32                  ;  7e1e0320
+	v_mov_b32_e32 v56, 0                    ;  7e700280
+	v_mov_b32_e32 v41, 0                    ;  7e520280
+	v_mov_b32_e32 v25, v69                  ;  7e320345
+	v_mov_b32_e32 v19, v70                  ;  7e260346
+	v_mov_b32_e32 v34, v71                  ;  7e440347
+	v_mov_b32_e32 v35, v37                  ;  7e460325
+	v_mov_b32_e32 v36, v55                  ;  7e480337
+	v_mov_b32_e32 v22, 2                    ;  7e2c0282
+_L13ec:
+	s_mov_b64 exec, s[32:33]                ;  befe0420
+	v_cmp_eq_i32_e64 s4, v22, 0             ;  d4820004 00010116
+	v_mov_b32_e32 v69, v25                  ;  7e8a0319
+	v_mov_b32_e32 v70, v19                  ;  7e8c0313
+	v_mov_b32_e32 v71, v34                  ;  7e8e0322
+	v_mov_b32_e32 v37, v35                  ;  7e4a0323
+	v_mov_b32_e32 v55, v36                  ;  7e6e0324
+	s_and_b64 s[32:33], s[30:31], s[4:5]    ;  87a0041e
+	s_nand_b64 vcc, s[30:31], s[4:5]        ;  8cea041e
+	s_andn2_b64 s[4:5], s[16:17], s[32:33]  ;  8a842010
+	v_cndmask_b32_e32 v7, -1, v22, vcc_lo   ;  020e2cc1
+	v_cndmask_b32_e64 v3, 0, -1, s4         ;  d5010003 00118280
+_L1424:
+	s_andn2_b64 exec, s[6:7], exec          ;  8afe7e06
+	v_mov_b32_e32 v15, v32                  ;  7e1e0320
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v56, 0                    ;  7e700280
+	s_waitcnt vmcnt(0)                      ;  bf8c3f70
+	v_mov_b32_e32 v7, -1                    ;  7e0e02c1
+	v_mov_b32_e32 v41, 0                    ;  7e520280
+	s_mov_b64 exec, s[6:7]                  ;  befe0406
+	s_clause 0x4                            ;  bfa10004
+	buffer_store_dword v55, v63, s[12:15], 0 offen glc ;  e0705000 8003373f
+	buffer_store_dword v69, v30, s[12:15], 0 offen glc ;  e0705000 8003451e
+	buffer_store_dword v70, v29, s[12:15], 0 offen glc ;  e0705000 8003461d
+	buffer_store_dword v71, v31, s[12:15], 0 offen glc ;  e0705000 8003471f
+	buffer_store_dword v37, v28, s[12:15], 0 offen glc ;  e0705000 8003251c
+	s_mul_i32 s2, 23, s3                    ;  93020397
+	v_add_lshl_u32 v6, v0, s2, 2            ;  d7470006 02080500
+	buffer_store_dword v41, v6, s[12:15], 0 offen glc ;  e0705000 80032906
+	v_cndmask_b32_e64 v19, 0, -1, s20       ;  d5010013 00518280
+	v_cndmask_b32_e64 v5, 0, -1, s10        ;  d5010005 00298280
+_L1494:
+	s_mov_b64 exec, s[36:37]                ;  befe0424
+	v_cmp_gt_i32_e32 vcc_lo, 0, v7          ;  7d080e80
+	s_and_b64 exec, s[36:37], vcc           ;  87fe6a24
+	v_cmp_ne_i32_e32 vcc_lo, 0, v5          ;  7d0a0a80
+	v_cndmask_b32_e64 v6, 1, 2, vcc_lo      ;  d5010006 01a90481
+	v_cmp_ne_i32_e32 vcc_lo, 0, v3          ;  7d0a0680
+	v_cndmask_b32_e32 v6, 5, v6, vcc_lo     ;  020c0c85
+	v_cmp_eq_u32_e32 vcc_lo, 0, v56         ;  7d847080
+	v_cndmask_b32_e32 v7, 5, v6, vcc_lo     ;  020e0c85
+	s_andn2_b64 exec, s[36:37], exec        ;  8afe7e24
+	s_cbranch_execz _L14d0                  ;  bf880003
+	buffer_store_dword v7, v62, s[12:15], 0 offen glc ;  e0705000 8003073e
+	v_mov_b32_e32 v7, 3                     ;  7e0e0283
+_L14d0:
+	s_mov_b64 exec, s[36:37]                ;  befe0424
+	v_mov_b32_e32 v32, v15                  ;  7e40030f
+_L14d8:
+	s_andn2_b64 exec, s[28:29], exec        ;  8afe7e1c
+	v_cndmask_b32_e64 v19, 0, -1, s20       ;  d5010013 00518280
+	v_cndmask_b32_e64 v60, 0, -1, s0        ;  d501003c 00018280
+	v_cndmask_b32_e64 v5, 0, -1, s10        ;  d5010005 00298280
+	v_mov_b32_e32 v56, 0                    ;  7e700280
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v7, 5                     ;  7e0e0285
+	s_mov_b64 exec, s[28:29]                ;  befe041c
+	v_cndmask_b32_e64 v8, 0, -1, s18        ;  d5010008 00498280
+	v_cmp_eq_i32_e32 vcc_lo, 0, v50         ;  7d046480
+	v_cndmask_b32_e32 v1, -1, v8, vcc_lo    ;  020210c1
+_L1514:
+	s_andn2_b64 exec, s[26:27], exec        ;  8afe7e1a
+	s_cbranch_execz _L1548                  ;  bf88000b
+	v_cndmask_b32_e64 v19, 0, -1, s20       ;  d5010013 00518280
+	v_cndmask_b32_e64 v1, 0, -1, s18        ;  d5010001 00498280
+	v_cndmask_b32_e64 v60, 0, -1, s0        ;  d501003c 00018280
+	v_cndmask_b32_e64 v5, 0, -1, s10        ;  d5010005 00298280
+	v_mov_b32_e32 v56, 0                    ;  7e700280
+	v_mov_b32_e32 v3, 0                     ;  7e060280
+	v_mov_b32_e32 v7, 5                     ;  7e0e0285
+_L1548:
+	s_mov_b64 exec, s[26:27]                ;  befe041a
+_L154c:
+	s_andn2_b64 exec, s[24:25], exec        ;  8afe7e18
+	v_mov_b32_e32 v7, 5                     ;  7e0e0285
+	v_cndmask_b32_e64 v19, 0, -1, s20       ;  d5010013 00518280
+	v_cndmask_b32_e64 v1, 0, -1, s18        ;  d5010001 00498280
+	v_cndmask_b32_e64 v3, 0, -1, s16        ;  d5010003 00418280
+	v_cndmask_b32_e64 v60, 0, -1, s0        ;  d501003c 00018280
+	v_cndmask_b32_e64 v5, 0, -1, s10        ;  d5010005 00298280
+	s_mov_b64 exec, s[24:25]                ;  befe0418
+	v_and_b32_e32 v9, 16, v33               ;  36124290
+	v_and_b32_e32 v10, 32, v33              ;  361442a0
+	v_cmp_ne_i32_e32 vcc_lo, 0, v5          ;  7d0a0a80
+	v_cndmask_b32_e64 v6, 0, 2, vcc_lo      ;  d5010006 01a90480
+	v_cmp_ne_i32_e32 vcc_lo, 0, v9          ;  7d0a1280
+	v_cndmask_b32_e64 v9, 0, 16, vcc_lo     ;  d5010009 01a92080
+	v_cmp_ne_i32_e32 vcc_lo, 0, v10         ;  7d0a1480
+	v_cndmask_b32_e64 v10, 0, 32, vcc_lo    ;  d501000a 01a94080
+	v_cmp_ne_i32_e32 vcc_lo, 0, v60         ;  7d0a7880
+	v_cndmask_b32_e64 v5, 0, 4, vcc_lo      ;  d5010005 01a90880
+	v_cmp_ne_i32_e32 vcc_lo, 0, v3          ;  7d0a0680
+	v_and_or_b32 v6, v33, 1, v6             ;  d7710006 04190321
+	v_cndmask_b32_e64 v4, 0, 8, vcc_lo      ;  d5010004 01a91080
+	v_cmp_ne_i32_e32 vcc_lo, 0, v1          ;  7d0a0280
+	v_cndmask_b32_e64 v3, 0, 64, vcc_lo     ;  d5010003 01a98080
+	v_or3_b32 v4, v6, v5, v4                ;  d7720004 04120b06
+	v_cmp_ne_i32_e32 vcc_lo, 0, v56         ;  7d0a7080
+	v_cndmask_b32_e64 v2, 0, 0x80, vcc_lo   ;  d5010002 01a9fe80 00000080
+	v_or3_b32 v4, v4, v9, v10               ;  d7720004 042a1304
+	v_cmp_ne_i32_e32 vcc_lo, 0, v19         ;  7d0a2680
+	v_cndmask_b32_e64 v1, 0, 0x100, vcc_lo  ;  d5010001 01a9fe80 00000100
+	v_or3_b32 v2, v4, v3, v2                ;  d7720002 040a0704
+	v_lshlrev_b32_e32 v0, 2, v0             ;  34000082
+	v_or_b32_e32 v1, v2, v1                 ;  38020302
+	v_or_b32_e32 v2, 0x200, v1              ;  380402ff 00000200
+	v_cndmask_b32_e64 v1, v1, v2, s22       ;  d5010001 005a0501
+	s_clause 0x2                            ;  bfa10002
+	buffer_store_dword v7, v0, s[12:15], 0 offen glc ;  e0705000 80030700
+	buffer_store_dword v32, v27, s[12:15], 0 offen glc ;  e0705000 8003201b
+	buffer_store_dword v1, v26, s[12:15], 0 offen glc ;  e0705000 8003011a
+_L1644:
+	s_endpgm                                ;  bf810000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+	s_code_end                              ;  bf9f0000
+ 

@@ -1,0 +1,14 @@
+// querschnitt.comp — nach der Masse (je Kante): mittlere Tiefe h_A stromauf im neuen Stand, Fluss je Breite q.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+void main() {
+    int e = int(gl_GlobalInvocationID.x);
+    if (e >= W.kanten) return;
+    float h;
+    bool ok = obenEta(e, u[e], P.m + 2, h);
+    ha[e] = ok ? hA(e, h) : 0.0;
+    q[e] = fluss[e] / laenge(e);
+}

@@ -1,0 +1,33 @@
+# P13c – BrandungCheck
+
+Attest für `com.dan.render.brandung`, Version 0.1. Stand 20.11.2026 14:18, OpenJDK 64-Bit Server VM 21.0.11, 16 Kerne.
+
+16 Prüfsteine, 1 Verstöße. Die Grenzwerte standen vor der Messung fest; [G] heißt gesetzt.
+
+| Teil | Größe | Wert | Grenze | Urteil |
+|---|---|---|---|---|
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Prüfstein 16: Varianz der Höhe gegen Hs²/16 (Hs 0,79 m, Tp 10,6 s; 1 × 1 km, 128 Zeiten über 1 h) | 0,984 (im Band 0,07–0,6 Hz: m0 = 0,989 · Hs²/16) | 1 ± 0,1 [G] | ok |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Kammform (h 2,29 m, β 0,33): Mittel und Varianz von ζ_s gegen ζ | Mittel -0,0002 m (σ 0,196 m), Varianz 0,995 · Var(ζ), Schiefe 0,85 | /Mittel/ ≤ 0,03 σ, Varianz 1 ± 0,05 | ok |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Kamm bei 2σ (h 2,29 m) | Kamm 0,476 m, Tal -0,289 m: Anteil des Kamms 0,62 (Ziel 0,62) |  | – |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Prüfstein 16: Varianz der Höhe gegen Hs²/16 (Hs 1,55 m, Tp 8,0 s; 1 × 1 km, 128 Zeiten über 1 h) | 0,996 (im Band 0,07–0,6 Hz: m0 = 0,998 · Hs²/16) | 1 ± 0,1 [G] | ok |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Kammform (h 6,00 m, β 0,21): Mittel und Varianz von ζ_s gegen ζ | Mittel -0,0001 m (σ 0,387 m), Varianz 0,997 · Var(ζ), Schiefe 0,55 | /Mittel/ ≤ 0,03 σ, Varianz 1 ± 0,05 | ok |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Kamm bei 2σ (h 6,00 m) | Kamm 0,887 m, Tal -0,645 m: Anteil des Kamms 0,58 (Ziel 0,58) |  | – |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Prüfstein 16: Varianz der Höhe gegen Hs²/16 (Hs 0,23 m, Tp 3,8 s; 1 × 1 km, 128 Zeiten über 1 h) | 0,971 (im Band 0,07–0,6 Hz: m0 = 0,970 · Hs²/16) | 1 ± 0,1 [G] | ok |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Kammform (h 0,75 m, β 0,28): Mittel und Varianz von ζ_s gegen ζ | Mittel +0,0000 m (σ 0,057 m), Varianz 0,996 · Var(ζ), Schiefe 0,72 | /Mittel/ ≤ 0,03 σ, Varianz 1 ± 0,05 | ok |
+| Höhe der langen Wellen (Prüfstein 16) und Kammform | Kamm bei 2σ (h 0,75 m) | Kamm 0,134 m, Tal -0,088 m: Anteil des Kamms 0,60 (Ziel 0,60) |  | – |
+| Schaumköpfe (Prüfstein 18: Mittel gleich der Bedeckung, auch in der Ferne) | Streuung des Rauschens (normalverteilt wie seeRauschN) | 0,999, Mittel +0,002 | 1 ± 0,02 | ok |
+| Schaumköpfe (Prüfstein 18: Mittel gleich der Bedeckung, auch in der Ferne) | Prüfstein 18: Mittel des Schaums / W über 200 000 Orte je Größe des Bildpunkts (Hs 0,79 m, Tp 10,6 s, U 22 m/s) | größte Abweichung 0,033 | 1 ± 0,05 | ok |
+| Schaumköpfe (Prüfstein 18: Mittel gleich der Bedeckung, auch in der Ferne) | Prüfstein 18: Streuung des Schaums je Bildpunkt fällt mit der Größe des Bildpunkts | W 0,02: 0,05 m → 0,992 (σ 0,105); 0,30 m → 0,967 (σ 0,091); 1,50 m → 0,993 (σ 0,043); 6,00 m → 0,987 (σ 0,043); 30,00 m → 0,994 (σ 0,033); W 0,05: 0,05 m → 0,989 (σ 0,169); 0,30 m → 1,003 (σ 0,155); 1,50 m → 1,001 (σ 0,083); 6,00 m → 0,998 (σ 0,082); 30,00 m → 0,997 (σ 0,064); W 0,10: 0,05 m → 1,009 (σ 0,243); 0,30 m → 1,010 (σ 0,224); 1,50 m → 1,002 (σ 0,129); 6,00 m → 1,004 (σ 0,129); 30,00 m → 1,003 (σ 0,105); W 0,30: 0,05 m → 1,001 (σ 0,384); 0,30 m → 0,999 (σ 0,359); 1,50 m → 1,002 (σ 0,231); 6,00 m → 1,003 (σ 0,230); 30,00 m → 1,000 (σ 0,194); | monoton fallend (± 5 % Streuung der Stichprobe) | ok |
+| Brechen im Wasser (Prüfstein 8a): Anteil der brechenden Wellen gegen Q_b nach Battjes und Janssen | Prüfstein 8a: Reihenfolge – mehr Weißwasser bei größerem Hs/h (h 1 m, Tp 4 s) | Hs/h 0,3: 4607 Wellen, brechend 0,0000, Q_b 0,0000; Hs/h 0,4: 4601 Wellen, brechend 0,0015, Q_b 0,0013; Hs/h 0,5: 4560 Wellen, brechend 0,0164, Q_b 0,0150; Hs/h 0,6: 4428 Wellen, brechend 0,0384, Q_b 0,0623; Hs/h 0,7: 4413 Wellen, brechend 0,0693, Q_b 0,1614; | steigend | ok |
+| Brechen im Wasser (Prüfstein 8a): Anteil der brechenden Wellen gegen Q_b nach Battjes und Janssen | Prüfstein 8a: Verhältnis brechend / Q_b, wo Q_b ≥ 0,01 | siehe Zeile davor | 0,5–2 [G] | **fehlt** |
+| Bedeckung mit Schaum gegen die Literatur (Prüfstein 17), Archiv D:\Daten\HalligHooge\_p13\archiv_xaver | Prüfstein 17: Bedeckung W = diss / 22,7 W/m² (Median über Zellen mit Hs > 1,2 m) zwischen Callaghan 2008 und Monahan 1980 | 19 von 19 Zeitpunkten | alle | ok |
+| Bedeckung mit Schaum gegen die Literatur (Prüfstein 17), Archiv D:\Daten\HalligHooge\_p13\archiv_xaver | Zeitpunkte | 48 h: U 12,8, W 0,022 (0,016–0,023); 50 h: U 15,7, W 0,038 (0,027–0,046); 52 h: U 18,2, W 0,060 (0,039–0,076); 54 h: U 20,6, W 0,090 (0,055–0,116); 56 h: U 22,0, W 0,095 (0,066–0,145); 58 h: U 20,5, W 0,070 (0,055–0,115); 60 h: U 20,5, W 0,091 (0,055–0,114); 62 h: U 21,7, W 0,082 (0,064–0,139); 64 h: U 20,6, W 0,080 (0,055–0,116); 66 h: U 19,4, W 0,064 (0,047–0,094); 68 h: U 21,0, W 0,070 (0,058–0,123); 70 h: U 20,8, W 0,080 (0,057–0,120); 72 h: U 19,8, W 0,076 (0,050–0,101); 74 h: U 19,5, W 0,067 (0,048–0,096); 76 h: U 18,6, W 0,059 (0,042–0,081); 78 h: U 18,3, W 0,058 (0,040–0,077); 80 h: U 18,8, W 0,055 (0,043–0,085); 82 h: U 18,0, W 0,049 (0,039–0,074); 84 h: U 17,8, W 0,053 (0,037–0,070); |  | – |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Kanten der Brandung (brandung/kanten.txt, Schritt brandung) | 11586 Abschnitte | vorhanden | ok |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Abschnitte je Art | Deckwerk 344, Warft 633, Deich 4072, Kante 6537 |  | – |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Brechertyp nach Battjes (1974): Schwellen 0,5 / 3,3 / 5 wie Surf.typeOffshore (Sylt) | 7 Werte | gleich | ok |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Prüfstein 8c: Typ je Abschnitt im Netz gegen Brecherform.typ aus ξ₀ (50 Bilder, Landunter 3,7 m an der Hanswarft) | 7900 von 7900 gleich; Schwall 0, Sturz 6878, Reflexion 829, Brandung 193 | gleich | ok |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Rechenzeit des Kerns je Bild (Median aus 50, Blick nach Osten auf die Hanswarft, Blickfeld 50°) und Netz | 2,59 ms; 158 aktive Abschnitte, 32256 Scheitel, 70 Bündel der Gischt |  | – |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Prüfstein 19: Auflauf, der von 2 % der Wellen überschritten wird, gegen Ru2% nach EurOtop 2018 (Hs 0,8 m, Tp 10,6 s, 1:10, Gras) | 1,772 m gegen 1,777 m (ξ_m−1,0 1,35; Ru2% = 2,22 · Hs) | 1 ± 0,05 | ok |
+| Kanten und Brecher an den Böschungen (Prüfsteine 8c, 19), Gebiet D:\Daten\HalligHooge\gebiet | Ru2% am Deckwerk 1:3 (γ_f 0,9) bei Hs 0,8 m, Tp 10,6 s | 2,37 m (Grenze nach Gl. 5.4: 2,37 m) |  | – |
+
+1 Verstoß.

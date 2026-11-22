@@ -1,0 +1,6 @@
+#version 460
+// pfad_ebenen_teile.comp – wie pfad_ebenen.comp, mit der Zerlegung des Wassers (Referenz.teile)
+#define TEILE
+#include "/com/dan/render/reference/gpu/kopf.glsl"
+#include "/com/dan/render/reference/gpu/szene_ebenen.glsl"
+#include "/com/dan/render/reference/gpu/pfad.glsl"

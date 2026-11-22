@@ -1,0 +1,32 @@
+#version 460
+// sicht.comp – render.terrain (P6b): Sicht der Sonne je Scheitel der Stufen 0 … lc.z − 1 (Horizont in Richtung der
+// Sonne, wie horizon.Horizon, aber je Bild aus den Stufen): Strahl vom Scheitel zur Sonne in wachsenden Schritten bis
+// lc.w Meter, größter Höhenwinkel des Geländes gegen die Höhe der Sonne, weich über den Durchmesser der Scheibe.
+#define SICHT_SCHREIBEN
+#include "/com/dan/render/terrain/gelaende.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+void main() {
+    int k = int(gl_GlobalInvocationID.x), l = int(gl_GlobalInvocationID.y), L = int(gl_GlobalInvocationID.z), m = M();
+    if (k >= m || l >= m || L >= int(lc.z)) return;
+    Scheitel s = scheitel(L, k, l);
+    vec3 su = hw.sonne.xyz;
+    float v = 1.0;
+    vec2 rh = su.xz;
+    float nh = length(rh);
+    if (su.y <= -0.01) v = 0.0;
+    else if (nh > 1e-4) {
+        rh /= nh;
+        float tanS = su.y / nh, best = -1e9, c = st[L].geo.z, t = c;
+        vec2 xz = s.rel.xz;
+        for (int q = 0; q < 48 && t < lc.w; q++) {
+            float hh = hoeheBei(xz + rh * t, L);
+            if (hh > -1e8) best = max(best, (hh - s.h) / t - t * auge.y);
+            t *= 1.18;
+            t += c * 0.5;
+        }
+        // Winkel statt Tangens: weich über den Durchmesser der Sonne (0,53°)
+        float d = atan(tanS) - atan(best);
+        v = clamp(d / 0.00925 + 0.5, 0.0, 1.0);
+    }
+    sicht[platz(0, L, st[L].idx.x + k, st[L].idx.y + l)] = v;
+}

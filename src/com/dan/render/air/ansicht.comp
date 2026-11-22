@@ -1,0 +1,72 @@
+#version 460
+// ansicht.comp – render.air (P6c; seit P7e spektral, Werkbuch HalligHooge Teil A, 12.8, F58 A): der ganze Himmel vom
+// Auge als Tabelle (256 × 128, RGBA32F, cd/m² ohne Vorbelichtung). Die Sonne in 15 Wellenlängen (fünf Gruppen zu drei,
+// je ein Strahlengang mit 64 quadratischen Schritten (Scattering.VIEW_STEPS), erste Streuung genau, ab der zweiten J), nach linearem sRGB wie
+// die Referenz: je nm quadratisch im Logarithmus durch die drei nächsten Wellenlängen, Gewichte aus CIE 1931 und der Sonne nach ASTM (je lx der
+// Sonne); der Mond in den drei Kanälen; der Nachthimmel.
+// Wie Scattering.radianceSpektral + Scattering.radiance (Mond) + Nachthimmel.
+#include "/com/dan/core/gpu/luft.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D ziel;
+layout(set = 0, binding = 1) uniform sampler2D durch;
+layout(set = 0, binding = 2) uniform sampler2D mehr;
+layout(set = 0, binding = 3, std430) readonly buffer Werte { Himmelswerte hw; };
+// Bänder: Rayleigh und Ozon je Gruppe (rgb); je nm 360–830 {Lage zwischen den Wellenlängen, Gewichte R, G, B je lx}
+const int SP_NM = 471;
+layout(set = 0, binding = 4, std430) readonly buffer Spektrum { vec4 sRay[5]; vec4 sOz[5]; vec4 sTafel[SP_NM]; };
+// die fünf Gruppen der Sonne (je drei Wellenlängen, je Einheit Bestrahlung), gerechnet von gruppe0–4.comp (F62 A)
+layout(set = 0, binding = 5) uniform sampler2D g0;
+layout(set = 0, binding = 6) uniform sampler2D g1;
+layout(set = 0, binding = 7) uniform sampler2D g2;
+layout(set = 0, binding = 8) uniform sampler2D g3;
+layout(set = 0, binding = 9) uniform sampler2D g4;
+const int SCHRITTE = 64;   // wie Scattering.VIEW_STEPS (seit P7e 64 [G])
+const vec3 NACHTFARBE = vec3(0.86, 1.02, 1.04);
+
+float Lk[15], LkLog[15];
+
+void gruppe(int g, vec3 L) { Lk[3 * g] = L.r; Lk[3 * g + 1] = L.g; Lk[3 * g + 2] = L.b; }
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= ANSICHT_W || p.y >= ANSICHT_H) return;
+    float h = hw.sonne.w;
+    vec3 d = ansichtRichtung((vec2(p) + 0.5) / vec2(ANSICHT_W, ANSICHT_H), h);
+    vec3 o = vec3(0.0), tp;
+    // Sonne spektral (je Einheit Bestrahlung; die Gewichte bringen die Sonne nach ASTM)
+    if (hw.sonne.y > -0.45) {
+        gruppe(0, texelFetch(g0, p, 0).rgb);
+        gruppe(1, texelFetch(g1, p, 0).rgb);
+        gruppe(2, texelFetch(g2, p, 0).rgb);
+        gruppe(3, texelFetch(g3, p, 0).rgb);
+        gruppe(4, texelFetch(g4, p, 0).rgb);
+        // je nm quadratisch im Logarithmus durch die drei nächsten Wellenlängen, wo eine 0 ist linear (wie Streuordnungen.nachRgb)
+        for (int k = 0; k < 15; k++) LkLog[k] = log(max(1e-30, Lk[k]));
+        for (int q = 0; q < SP_NM; q++) {
+            vec4 t = sTafel[q];
+            int c = clamp(int(floor(t.x + 0.5)), 1, 13);
+            float u = t.x - float(c), v;
+            if (min(Lk[c - 1], min(Lk[c], Lk[c + 1])) > 1e-30)
+                v = exp(LkLog[c - 1] * u * (u - 1.0) * 0.5 + LkLog[c] * (1.0 - u * u) + LkLog[c + 1] * u * (u + 1.0) * 0.5);
+            else {
+                int k = min(13, int(t.x));
+                v = mix(Lk[k], Lk[k + 1], t.x - float(k));
+            }
+            o += t.yzw * v;
+        }
+        o *= hw.sonneE.r;
+    }
+    // Mond in drei Kanälen
+    vec3 L;
+    strahl(h, d, hw.mond.xyz, hw.mondE.rgb, hw.mond.xyz, vec3(0.0), SCHRITTE, true, -1.0, hw.atm, RAYLEIGH, OZONE, durch, mehr, false, L, tp);
+    L += o;
+    float y = max(0.0, d.y), k = pow(R_BOTTOM / (R_BOTTOM + 90000.0), 2.0);
+    float vr = 1.0 / sqrt(1.0 - k * (1.0 - y * y));
+    vec3 T = durchlaessigkeit(durch, R_BOTTOM + h, qAus(h), y);
+    L += hw.mond.w * NACHTFARBE * vr * T;
+    // seit P13d (A36): Das geschluckte Licht des Nachthimmels kommt als gleichmäßige Helligkeit zurück (hw.bild.w, 0: aus);
+    // nur bei Nacht und Dämmerung, ab der Sonne unter −3° voll unter −6°: bei Tag bleibt das Bild bitgleich
+    float nacht = hw.bild.w * (1.0 - smoothstep(-0.1045, -0.0523, hw.sonne.y));
+    if (nacht > 0.0) L += hw.mond.w * NACHTFARBE * nacht * (vec3(1.0) - T);
+    imageStore(ziel, p, vec4(L, 1.0));
+}

@@ -1,0 +1,24 @@
+#version 460
+// seeprobe.comp – render.water (P8b, Prüfstein 9): rechnet die langen Wellen von seegang.glsl an gegebenen Orten
+// (x Ost, z Süd relativ zum Auge), für Seegangsprobe. Je Ort 9 Werte: die sechs Werte des Seegangs (seeWerte), die
+// aufgelöste Varianz der langen Wellen, ihre Restvarianz, 1, wenn ein Netz den Ort hat. Push: x Zahl, y Größe eines
+// Bildpunkts (m, float-Bits).
+#include "/com/dan/render/water/wasser.glsl"
+#define SEE_BINDUNG 8
+#include "/com/dan/render/water/seegang.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 6, std430) writeonly buffer Aus { float aus[]; };
+layout(set = 0, binding = 7, std430) readonly buffer Orte { vec2 ort[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.x) return;
+    float w[6];
+    bool da = seeWerte(ort[i], w);
+    float aufg = 0.0;
+    vec3 l = da ? seegangLang(ort[i], intBitsToFloat(p.y), w, aufg) : vec3(0.0);
+    for (int f = 0; f < 6; f++) aus[9 * i + f] = w[f];
+    aus[9 * i + 6] = aufg;
+    aus[9 * i + 7] = l.z;
+    aus[9 * i + 8] = da ? 1.0 : 0.0;
+}

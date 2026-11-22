@@ -73,7 +73,8 @@
     <!--
         Isolationsprüfung der Element-Packages (Paketvertrag Punkt 9, aus Geiranger übernommen): jedes Package unter
         src/com/dan wird für sich allein übersetzt, der Kern nur gegen das JDK, gl/ gegen JOGL, demo/ gegen FStyle; dazu
-        die Importe und die Shader. Läuft nach jedem Übersetzen; abschalten mit -Dohne.paketpruefung=true.
+        die Importe und die Shader. Die Schichten core, physics und render haben ihren eigenen Vertrag (core.gpu gegen
+        lib/lwjgl). Läuft nach jedem Übersetzen; abschalten mit -Dohne.paketpruefung=true.
     -->
     <target name="check-packages" description="Übersetzt jedes Element-Package einzeln gegen JDK, JOGL und FStyle." unless="ohne.paketpruefung">
         <property name="platform.java" value="java"/>
@@ -85,5 +86,29 @@
             <arg value="lib"/>
         </exec>
     </target>
-    <target name="-post-compile" depends="check-packages"/>
+    <!--
+        GLSL nach SPIR-V mit shaderc aus LWJGL (Werkbuch HalligHooge Teil A, Abschnitt 6 „Bau“): Jeder Shader der
+        Vulkan-Schichten (com/dan/core/gpu, com/dan/physics/<m>/gpu, com/dan/render) wird nach
+        build/classes/.../<name>.spv übersetzt, daneben <name>.spv.von mit dem Stand der Quellen. Shader.laden nimmt das
+        .spv, solange die Quellen dieselben sind, und übersetzt sonst zur Laufzeit (Speichern in NetBeans läuft ohne Ant).
+        Die OpenGL-Shader der Element-Packages bleiben unberührt. Abschalten mit -Dohne.spirv=true.
+    -->
+    <path id="spirv.klassenpfad">
+        <fileset dir="lib/lwjgl" includes="lwjgl.jar,lwjgl-natives-*.jar,lwjgl-shaderc.jar,lwjgl-shaderc-natives-*.jar"/>
+    </path>
+    <target name="spirv" description="Übersetzt die Shader der Vulkan-Schichten (GLSL) nach SPIR-V." unless="ohne.spirv">
+        <property name="platform.java" value="java"/>
+        <pathconvert property="spirv.cp" refid="spirv.klassenpfad"/>
+        <exec executable="${platform.java}" dir="${basedir}" failonerror="true">
+            <arg value="--enable-native-access=ALL-UNNAMED"/>
+            <arg value="-Dstdout.encoding=UTF-8"/>
+            <arg value="-Dstderr.encoding=UTF-8"/>
+            <arg value="-cp"/>
+            <arg value="${spirv.cp}"/>
+            <arg value="tools/SpirvBau.java"/>
+            <arg value="src"/>
+            <arg value="${build.classes.dir}"/>
+        </exec>
+    </target>
+    <target name="-post-compile" depends="spirv,check-packages"/>
 </project>

@@ -1,0 +1,17 @@
+// volumen.comp — Masse, vierter Teil (je Zelle): V ← V + Δt Σ Q, η aus der Tabelle; negative Reste aus Rundung werden
+// abgeschnitten und gezählt. Ändert sich das Volumen nicht, bleibt η unverändert.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+layout(local_size_x = 64) in;
+
+void main() {
+    int c = int(gl_GlobalInvocationID.x);
+    if (c >= W.zellen) return;
+    int i = c % W.nx, j = c / W.nx;
+    int k[4] = int[4](kanteX(i, j), kanteX(i + 1, j), kanteY(i, j), kanteY(i, j + 1));
+    float s = 0.0;
+    for (int n = 0; n < 4; n++) s += links(k[n]) == c ? -fluss[k[n]] : fluss[k[n]];
+    if (s == 0.0) return;
+    volumenDazu(c, P.dt * s);
+}

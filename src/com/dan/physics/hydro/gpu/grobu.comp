@@ -1,0 +1,28 @@
+// grobu.comp — Schachtel auf der Karte (grobes Gitter): Fluss und u der gesperrten groben Kanten unter und an dem
+// feinen Gebiet aus den feinen Durchflüssen am Ende des Schritts (der Fluss für die Advektion im groben Impuls).
+// Kanten auf dem Rand des groben Gitters bleiben.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/hydro/gpu/hydro.glsl"
+#define SCHACHTEL_BINDUNG 20
+#include "/com/dan/physics/hydro/gpu/schachtel.glsl"
+layout(local_size_x = 64) in;
+layout(std430, binding = 21) readonly buffer QF { float qF[]; };          // Durchfluss je feiner Kante (m³/s)
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x), nX = (K.ni + 1) * K.nj, nY = K.ni * (K.nj + 1);
+    if (t >= nX + nY) return;
+    bool querX = t < nX;
+    int ic, jc, e;
+    if (querX) { ic = t % (K.ni + 1); jc = t / (K.ni + 1); e = kanteX(K.i0 + ic, K.j0 + jc); }
+    else { int k = t - nX; ic = k % K.ni; jc = k / K.ni; e = kanteY(K.i0 + ic, K.j0 + jc); }
+    if (seite(e) >= 0) return;
+    float qq = 0.0;
+    int fXn = (K.nxF + 1) * K.nyF;
+    for (int k = 0; k < K.r; k++) qq += querX ? qF[ic * K.r + (K.nxF + 1) * (jc * K.r + k)] : qF[fXn + ic * K.r + k + K.nxF * (jc * K.r)];
+    fluss[e] = qq;
+    if (qq == 0.0) { u[e] = 0.0; return; }
+    int von = qq > 0.0 ? links(e) : rechts(e);
+    float a = von >= 0 && vol[von] > 0.0 ? hA(e, eta[von]) : 0.0;
+    u[e] = a >= W.hTrocken ? qq / (laenge(e) * a) : 0.0;
+}

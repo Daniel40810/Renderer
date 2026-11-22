@@ -1,0 +1,151 @@
+// transport.comp — Transport, Austausch mit dem Boden und Exner für einen Teilschritt des Sediments (Werkbuch
+// HalligHooge Teil A, 12.10, P9a), wie Sediment.transport. Ein Faden je Zelle; er rechnet die Flüsse über seine vier
+// Kanten (dieselbe Rechnung wie die Nachbarzelle, also derselbe Wert: die Masse bleibt bis auf Rundung).
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/sediment/gpu/sediment.glsl"
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 1) readonly buffer Qx { float qx[]; };
+layout(std430, binding = 2) readonly buffer Qy { float qy[]; };
+layout(std430, binding = 3) readonly buffer TiefeAlt { float h[]; };
+layout(std430, binding = 4) writeonly buffer TiefeNeu { float hN[]; };
+layout(std430, binding = 5) readonly buffer KonzAlt { vec2 k[]; };       // (Sand, Schlick) im Wasser, kg/m³
+layout(std430, binding = 6) writeonly buffer KonzNeu { vec2 kN[]; };
+layout(std430, binding = 7) readonly buffer BettAlt { vec4 bett[]; };
+layout(std430, binding = 8) writeonly buffer BettNeu { vec4 bettN[]; };
+layout(std430, binding = 9) readonly buffer Abg { vec4 abg[]; };
+layout(std430, binding = 10) readonly buffer Fest { vec4 fest[]; };      // je Zelle drei; hier nur Porosität und Tiefe des Stroms (zweiter Wert, z und w)
+layout(std430, binding = 11) buffer Aus { vec4 aus[]; };                 // je Zelle zwei: über den Rand hinaus (kg), Summe mit Ausgleich: (Sand, –, Schlick, –), (Geschiebe, –, –, –)
+
+layout(std430, binding = 12) buffer Wirk { vec4 wirk[]; };               // seit P9c je Zelle: (Sand wirklich aufgenommen kg/m², Ausgleich, Schlick der Mischschicht wirklich kg/m², Teilschritte am Deckel)
+
+layout(push_constant) uniform Schritt { float dt; float pad; } P;
+
+bool nass(int c) { return abg[4 * c].x > 0.5; }
+
+// Fluss des Schwebstoffs über eine innere Kante; n: 0 Sand, 1 Schlick
+float kante(float q, int l, int r, int ll, int rr, float delta, int n) {
+    float f = 0.0;
+    int auf = q > 0.0 ? l : r, ab = q > 0.0 ? r : l, hinter = q > 0.0 ? ll : rr;
+    if (q != 0.0 && nass(auf)) {
+        float ca = k[auf][n], wert = ca;
+        if (an(ZWEITE) && nass(ab) && hinter >= 0 && nass(hinter)) {
+            float d = k[ab][n] - ca, x = ca - k[hinter][n];
+            if (d != 0.0 && x != 0.0 && (x > 0.0) == (d > 0.0)) {
+                float phi = 2.0 * x / (x + d), cr = min(1.0, abs(q) * P.dt / (delta * h[auf]));
+                wert = ca + 0.5 * phi * (1.0 - cr) * d;
+            }
+        }
+        f = q * wert * abg[4 * auf].y;
+    }
+    if (nass(l) && nass(r)) f -= 0.5 * (abg[4 * l + 1].x + abg[4 * r + 1].x) * min(h[l], h[r]) * (k[r][n] - k[l][n]) / delta;
+    return f;
+}
+
+float randkante(float q, int innen, bool plus, float cInnen, float cRand) {
+    bool hinaus = plus ? q > 0.0 : q < 0.0;
+    if (hinaus) return nass(innen) ? q * cInnen * abg[4 * innen].y : 0.0;
+    return q * cRand;
+}
+
+// Geschiebe über eine innere Kante; achse: 1 = x (q_bx), 2 = y (q_by)
+float geschiebeKante(int l, int r, float delta, int achse) {
+    vec4 a = abg[4 * l + 1], b = abg[4 * r + 1];
+    return max(0.0, a[achse]) + min(0.0, b[achse]) - W.epsHang * 0.5 * (a.w + b.w) * (abg[4 * r + 3].x - abg[4 * l + 3].x) / delta;
+}
+
+// (Sand, Schlick, Geschiebe) über die Kante in x mit dem Index i (0 … nx) in der Zeile j
+vec3 flussX(int i, int j) {
+    float q = qx[kx(i, j)];
+    if (i == 0 || i == W.nx) {
+        int c = zelle(i == 0 ? 0 : W.nx - 1, j);
+        bool plus = i == W.nx;
+        return vec3(randkante(q, c, plus, k[c].x, an(RAND_SAND) ? W.randSand : abg[4 * c].z),
+                    randkante(q, c, plus, k[c].y, an(RAND_SCHLICK) ? W.randSchlick : k[c].y), abg[4 * c + 1].y);
+    }
+    int l = zelle(i - 1, j), r = zelle(i, j), ll = i >= 2 ? l - 1 : -1, rr = i <= W.nx - 2 ? r + 1 : -1;
+    return vec3(kante(q, l, r, ll, rr, W.dx, 0), kante(q, l, r, ll, rr, W.dx, 1), geschiebeKante(l, r, W.dx, 1));
+}
+
+vec3 flussY(int i, int j) {
+    float q = qy[ky(i, j)];
+    if (j == 0 || j == W.ny) {
+        int c = zelle(i, j == 0 ? 0 : W.ny - 1);
+        bool plus = j == W.ny;
+        return vec3(randkante(q, c, plus, k[c].x, an(RAND_SAND) ? W.randSand : abg[4 * c].z),
+                    randkante(q, c, plus, k[c].y, an(RAND_SCHLICK) ? W.randSchlick : k[c].y), abg[4 * c + 1].z);
+    }
+    int l = zelle(i, j - 1), r = zelle(i, j), ll = j >= 2 ? l - W.nx : -1, rr = j <= W.ny - 2 ? r + W.nx : -1;
+    return vec3(kante(q, l, r, ll, rr, W.dy, 0), kante(q, l, r, ll, rr, W.dy, 1), geschiebeKante(l, r, W.dy, 2));
+}
+
+void main() {
+    int c = int(gl_GlobalInvocationID.x);
+    if (c >= W.nx * W.ny) return;
+    int i = c % W.nx, j = c / W.nx;
+    float dt = P.dt;
+    vec4 a0 = abg[4 * c], a2 = abg[4 * c + 2], a3 = abg[4 * c + 3], b0 = bett[2 * c], b1 = bett[2 * c + 1];
+    vec3 fw = flussX(i, j), fe = flussX(i + 1, j), fs = flussY(i, j), fn = flussY(i, j + 1);
+    float hn = a3.y;
+    float ms = h[c] * k[c].x - dt * ((fe.x - fw.x) / W.dx + (fn.x - fs.x) / W.dy);
+    float mm = h[c] * k[c].y - dt * ((fe.y - fw.y) / W.dx + (fn.y - fs.y) / W.dy);
+    float zuS, zuM, zuA = 0.0, cs, cm;
+    if (hn >= W.hMin && a0.x > 0.5) {
+        // Zuwachs als Ablagerung minus Aufnahme (ohne Austausch genau null); ein negativer Rest wird aus dem Boden gedeckt
+        float zs = ms + dt * a0.w * hn * a0.z;
+        cs = zs > 0.0 ? zs / (hn * (1.0 + dt * a0.w)) : 0.0;
+        zuS = zs > 0.0 ? dt * a0.w * hn * (cs - a0.z) : ms;
+        float ero = min(a2.x * dt, b1.x / W.faktor), eroA = an(AUFLAGE) ? min(a2.z * dt, b1.z) : 0.0, zm = mm + ero + eroA;
+        cm = zm > 0.0 ? zm / (hn * (1.0 + dt * a2.y)) : 0.0;
+        if (zm > 0.0) {
+            float ab = dt * a2.y * hn * cm, tief = an(AUFLAGE) ? W.anteilTief * ab : ab;
+            zuM = tief - ero;
+            zuA = ab - tief - eroA;
+        } else {
+            zuM = mm + eroA;
+            zuA = -eroA;
+        }
+    } else if (hn >= W.hMin) {
+        cs = ms > 0.0 ? ms / hn : 0.0; zuS = ms > 0.0 ? 0.0 : ms;
+        cm = mm > 0.0 ? mm / hn : 0.0; zuM = mm > 0.0 ? 0.0 : mm;
+    } else {
+        bool auf = an(AUFLAGE) && mm > 0.0;                                 // Schlick bleibt als Auflage liegen
+        zuS = ms; zuM = auf ? 0.0 : mm;
+        if (auf) zuA = mm;
+        cs = 0.0; cm = 0.0;
+    }
+    float div = (fe.z - fw.z) / W.dx + (fn.z - fs.z) / W.dy;
+    vec4 f1 = fest[3 * c + 1], wk = wirk[c];
+    float einheit = zuS - dt * div, zu = W.faktor * einheit / (W.rhoS * (1.0 - f1.z));
+    if (W.deckel > 0.0) {
+        float grenze = max(W.deckelMin, W.deckel * max(f1.w, h[c])) * (W.intervall > 0.0 ? dt / W.intervall : 1.0);
+        if (abs(zu) > grenze) { zu = sign(zu) * grenze; wk.w += 1.0; }
+    }
+    dazu(b0.x, b0.y, zu);
+    dazu(wk.x, wk.y, einheit);
+    float alt = b1.x, neu = max(0.0, alt + W.faktor * zuM);
+    dazu(b0.z, b0.w, (neu - alt) / W.rhoSchlick);
+    wk.z += (neu - alt) / W.faktor;
+    wirk[c] = wk;
+    b1.z = max(0.0, b1.z + zuA);
+    b1.y = neu > alt && neu > 0.0 ? (b1.y + dt) * alt / neu : b1.y + dt;
+    b1.x = neu;
+    if (i == 0 || i == W.nx - 1 || j == 0 || j == W.ny - 1) {                // Fluss über den Rand des Gebiets, nach außen positiv
+        vec3 r = vec3(0.0);
+        if (i == 0) r -= fw * dt * W.dy;
+        if (i == W.nx - 1) r += fe * dt * W.dy;
+        if (j == 0) r -= fs * dt * W.dx;
+        if (j == W.ny - 1) r += fn * dt * W.dx;
+        vec4 r0 = aus[2 * c], r1 = aus[2 * c + 1];
+        dazu(r0.x, r0.y, r.x);
+        dazu(r0.z, r0.w, r.y);
+        dazu(r1.x, r1.y, r.z);
+        aus[2 * c] = r0;
+        aus[2 * c + 1] = r1;
+    }
+    hN[c] = hn;
+    kN[c] = vec2(cs, cm);
+    bettN[2 * c] = b0;
+    bettN[2 * c + 1] = b1;
+}

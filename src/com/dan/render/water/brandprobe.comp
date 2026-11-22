@@ -1,0 +1,33 @@
+#version 460
+// brandprobe.comp – render.water (P13c, Prüfsteine 15 und 18): rechnet die Höhe der langen Wellen und die Schaumköpfe
+// aus seegang.glsl an gegebenen Orten (x Ost, z Süd relativ zum Auge), für Brandprobe. Je Ort 8 Werte: ζ linear,
+// ζ_s mit spitzem Kamm (Tiefe h aus dem Push), ∂ζ/∂Ost, ∂ζ/∂Nord, ganze und aufgelöste Varianz der Höhe, Schaumköpfe,
+// 1 wenn ein Netz den Ort hat. Push: x Zahl, y Größe eines Bildpunkts (m), z Tiefe h (m), beide als float-Bits.
+#include "/com/dan/render/water/wasser.glsl"
+#define SEE_BINDUNG 8
+#include "/com/dan/render/water/seegang.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 6, std430) writeonly buffer Aus { float aus[]; };
+layout(set = 0, binding = 7, std430) readonly buffer Orte { vec2 ort[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.x) return;
+    float w[6];
+    bool da = seeWerte(ort[i], w);
+    for (int f = 0; f < 8; f++) aus[8 * i + f] = 0.0;
+    if (!da) return;
+    float fuss = intBitsToFloat(p.y), h = intBitsToFloat(p.z);
+    float a[LANG];
+    vec3 m = seeAmplituden(fuss, w, a);
+    vec3 z = seeHoehe(ort[i], a, 0.0, 0.0);
+    float ka = seeKammAnteil(w[0], h), be = (ka - 0.5) / 0.375;
+    aus[8 * i] = z.x;
+    aus[8 * i + 1] = seeKamm(z.x, sqrt(m.y), be).x;
+    aus[8 * i + 2] = z.y;
+    aus[8 * i + 3] = z.z;
+    aus[8 * i + 4] = m.x;
+    aus[8 * i + 5] = m.y;
+    aus[8 * i + 6] = schaumKoepfe(ort[i], fuss, w, z.x, m);
+    aus[8 * i + 7] = 1.0;
+}

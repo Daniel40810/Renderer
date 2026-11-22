@@ -1,0 +1,8 @@
+#version 460
+// wf_ebenen_auftrag.comp – Referenz Stufe 2 als Wellenfront (Probe P11a, F112 A): Kernel K_AUFTRAG
+#define WELLENFRONT
+#define K_AUFTRAG
+#include "/com/dan/render/reference/gpu/kopf.glsl"
+#include "/com/dan/render/reference/gpu/szene_ebenen.glsl"
+#include "/com/dan/render/reference/gpu/pfad.glsl"
+#include "/com/dan/render/reference/gpu/wellenfront.glsl"

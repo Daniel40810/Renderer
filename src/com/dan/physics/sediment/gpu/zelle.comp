@@ -1,0 +1,98 @@
+// zelle.comp — je Zelle die Größen eines Teilschritts des Sediments (Werkbuch HalligHooge Teil A, 12.10, P9a), wie
+// Sediment.ableiten: Schubspannung aus Strom und Welle, Gleichgewicht und Rate des Schwebstoffs, Geschiebe, Raten des
+// Schlicks, Rippel (an Ort und Stelle). Ein Faden je Zelle.
+#version 460
+#extension GL_GOOGLE_include_directive : require
+#include "/com/dan/physics/sediment/gpu/sediment.glsl"
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 1) readonly buffer Fest { vec4 fest[]; };     // je Zelle drei: (Grund, d50, u_bot, T_p), (cos, sin der Wellenrichtung, Porosität, Tiefe des Stroms), (u, v von hydro (mit Schalter STROM), water.spiral, Anteil losen Bodens)
+layout(std430, binding = 2) readonly buffer Qx { float qx[]; };
+layout(std430, binding = 3) readonly buffer Qy { float qy[]; };
+layout(std430, binding = 4) readonly buffer Tiefe { float h[]; };
+layout(std430, binding = 5) readonly buffer Bett { vec4 bett[]; };     // je Zelle zwei: (dzS, Ausgleich, dzM, Ausgleich), (Schlick kg/m², Liegezeit s, lockere Auflage kg/m², –)
+layout(std430, binding = 6) buffer Rippel { vec4 rippel[]; };          // (Höhe, Länge, Richtung x, y)
+layout(std430, binding = 7) writeonly buffer Abg { vec4 abg[]; };      // je Zelle vier: (nass, fak, c_gl, k_s), (K, q_bx, q_by, q_b), (E Schlick, k_d Schlick, E Auflage, Hang), (Boden, h neu, τ_m, τ_max)
+
+layout(push_constant) uniform Schritt { float dt; float pad; } P;
+
+float abfluss(int i, int j) {
+    return (max(0.0, -qx[kx(i, j)]) + max(0.0, qx[kx(i + 1, j)])) / W.dx + (max(0.0, -qy[ky(i, j)]) + max(0.0, qy[ky(i, j + 1)])) / W.dy;
+}
+
+void main() {
+    int c = int(gl_GlobalInvocationID.x);
+    if (c >= W.nx * W.ny) return;
+    int i = c % W.nx, j = c / W.nx;
+    float dt = P.dt, hc = h[c];
+    vec4 f0 = fest[3 * c], f1 = fest[3 * c + 1], f2 = fest[3 * c + 2], b0 = bett[2 * c], b1 = bett[2 * c + 1], rp = rippel[c];
+    float d = f0.y, s = W.rhoS / W.rho, gewicht = G * (W.rhoS - W.rho);
+    float zb = f0.x + b0.x + b0.z;
+    float pm = b1.x / (b1.x + W.rhoS * (1.0 - f1.z) * W.deltaAkt);
+    float hang = W.hangSand + pm * (W.hangSchlick - W.hangSand);
+    float hNeu = max(0.0, hc - dt * ((qx[kx(i + 1, j)] - qx[kx(i, j)]) / W.dx + (qy[ky(i, j + 1)] - qy[ky(i, j)]) / W.dy));
+    bool nass = hc >= W.hMin;
+    float fak = 1.0, ceq = 0.0, ks = 0.0, kd = 0.0, qbx = 0.0, qby = 0.0, qbm = 0.0, eSchlick = 0.0, kdS = 0.0, tm = 0.0, tx = 0.0, eAuf = 0.0;
+    if (nass) {
+        float z0s = d / 12.0, z0f = rp.y > 0.0 ? rp.x * rp.x / rp.y : 0.0, z0 = z0s + z0f;
+        float ab = abfluss(i, j) * dt;
+        if (ab > hc) fak = hc / ab;
+        float ht = max(f1.w, hc), fr = f2.w, anteil = fr * hc / ht;
+        float u = an(STROM) ? f2.x : 0.5 * (qx[kx(i, j)] + qx[kx(i + 1, j)]) / hc, v = an(STROM) ? f2.y : 0.5 * (qy[ky(i, j)] + qy[ky(i, j + 1)]) / hc, uu = sqrt(u * u + v * v);
+        float tcs = W.rho * cdStrom(ht, z0s) * uu * uu, tct = W.rho * cdStrom(ht, z0) * uu * uu;
+        float tw = 0.0, cosPhi = 1.0, sinPhi = 0.0, uw = sqrt(2.0) * f0.z;
+        if (uw > 1e-4 && f0.w > 0.0) {
+            tw = 0.5 * W.rho * fwRau(uw * f0.w / 6.28318530718, z0s) * uw * uw;
+            if (uu > 1e-9) { cosPhi = (u * f1.x + v * f1.y) / uu; sinPhi = (v * f1.x - u * f1.y) / uu; }
+        }
+        tm = tauMittel(tcs, tw);
+        tx = tauGroesste(tm, tw, cosPhi, sinPhi);
+        float ds = dStern(d, s), ws = sink(d, ds), thCr = thetaKrit(ds), tcr = thCr * gewicht * d, t = max(0.0, (tx - tcr) / tcr);
+        float qb = geschiebe(d, ds, tm, tx, tcr);
+        if (an(GESCHIEBE) && uu > 1e-9) {
+            qbm = anteil * (1.0 - pm) * qb;
+            float ex = u / uu, ey = v / uu;
+            if (f2.z != 0.0) {                                               // Spirale: zur Innenkurve (links bei positiver Krümmung)
+                float al = 2.0 / (KAPPA * KAPPA) * W.eSpirale * (1.0 - 0.5 * sqrt(cdStrom(ht, z0)) / KAPPA);
+                float td = clamp(al * f2.z / uu, -0.5, 0.5), nd = sqrt(1.0 + td * td);
+                float x = (ex - td * ey) / nd;
+                ey = (ey + td * ex) / nd;
+                ex = x;
+            }
+            qbx = qbm * ex; qby = qbm * ey;
+        }
+        if (an(SCHWEB)) {
+            float a = min(0.2 * ht, max(0.01, 0.5 * rp.x)), us = sqrt(max(tct, tx) / W.rho);
+            float f = a / ht, tsd = 1.0;
+            if (us > 1e-9 && uu > 1e-9) {
+                float beta = min(1.5, 1.0 + 2.0 * (ws / us) * (ws / us));
+                f = formfaktor(a / ht, ws / (beta * KAPPA * us));
+                tsd = anpassung(us / uu, ws / us);
+            }
+            ceq = fr * (1.0 - pm) * f * bezug(d, ds, a, t);
+            ks = ws / (tsd * ht);
+        }
+        if (an(DIFFUSION)) kd = min(5.93 * sqrt(tct / W.rho) * ht, 0.25 * (1.0 - W.courant) * min(W.dx, W.dy) * min(W.dx, W.dy) / dt);
+        if (an(SCHLICK)) {
+            float te = W.tauE0 + (W.tauE1 - W.tauE0) * (1.0 - exp(-b1.y / W.tKons));
+            if (tx > te) eSchlick = anteil * pm * W.mErosion * (tx / te - 1.0);
+            if (tx < W.tauD) kdS = W.wsSchlick * (1.0 - tx / W.tauD) / ht;
+            if (an(AUFLAGE) && tx > W.tauA && b1.z > 0.0) eAuf = hc / ht * min(b1.z * W.mA1, W.mA0) * (tx / W.tauA - 1.0);
+        }
+        if (an(RIPPEL) && qb > 0.0) {
+            vec2 gl = rippelGl(d, ds, tm / (gewicht * d)), mx = rippelGl(d, ds, 0.0);
+            if (mx.y > 0.0) {
+                float zeitR = W.rhoS * (1.0 - f1.z) * 0.5 * mx.x * mx.y / qb, teil = 1.0 - exp(-dt / zeitR);
+                float ohne = fr * max(0.0, 1.0 - pm / W.rippelSchlick);
+                rp.x += teil * (gl.x * ohne - rp.x);
+                rp.y += teil * (gl.y - rp.y);
+                if (uu > 1e-9) { rp.z += teil * (u / uu - rp.z); rp.w += teil * (v / uu - rp.w); }
+                rippel[c] = rp;
+            }
+        }
+    }
+    abg[4 * c] = vec4(nass ? 1.0 : 0.0, fak, ceq, ks);
+    abg[4 * c + 1] = vec4(kd, qbx, qby, qbm);
+    abg[4 * c + 2] = vec4(eSchlick, kdS, eAuf, hang);
+    abg[4 * c + 3] = vec4(zb, hNeu, tm, tx);
+}

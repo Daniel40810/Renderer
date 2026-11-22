@@ -10,6 +10,11 @@ reinem Java 21 aus und zeichnet sich im Ordner `gl/` mit JOGL (OpenGL 4.3).
 Die Pakete stammen aus den Szenenprojekten *Lighthouse*, *Haithabu*, *Geiranger*, *Timmendorf*, *Rungholt*, *Glacier*,
 *Sylt* und *Brocken* und sind hier so gesammelt, dass jedes für sich herauskopiert werden kann.
 
+Seit dem Projekt [*HalligHooge*](https://github.com/Daniel40810/HalligHooge) liegt darunter ein Kern, auf dem Physik
+und Bild miteinander rechnen: Flachwasser, Gezeiten, Seegang, Sediment, Luft, Flugsand und Salzwiese auf der
+Grafikkarte (Vulkan 1.3 über LWJGL), dazu ein Lauf mit Archiv und eine Bühne für Anwendungen – siehe
+[Kern und Schichten](#kern-und-schichten).
+
 > Alle Bilder in dieser README wurden mit den Demos aus diesem Repository erzeugt (`--bild`, siehe unten) –
 > ohne Grafikkarte, mit Mesa-Software-OpenGL.
 
@@ -20,6 +25,7 @@ Die Pakete stammen aus den Szenenprojekten *Lighthouse*, *Haithabu*, *Geiranger*
 - [Galerie](#galerie)
 - [Pakete](#pakete)
 - [Der Paketvertrag](#der-paketvertrag)
+- [Kern und Schichten](#kern-und-schichten)
 - [Bauen und starten](#bauen-und-starten)
 - [Demos, Standbilder und Selbsttests](#demos-standbilder-und-selbsttests)
 - [Verzeichnisse](#verzeichnisse)
@@ -223,15 +229,69 @@ Alle Pakete folgen denselben Regeln. Die Vorlage dafür ist [`com.dan.muster`](s
 
 ---
 
+## Kern und Schichten
+
+Seit dem Projekt *HalligHooge* gibt es unter den Element-Paketen einen gemeinsamen Kern: [`com.dan.core`](src/com/dan/core/README.md). Er stellt Raum, Zeit und Himmelsmechanik, Felder mit einem Feldkatalog, Gitter mit Subgrid, einen Kopplungsbus, Takt, Archiv, Bilanzen, die Szene und einen Prüfrahmen und importiert nur `java.*`. Darauf setzen Physik und Grafik auf, die miteinander rechnen:
+
+```
+com.dan.core           nur java.*                            Raum, Zeit, Felder, Gitter, Bus, Takt, Archiv, Prüfung
+com.dan.core.gpu       core + LWJGL (Vulkan, VMA, shaderc)   Gerät, Speicher, Kernel, Ablauf, Zeitleisten, Felder auf der Karte
+com.dan.physics.<m>    core; core.gpu nur in <m>/gpu/        je Modul; kennt kein anderes Physikmodul
+com.dan.render.<m>     core + core.gpu                       je Modul; kennt kein Physikmodul, nur Felder
+com.dan.lauf           core, core.gpu, physics, render       Lauf, Archivquelle, Bühne: der allgemeine Teil einer Anwendung
+com.dan.aufbereitung   core                                  macht aus dem Kartenmaterial ein Gebiet
+```
+
+- **Nur nach unten.** Ein Modul importiert nur Schichten unter sich; Module derselben Schicht kennen einander nicht.
+- **Über Felder.** Module sprechen über Felder aus dem Katalog (`water.eta`, `tide.bc`, …). Name, Einheit und Ort im Gitter sind Vertrag; jedes Feld hat einen Schreiber.
+- **Prüfung im Bau.** `check-packages` behandelt `core`, `physics` und `render` als Schichten: Jede wird gegen die Klassen der Schichten darunter übersetzt, die Importe und die Pfade der Shader werden geprüft, und jeder Feldname in `physics` und `render` muss im Katalog stehen.
+
+- **Kern auf der Karte.** [`com.dan.core.gpu`](src/com/dan/core/gpu/README.md) rechnet mit Vulkan 1.3 über LWJGL: Kernels aus GLSL (SPIR-V), Abläufe, die ihre Sperren selbst rechnen, Zeitleisten zwischen Rechnen und Bild. Das Ant-Target `spirv` ([`tools/SpirvBau.java`](tools/SpirvBau.java)) übersetzt die Shader der Vulkan-Schichten beim Bauen; die OpenGL-Shader der Element-Pakete bleiben, wie sie sind.
+
+Die Element-Pakete behalten ihren Paketvertrag, bis sie umgebaut werden. Prüfungen: `com.dan.core.demo.CoreCheck` (ohne Grafikkarte) und `com.dan.core.gpu.demo.GpuCheck` (auf der Grafikkarte, ohne Fenster); Atteste und Status-Bilder in `docs/status/`.
+
+### Physik und Bild
+
+| Modul | Inhalt |
+|---|---|
+| [`physics.hydro`](src/com/dan/physics/hydro/README.md) | Flachwasser auf versetztem Gitter mit Subgrid, explizit; Referenz in double auf dem Prozessor |
+| [`physics.tide`](src/com/dan/physics/tide/README.md) | Antrieb der Gezeiten am Rand, aus der Nordsee gerechnet |
+| [`physics.antrieb`](src/com/dan/physics/antrieb/README.md) | Wind und Luftdruck, Windschub nach Charnock aus ERA5, auf Wunsch Luft, Strahlung und Temperatur des Meers |
+| [`physics.waves`](src/com/dan/physics/waves/README.md) | Seegang als Bilanz der spektralen Wirkungsdichte |
+| [`physics.sediment`](src/com/dan/physics/sediment/README.md) | Sand, Schlick, Rippel und Boden, tiefengemittelt; Morphologie |
+| [`physics.atmos`](src/com/dan/physics/atmos/README.md) | Boden, Wärme und bodennahe Luft |
+| [`physics.aeolian`](src/com/dan/physics/aeolian/README.md) | Flugsand |
+| [`physics.vegetation`](src/com/dan/physics/vegetation/README.md) | Salzwiese mit Rückwirkung auf das Wasser |
+| [`render.frame`](src/com/dan/render/frame/README.md) | Bildziel und die Teile des Bilds je Bild |
+| [`render.terrain`](src/com/dan/render/terrain/README.md) | Gelände |
+| [`render.water`](src/com/dan/render/water/README.md) | Wasser: Spiegelung, raue Fläche, Säule, Trübung |
+| [`render.air`](src/com/dan/render/air/README.md) | Himmel mit Sonne und Mond, Himmelsansicht, Luft |
+| [`render.reference`](src/com/dan/render/reference/README.md) | Pfadverfolger in Java (double) als Referenz für das Echtzeitbild |
+| [`render.analysis`](src/com/dan/render/analysis/README.md) | Messblick: Partikel, LIC, Linien, Schnitt |
+| [`render.overlay`](src/com/dan/render/overlay/README.md) | Auflage für Einblendungen |
+| [`render.bau`](src/com/dan/render/bau/README.md) | Häuser auf den Warften: Backstein und Reet |
+| [`render.bewuchs`](src/com/dan/render/bewuchs/README.md) | Gehölze, Büsche und Halme |
+| [`render.brandung`](src/com/dan/render/brandung/README.md) | Brecher im Wasser und an Böschungen |
+
+Darüber: [`com.dan.lauf`](src/com/dan/lauf/README.md) führt einen Lauf live oder aus dem Archiv (seit D1 auch verlustfrei gepackt, `.f16z`/`.f32z`, mit `lauf.demo.DatenUmzug` und `DatenCheck`) und stellt die Bühne einer Anwendung; [`com.dan.aufbereitung`](src/com/dan/aufbereitung/README.md) macht aus dem geladenen Kartenmaterial ein Gebiet. Die Läufe der Phasen stehen als `tools/lauf_P*.cmd` im Repository, die Anwendung mit Fenster und Bedienung im [Steuerhaus](https://github.com/Daniel40810/Steuerhaus).
+
+---
+
 ## Bauen und starten
 
-**Voraussetzungen:** JDK 21. Die Bibliotheken liegen in `lib/`:
+**Voraussetzungen:** JDK 21; in NetBeans eine Java-Plattform mit dem Namen **JDK_21** (auf der Kommandozeile
+`ant -Dplatforms.JDK_21.home=<Pfad zum JDK> jar`). Die Bibliotheken liegen in `lib/`:
 
 | Datei | Zweck |
 |---|---|
 | `jogl-all.jar`, `gluegen-rt.jar` | JOGL 2.6.0 für die Ordner `gl/` |
 | `*-natives-windows-amd64.jar` | Native Teile für Windows x64 |
 | `FStyle.jar` | Bedienelemente für die Demos |
+| `lwjgl/*.jar` | LWJGL 3.4.3 (Vulkan, VMA, shaderc, JAWT, GLFW) für `com.dan.core.gpu` – **nicht im Repository** |
+
+`lib/lwjgl/` liegt nicht im Repository. Aus [lwjgl-3.4.3.zip](https://github.com/LWJGL/lwjgl3/releases/tag/3.4.3) gehören
+dorthin `lwjgl`, `lwjgl-vulkan`, `lwjgl-vma`, `lwjgl-shaderc`, `lwjgl-jawt` und `lwjgl-glfw`, dazu je
+`-natives-windows` (für Linux `-natives-linux`; vulkan und jawt haben keine).
 
 Für Linux oder macOS legt man die passenden Natives aus JOGL 2.6.0 daneben, z. B.
 `jogl-all-natives-linux-amd64.jar` und `gluegen-rt-natives-linux-amd64.jar` (Maven Central, `org.jogamp.jogl` / `org.jogamp.gluegen`).
@@ -246,6 +306,10 @@ ant jar
 
 ```bash
 ant check-packages
+```
+
+```bash
+ant spirv
 ```
 
 ### Ohne Ant
@@ -299,12 +363,21 @@ xvfb-run -a -s "-screen 0 2560x1600x24" java -cp "build/classes:lib/*:src" com.d
 ```
 Renderer/
 ├── src/com/dan/<paket>/     52 Element-Pakete: Kern, gl/ (JOGL + Shader), demo/ (Demo + Check), README.md
-├── lib/                     JOGL 2.6.0, FStyle.jar, NetBeans-CopyLibs
+├── src/com/dan/core/        Kern der Schichten (nur java.*): raum, zeit, astro, feld, gitter, bus, takt, archiv, bilanz, pruef, szene
+├── src/com/dan/core/gpu/    Kern auf der Karte (Vulkan über LWJGL): Gerät, Speicher, Kernel, Ablauf, Zeitleiste, Stoppuhr, Karte
+├── src/com/dan/physics/     Physik: hydro, tide, antrieb, waves, sediment, atmos, aeolian, vegetation
+├── src/com/dan/render/      Bild: frame, terrain, water, air, reference, analysis, overlay, bau, bewuchs, brandung
+├── src/com/dan/lauf/        Lauf, Archivquelle, Bühne
+├── src/com/dan/aufbereitung/  Kartenmaterial → Gebiet
+├── lib/                     JOGL 2.6.0, FStyle.jar, NetBeans-CopyLibs; lwjgl/ (LWJGL 3.4.3) nicht im Repository
 ├── tools/
-│   ├── PaketPruefung.java   Isolationsprüfung (ant check-packages)
+│   ├── PaketPruefung.java   Isolationsprüfung und Schichtenprüfung (ant check-packages)
+│   ├── SpirvBau.java        GLSL nach SPIR-V für die Vulkan-Schichten (ant spirv)
+│   ├── lauf_P*.cmd          Läufe der Phasen P7 bis P13 und von Teil B (HalligHooge)
 │   ├── tree/                Wandler für Baum- und Gras-Assets (USD, FBX, glTF → .dtree)
 │   └── beach/               Wandler für Sand-Assets (glTF → Relief und Korn für beach)
 ├── docs/img/                Bilder dieser README
+├── docs/status/             Atteste und Status-Bilder der Phasen P1 bis P13 (HalligHooge)
 ├── nbproject/, build.xml    NetBeans-/Ant-Projekt
 └── manifest.mf
 ```

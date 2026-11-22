@@ -1,0 +1,17 @@
+#version 460
+// feldbild.comp – render.analysis (P11c2): das Feld zum Gewicht w je Zelle in ein Bild (RGBA32F: u, v, η, h), einmal
+// je Bild; Partikel und LIC lesen daraus mit vier Zugriffen je Probe.
+#define MIT_FELD
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430, set = 0, binding = 0) readonly buffer Feld { float FELD[]; };
+layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D FB;
+layout(push_constant) uniform Q { ivec2 n; float w; float leer; } q;
+#include "messblick.glsl"
+void main() {
+    ivec2 a = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(a, q.n))) return;
+    int nx = q.n.x, ny = q.n.y, c = a.x + nx * a.y, n = nx * ny;
+    vec4 A = vec4(FELD[c], FELD[n + c], FELD[2 * n + c], FELD[3 * n + c]);
+    vec4 B = vec4(FELD[4 * n + c], FELD[5 * n + c], FELD[6 * n + c], FELD[7 * n + c]);
+    imageStore(FB, a, mix(A, B, q.w));
+}

@@ -1,0 +1,4 @@
+#version 460
+// gruppe1.comp – render.air (F62 A): Gruppe 1 der Himmelsansicht, siehe gruppe.glsl
+#define GRUPPE 1
+#include "/com/dan/render/air/gruppe.glsl"

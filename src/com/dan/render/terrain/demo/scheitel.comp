@@ -1,0 +1,11 @@
+#version 460
+// scheitel.comp – render.terrain.demo (P6b, Prüfstein 2): Höhe jedes Scheitels jeder Stufe, wie gelaende.vert sie
+// rechnet (mit Übergang, ohne Krümmung), nach aus[(L · M + l) · M + k].
+#include "/com/dan/render/terrain/gelaende.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 7, std430) writeonly buffer Aus { float aus[]; };
+void main() {
+    int k = int(gl_GlobalInvocationID.x), l = int(gl_GlobalInvocationID.y), L = int(gl_GlobalInvocationID.z), m = M();
+    if (k >= m || l >= m || L >= Lc()) return;
+    aus[(L * m + l) * m + k] = scheitel(L, k, l).h;
+}
