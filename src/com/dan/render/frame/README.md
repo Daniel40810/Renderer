@@ -58,3 +58,11 @@ Teile: 1 Blick (Lage relativ zum Auge in float bis 30 km, Projektion gegen den B
 `Rahmen.bild(a, teile, auflagen, blick, zeit, aus, dt)`: Die `core.gpu.Auflage`n bereiten nach den Teilen vor und legen
 nach der Ausgabe durch die Kurve in `aus` auf; sie dürfen die Tiefe der Szene testen oder lesen. Ohne Auflagen ist das
 Bild bitgleich zu 0.2 (die alte Form ruft die neue mit einer leeren Liste).
+
+## Seit L5e1 (Seegang Werkbuch 100, Befund 1): farbtreu bei Nacht
+
+Ein grünes Tonnenfeuer in 300 m ist bei Nacht rund 200 cd/m² hell, hundertfach über der Belichtung. Die Filmkurve
+sättigt jede Schicht für sich, und es kam weiß heraus; das Auge sieht es grün. Mit `nachtsehen` staucht die Ausgabe nach
+den Stäbchen Überstrahltes farbtreu: c · (1 + (m / `FARBTREU`)⁴)^−¼ mit m dem größten Kanal und `FARBTREU` = 1 [G],
+ganz ab Vorbelichtung 1 (Nacht), weich ab 0,01 (Dämmerung), bei Tag nicht [G]. Unter der Grenze bleibt fast alles, wie es
+war. In double: `Belichtung.farbtreu` (`FrameCheck` Teil 6, `lauf.Foto`, `ReferenzCheck`).

@@ -47,7 +47,7 @@ layout(set = 0, binding = 0, std430) readonly buffer Kopf {
     vec4 seeAuge;         // Ost, Nord des Auges modulo 4096 m (Muster des Schaums), Zeit modulo 4096 s, s der Richtungsverteilung
     ivec4 seeN[SEENETZE]; // erster Wert im Puffer des Seegangs, nx, ny, 1 = gesetzt
     vec4 seeF[SEENETZE];  // Südwestecke relativ zum Auge (Ost, Nord in m), Zelle (m), 1 / Zelle
-    vec4 seeZ[SEENETZE];  // Gewicht s von B, Platz von A, 0, 0
+    vec4 seeZ[SEENETZE];  // Gewicht s von B, Platz von A, Art des Übergangs am Rand (seit S3c-7, nur [0] gelesen), 0
     vec4 lang[LANG];      // Wellenzahl Ost, Nord (rad/m), Phase am Auge zur Zeit des Bilds, Band
     vec4 band[BAENDER];   // ln f unten, ln f oben (Hz), längste Welle des Bands (m), 0
     vec4 cdf[CDF_N / 4];  // Anteil des JONSWAP unter ln(f/f_p) von −1 bis 3
@@ -56,14 +56,30 @@ layout(set = 0, binding = 0, std430) readonly buffer Kopf {
     ivec4 bodN;           // 1 = gesetzt, nx, ny, Platz von A
     vec4 bodF;            // Südwestecke relativ zum Auge (Ost, Nord in m), Zelle (m), 1 / Zelle
     vec4 bodZ;            // Gewicht s von B, C der ersten Stufe der Tafeln (g/m³), 1 / ln(Faktor der Stufen), Breite der Überblendung am Rand (Zellen)
-    // seit P13c (Brandung, 12.14): Wind U₁₀ Ost, Nord (m/s), 1 = lange Wellen mit Höhe, Weißwasser und Schaumköpfe (Schalter brandung), 0
+    // seit P13c (Brandung, 12.14): Wind U₁₀ Ost, Nord (m/s), 1 = lange Wellen mit Höhe, Weißwasser und Schaumköpfe (Schalter brandung);
+    // w seit S3c-5 (B48): 1 = netz.frag bricht ab, wenn das Gelände davor liegt
     vec4 seeMehr;
+    // seit S6c-2 (Seegang Werkbuch 82, SF93 A): das Rechteck des Auflaufs (physics.swash über lauf.Auflauf); swN.z = 0: keins
+    vec4 swLage;          // Ecke der Zelle (0, 0) relativ zum Auge (Ost, Nord), Richtung x (quer, landwärts) Ost, Nord
+    vec4 swAchse;         // Richtung y (längs) Ost, Nord, Zelle (m), Ruhewasser (m NHN)
+    ivec4 swN;            // nx, ny, 1 = gesetzt, Zeit der Karte (s, Bits von float; seit S6c-2b)
+    // seit S8b (Seegang Werkbuch 104, SF156 A): Katzenpfoten (katzen.glsl); boe.w = 0: aus
+    vec4 boe;             // Gitterkoordinaten des Böenfelds am Auge qx, qy, τ (mod 256), Streuung σ (ln)
+    vec4 boeMehr;         // Wind der Szene U (m/s), 1 / Fleckgröße (1/m), Gewicht des Felds; w seit S9a: Messschalter (Bits, 0 = alles an)
 };
+// Seit S9a (Seegang Werkbuch 106, SF168 A): Messschalter je Teil der Schattierung (Wasserbild.mess); ein gesetztes Bit lässt
+// den Teil weg (nur für die Messung; das Bild ändert sich dann). 0: alles wie bisher.
+const int MESS_CLIPMAP = 1, MESS_WEISS = 2, MESS_KOEPFE = 4, MESS_FELD = 8, MESS_MUSTER = 16, MESS_AUFLAUF = 32,
+          MESS_SEEWERTE = 64, MESS_B47 = 128, MESS_SAEULE = 256, MESS_SCHATTEN = 512,
+          // seit S9b (Seegang Werkbuch 107, SF171/SF172 A): die alten Wege zum Vergleich
+          MESS_SPIEGEL_ALT = 1024, MESS_KRAEUSEL_ALT = 2048;
+bool messAus(int bit) { return (int(boeMehr.w + 0.5) & bit) != 0; }
 layout(set = 0, binding = 1, std430) readonly buffer Staende { float st[]; };
 layout(set = 0, binding = 2, std430) readonly buffer Arten { uint art[]; };
 layout(set = 0, binding = 3, std430) readonly buffer Werte { Himmelswerte hw; };
 layout(set = 0, binding = 4) uniform sampler2D durch;
 layout(set = 0, binding = 5) uniform sampler2D ansichtT;
+#include "/com/dan/render/water/katzen.glsl"
 
 // ------------------------------------------------------------------ Spiegel
 
@@ -139,8 +155,148 @@ float nachbar(int g, int ci, int cj, int ni, int nj, float eo) {
     return etaZelle(g, ni, nj);
 }
 
+// ------------------------------------------------------------------ Auflauf (seit S6c-2)
+// Shader, die den Löser im Rechteck zeigen, setzen SWASH_BINDUNG vor dem Einbinden (die Bindung des Bilds, swash_bild.comp:
+// je Zelle h, Stand relativ zum Ruhewasser, Sekunden seit nass, versickert). Im Rechteck gilt dort der Stand des Lösers, wo
+// die Zelle mindestens SW_NETZ Wasser trägt (darunter zeichnet das Gelände den Film); über SW_BAND an W, S und N geht er
+// in η_Bild und die Welle der Clipmap über (swGewicht). Ohne SWASH_BINDUNG wie bisher (WaterCheck, Spiegelbild).
+float etaBildSpiegel(vec2 p, out int gitter);
+#ifdef SWASH_BINDUNG
+layout(set = 0, binding = SWASH_BINDUNG, std430) readonly buffer SwashBildW { vec4 swW[]; };
+const float SW_NETZ = 0.03, SW_BAND = 8.0;   // m [G]; SW_NETZ wie gelaende.frag
+
+// Lage im Rechteck (x quer, y längs, m) zum Ort p (x Ost, z Süd relativ zum Auge); false außerhalb
+bool swLokal(vec2 p, out vec2 q) {
+    q = vec2(0.0);
+    if (swN.z != 1) return false;
+    vec2 d = vec2(p.x, -p.y) - swLage.xy;
+    q = vec2(dot(d, swLage.zw), dot(d, swAchse.xy));
+    return q.x >= 0.0 && q.y >= 0.0 && q.x < float(swN.x) * swAchse.z && q.y < float(swN.y) * swAchse.z;
+}
+
+// Gewicht des Lösers am Ort: 1 innen, über SW_BAND an W, S und N auf 0; außerhalb 0
+float swGewicht(vec2 p) {
+    vec2 q;
+    if (!swLokal(p, q)) return 0.0;
+    float r = min(q.x, min(q.y, float(swN.y) * swAchse.z - q.y));
+    return clamp(r / SW_BAND, 0.0, 1.0);
+}
+
+vec4 swZelleW(int i, int j) { return swW[clamp(j, 0, swN.y - 1) * swN.x + clamp(i, 0, swN.x - 1)]; }
+
+// Stand des Lösers (m NHN) am Ort p; KEIN, wo die eigene Zelle weniger als SW_NETZ trägt. Bilinear zwischen den
+// Zellmitten, ein Nachbar mit weniger Wasser zählt mit dem Wert der eigenen Zelle. grad: Neigung (∂η/∂Ost, ∂η/∂Nord).
+// Seit S6c-2b nur noch für die Neigung (Schattierung); η_Bild und das Netz nehmen swFlaeche.
+float swEta(vec2 p, out vec2 grad) {
+    grad = vec2(0.0);
+    vec2 q;
+    if (!swLokal(p, q)) return KEIN;
+    float dx = swAchse.z;
+    ivec2 ci = ivec2(floor(q / dx));
+    vec4 eig = swZelleW(ci.x, ci.y);
+    if (eig.y >= 1e28 || eig.x < SW_NETZ) return KEIN;
+    vec2 u = q / dx - 0.5;
+    ivec2 c0 = ivec2(floor(u));
+    vec2 f = u - vec2(c0);
+    float v[4];
+    for (int k = 0; k < 4; k++) {
+        vec4 c = swZelleW(c0.x + (k & 1), c0.y + (k >> 1));
+        v[k] = c.y < 1e28 && c.x >= SW_NETZ ? c.y : eig.y;
+    }
+    float gx = (mix(v[1], v[3], f.y) - mix(v[0], v[2], f.y)) / dx, gy = (mix(v[2], v[3], f.x) - mix(v[0], v[1], f.x)) / dx;
+    grad = gx * swLage.zw + gy * swAchse.xy;
+    return mix(mix(v[0], v[1], f.x), mix(v[2], v[3], f.x), f.y) + swAchse.w;
+}
+
+// Seit S6c-2b (Seegang Werkbuch 83, Befund L4o: Zähne an der Böschung): die Fläche des Lösers ist im Rechteck überall
+// bestimmt – wo die Zelle mindestens SW_NETZ trägt ihr Stand, sonst SW_UNTER unter ihrem Grund. Bilinear dazwischen
+// taucht das Netz an der Wasserlinie stetig unter das Gelände, statt zwischen dem Stand des Lösers und dem Pegel der
+// Hydro zu springen (das gab senkrechte Wände). hq: Wasser bilinear (m), gh: dessen Neigung (Ost, Nord; die Front).
+// KEIN außerhalb des Rechtecks und über Fels.
+const float SW_UNTER = 0.1;   // m [G]
+float swStandZ(vec4 c) { return c.x >= SW_NETZ ? c.y : c.y - c.x - SW_UNTER; }
+// Seit S6e (Seegang Werkbuch 85, A21): Gewichte und ihre Ableitungen des quadratischen B-Splines in einer Richtung, d: Abstand
+// zur nächsten Zellmitte in Zellen (−0,5 … 0,5). Bilinear lag die Linie, an der das Netz das Gelände schneidet, auf den
+// Diagonalen der Zellen – an 1-m-Zellen der Flutkante sichtbar als Treppe (L4y); der B-Spline ist stetig in der Neigung.
+void swSpline(float d, out vec3 w, out vec3 dw) {
+    w = vec3(0.5 * (0.5 - d) * (0.5 - d), 0.75 - d * d, 0.5 * (0.5 + d) * (0.5 + d));
+    dw = vec3(d - 0.5, -2.0 * d, 0.5 + d);
+}
+float swFlaeche(vec2 p, out float hq, out vec2 gh) {
+    hq = 0.0;
+    gh = vec2(0.0);
+    vec2 q;
+    if (!swLokal(p, q)) return KEIN;
+    float dx = swAchse.z;
+    ivec2 ci = ivec2(floor(q / dx));
+    vec4 eig = swZelleW(ci.x, ci.y);
+    if (eig.y >= 1e28) return KEIN;
+    // seit S6e: Stand und Wasser als quadratischer B-Spline über die 3 × 3 Zellen um die nächste Mitte (bis S6d bilinear)
+    vec2 u = q / dx - 0.5;
+    ivec2 m = ivec2(floor(u + 0.5));
+    vec2 d = u - vec2(m);
+    vec3 wx, wy, dwx, dwy;
+    swSpline(d.x, wx, dwx);
+    swSpline(d.y, wy, dwy);
+    float v = 0.0, hx = 0.0, hy = 0.0;
+    for (int b = 0; b < 3; b++)
+        for (int a = 0; a < 3; a++) {
+            vec4 c = swZelleW(m.x + a - 1, m.y + b - 1);
+            if (c.y >= 1e28) c = eig;
+            float w = wx[a] * wy[b];
+            v += w * swStandZ(c);
+            hq += w * c.x;
+            hx += dwx[a] * wy[b] * c.x;
+            hy += wx[a] * dwy[b] * c.x;
+        }
+    gh = (hx * swLage.zw + hy * swAchse.xy) / dx;
+    return v + swAchse.w;
+}
+
+// Seit S6c-2b: die Fläche des Netzes am Ort p (Scheitel und Bildpunkte gleich): im Rechteck swFlaeche, im Band an W, S, N
+// gemischt mit den Spiegeln der Hydro (wo die trocken sind, allein swFlaeche). zeigen: ob dort Wasser zu zeichnen ist
+// (Löser ab SW_NETZ_ZEIGEN, im Band auch, wo die Hydro nass ist). KEIN außerhalb oder über Fels (dann der Weg bis S6c-2).
+const float SW_NETZ_ZEIGEN = 0.025;   // m [G]: das Gelände zeichnet den Film bis SW_NETZ, das Netz deckt ab hier
+float swNetz(vec2 p, out bool zeigen) {
+    zeigen = false;
+    float w = swGewicht(p);
+    if (w <= 0.0) return KEIN;
+    float hq;
+    vec2 gh;
+    float fl = swFlaeche(p, hq, gh);
+    if (fl == KEIN) return KEIN;
+    zeigen = hq >= SW_NETZ_ZEIGEN;
+    if (w >= 1.0) return fl;
+    int g;
+    float e = etaBildSpiegel(p, g);
+    if (e == KEIN) return fl;
+    zeigen = true;
+    return mix(e, fl, w);
+}
+#endif
+
 // η_Bild am Ort p = (x Ost, z Süd) relativ zum Auge; KEIN, wo kein Wasser ist. Gitter g (Ausgabe): das genutzte.
+float etaBildSpiegel(vec2 p, out int gitter);
 float etaBild(vec2 p, out int gitter) {
+    float e = etaBildSpiegel(p, gitter);
+#ifdef SWASH_BINDUNG
+    float w = swGewicht(p);
+    if (w > 0.0) {
+        // seit S6c-2b: der Stand aus swFlaeche (stetig), wo der Löser bilinear SW_NETZ_ZEIGEN trägt
+        float hq;
+        vec2 gh;
+        float fl = swFlaeche(p, hq, gh);
+        float es = fl != KEIN && hq >= SW_NETZ_ZEIGEN ? fl : KEIN;
+        if (w >= 1.0 || e == KEIN) return es;
+        if (es == KEIN) return fl != KEIN ? mix(e, fl, w) : e;
+        return mix(e, es, w);
+    }
+#endif
+    return e;
+}
+
+// η_Bild aus den Spiegeln des Wassers (bis S6c-2 einzig etaBild)
+float etaBildSpiegel(vec2 p, out int gitter) {
     gitter = -1;
     int N = int(auge.z);
     for (int g = 0; g < N; g++) {
@@ -221,18 +377,27 @@ vec3 daempfung() { return aW.rgb + aP.rgb + bb.rgb; }
 // seit P10d (F103 A): aufgK gibt die aufgelöste Varianz der Kräuselung zurück (für die ganze Varianz der Fläche)
 vec3 kraeuselungMit(vec2 p, vec3 oben, float fuss, vec3 lang, out float rest, out float aufgK) {
     float gx = 0.0, gn = 0.0, aufg = 0.0;
+    // seit S8b: Katzenpfoten – Varianz der Kräusel am Ort, die Wellen mit √(σ²_Ort / σ²)
+    float s2 = bild.z, amp = 1.0;
+    if (boe.w > 0.0 && boeMehr.z > 0.0) {
+        float uOrt;
+        s2 = katzenSigma2(p, uOrt);
+        amp = sqrt(s2 / max(bild.z, 1e-6));
+    }
     int nw = int(bb.w);
     for (int k = 0; k < nw; k++) {
         vec4 w = welle[k];
         float kk = length(w.xy), lam = 2.0 * L_PI / kk;
         float g = clamp(lam / (2.0 * fuss) - 1.0, 0.0, 1.0);
-        if (g <= 0.0) continue;
-        float c = cos(w.x * p.x - w.y * p.y + w.z) * w.w * g;
+        // seit S9b-2 (SF172 A): die Wellen kommen nach der Länge geordnet (Wasseroptik.wellen, Band für Band von lang nach
+        // kurz); unter dem Bildpunkt bleibt jede weitere auch darunter, also abbrechen statt weiterzählen
+        if (g <= 0.0) { if (messAus(MESS_KRAEUSEL_ALT)) continue; break; }
+        float c = cos(w.x * p.x - w.y * p.y + w.z) * w.w * g * amp;
         gx += c * w.x / kk;
         gn += c * w.y / kk;
-        aufg += g * g * 0.5 * w.w * w.w;
+        aufg += g * g * 0.5 * w.w * w.w * amp * amp;
     }
-    rest = max(bild.z - aufg, bild.w) + lang.z;
+    rest = max(s2 - aufg, bild.w) + lang.z;
     aufgK = aufg;
     gx += lang.x;
     gn += lang.y;

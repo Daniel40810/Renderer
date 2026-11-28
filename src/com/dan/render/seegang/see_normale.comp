@@ -1,0 +1,31 @@
+// see_normale.comp — Normale und Jacobi-Determinante einer Stufe der Clipmap (Seegang Werkbuch, S3b) aus der
+// Verschiebung der Nachbarn: P = (x + ξx, y + ξy, η), zentrale Differenzen (am Rand einseitig), wie Oberflaeche.lage.
+// Ausgabe (n_x, n_y, n_z, J); J < 0: die Fläche faltet sich. P.stufe < 0: alle Stufen in einer Abgabe (z = Stufe).
+#version 460
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(std430, binding = 0) readonly buffer Werte { int I[32]; float F[64]; } W;
+layout(std430, binding = 15) readonly buffer Versatz { vec4 versatz[]; };
+layout(std430, binding = 16) writeonly buffer Normale { vec4 normale[]; };
+
+layout(push_constant) uniform Schritt { float d; int stufe; int erste; int pad1; } P;   // stufe < 0: Stufen erste + z
+
+const int I_N = 2, F_D0 = 18;
+
+vec3 lage(int L, int n, int i, int j, float dl) {
+    vec4 v = versatz[(L * n + j) * n + i];
+    return vec3(float(i) * dl + v.x, float(j) * dl + v.y, v.z);
+}
+
+void main() {
+    int n = W.I[I_N];
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y);
+    if (i >= n || j >= n) return;
+    int L = P.stufe >= 0 ? P.stufe : P.erste + int(gl_GlobalInvocationID.z);
+    float dl = P.stufe >= 0 ? P.d : W.F[F_D0] * exp2(float(L));
+    int il = max(0, i - 1), ir = min(n - 1, i + 1), jl = max(0, j - 1), jr = min(n - 1, j + 1);
+    vec3 pu = (lage(L, n, ir, j, dl) - lage(L, n, il, j, dl)) / (float(ir - il) * dl);
+    vec3 pv = (lage(L, n, i, jr, dl) - lage(L, n, i, jl, dl)) / (float(jr - jl) * dl);
+    vec3 nn = cross(pu, pv);
+    normale[(L * n + j) * n + i] = vec4(normalize(nn), pu.x * pv.y - pu.y * pv.x);
+}

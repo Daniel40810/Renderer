@@ -1,0 +1,50 @@
+// swash_saum.comp — der Saum je Zeile (seit S6b-3, Seegang Werkbuch 71/72, SF71 A): der höchste Grund unter einer Zelle
+// mit mindestens KONTUR Wasser (Kontur nach SF60: 1 cm), relativ zum Ruhewasser (Bezug); ohne solche Zelle −1e30. Seit
+// Swash 0.3 (SF74 A) an der Front im Teilgitter: die Höhe, an der der ebene Spiegel w KONTUR über dem linearen Grund
+// steht (w − KONTUR, höchstens die obere Kante der Zelle in x). Eine
+// Gruppe je Zeile, nach den Schritten eines Bilds. Für die Messung des Auflaufs Welle für Welle (lauf.demo). Seit Seegang
+// Werkbuch 76 (SF82 A) kommt KONTUR im ersten Wert der Schiebekonstanten (Vorgabe 1 cm; 5 cm für den Vergleich mit Stockdon).
+#version 460
+layout(local_size_x = 64) in;
+#include "swash_gemein.glsl"
+layout(std430, binding = 14) writeonly buffer Saum { float saum[]; };
+
+layout(push_constant) uniform Schritt { float kontur; float t; float w; int stufe; int slotA; int slotB; int pad0; int pad1; } P;
+
+shared float teil[64];
+
+void main() {
+    int j = int(gl_WorkGroupID.x), l = int(gl_LocalInvocationID.x);
+    float KONTUR = P.kontur > 0.0 ? P.kontur : 0.01;
+    float m = -1e30;
+    if (j < ny()) {
+        int px = W.I[I_PX];
+        float htr = W.F[F_HTR];
+        for (int i = l; i < nx(); i += 64) {
+            int c = id(i, j);
+            float h = u[c].x, b = zelle[c].x;
+            if (fels(c) || !(h > htr)) continue;
+            float kand = h >= KONTUR ? b : -1e30;
+            if (W.I[I_TEIL] != 0) {
+                // seit Swash 0.3 (SF74 A): an der Front im Teilgitter die Kontur im ebenen Spiegel w über dem linearen Grund
+                vec4 nl = vec4(u[c - 1].x, 0.0, 0.0, zelle[c - 1].x), nr = vec4(u[c + 1].x, 0.0, 0.0, zelle[c + 1].x);
+                vec4 nd = vec4(u[c - px].x, 0.0, 0.0, zelle[c - px].x), no = vec4(u[c + px].x, 0.0, 0.0, zelle[c + px].x);
+                float gx = grundSteigung(nl.w, b, nr.w), gy = grundSteigung(nd.w, b, no.w), sg = abs(gx) + abs(gy);
+                bool keil = sg > 0.0 && h < 0.5 * sg;
+                bool front = keil || (nl.w < FELS && !(nl.x > htr)) || (nr.w < FELS && !(nr.x > htr)) || (nd.w < FELS && !(nd.x > htr)) || (no.w < FELS && !(no.x > htr));
+                if (front) {
+                    float w = keil ? b - 0.5 * sg + sqrt(2.0 * h * sg) : h + b;
+                    kand = w - KONTUR >= b - 0.5 * abs(gx) ? min(w - KONTUR, b + 0.5 * abs(gx)) : -1e30;
+                }
+            }
+            m = max(m, kand);
+        }
+    }
+    teil[l] = m;
+    barrier();
+    for (int s = 32; s > 0; s >>= 1) {
+        if (l < s) teil[l] = max(teil[l], teil[l + s]);
+        barrier();
+    }
+    if (l == 0 && j < ny()) saum[j] = teil[0];
+}

@@ -1,0 +1,42 @@
+// nah_beugung_a.comp — Beugung, erster Teil (Nahfeld.beugung in float): je Zelle und Band √E, das mit E gewichtete
+// mittlere k und c c_g; √E auch als Anfang des Glättens in Glatt[0]. Ein Faden je Stützstelle (B39), 256 / nd
+// Paare (Zelle, Band) je Gruppe; die Summe über die Richtungen in der Reihenfolge wie vorher.
+#version 460
+layout(local_size_x = 256) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) readonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 6) writeonly buffer Beug { vec4 beug[]; };
+layout(std430, binding = 7) writeonly buffer Glatt { float glatt[]; };
+layout(std430, binding = 9) readonly buffer Neu { float n[]; };
+
+shared vec4 sTeil[256];
+
+void main() {
+    int li = int(gl_LocalInvocationIndex);
+    int nc = W.nx * W.ny, je = 256 / W.nd;
+    int p = li / W.nd, q = li - p * W.nd;
+    int o = gruppenNummer() * je + p;
+    bool gilt = p < je && o < nc * W.nb;
+    int c = gilt ? o / W.nb : 0, b = gilt ? o - c * W.nb : 0;
+    bool da = gilt && nass(c);
+    vec4 t = vec4(0.0);                                                            // E, Σ gew k, Σ gew c c_g, Σ gew
+    if (da) {
+        int i = ix(c, b, q);
+        vec4 bi = bin[i];
+        if (!(bi.x <= 0.0 || bi.y == 0.0)) {
+            float ee = bi.y * n[i], gew = ee + 1e-30;
+            t = vec4(ee, gew * bi.x, gew * (bi.y / bi.x) * bi.z, gew);
+        }
+    }
+    sTeil[li] = t;
+    barrier();
+    if (gilt && q == 0) {
+        if (!nass(c)) { beug[o] = vec4(0.0, 0.0, 0.0, 1.0); glatt[o] = 0.0; return; }
+        float e = 0.0, kw = 0.0, cw = 0.0, w = 0.0;
+        for (int k = 0; k < W.nd; k++) { vec4 v = sTeil[li + k]; e += v.x; kw += v.y; cw += v.z; w += v.w; }
+        float a = sqrt(max(0.0, e));
+        beug[o] = vec4(a, w > 0.0 ? kw / w : 0.0, w > 0.0 ? cw / w : 0.0, 1.0);
+        glatt[o] = a;
+    }
+}

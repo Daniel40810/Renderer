@@ -1,0 +1,126 @@
+// see_fuss.comp — Seegang Werkbuch, S5b-4 (Datei 46): die Fläche am Fuß der Kanten. Je Fuß (Ort relativ zu B, ω der
+// Wellen dort) die Stufe der Clipmap, die ihn zeichnet (die feinste, die ihn mit zwei Stellen Rand enthält), und mit
+// deren Auflösung die Fläche wie see_stufe: Phase θ = arg Z', η, H_s = 4 √m0. Dazu drei Kämme um die Zeit der Karte:
+// der vorige, der letzte (θ ging zuletzt durch 0) und der nächste, je Zeit Δ (s gegen die Zeit der Karte), Höhe
+// H = 2 |Z'|, Weißwasser w am Kamm und die lineare Höhe 2 |Z| (vor dem Faktor nach Battjes–Groenendijk und dem Maßstab
+// der Form; nach Rayleigh verteilt mit H_s = 4 √m0, für den Rang der Welle); dazu die mittlere Periode T_m01 = 2π Σ E /
+// Σ E ω am Fuß (so schnell läuft θ im Mittel um: Abstand der Kämme). Die Zeit des Kamms sucht das Sekantenverfahren auf
+// θ(Δ) = 0 (erste Steigung −ω̄, höchstens acht Schritte); dafür rechnet die Synthese mit einem Versatz der Zeit
+// (ZEITVERSATZ in see_gemein.glsl). Ohne Energie gilt das ω der Eingabe. Findet die Suche keinen fallenden Durchgang
+// (|θ| ≥ 0,003 nach acht Schritten – auch wo θ vor 0 umkehrt –, oder die letzte Steigung steigt), steht H = −1.
+// Je Gruppe ein Fuß und ein Kamm (x = Fuß, Kamm = erster + y; seit S5b-4c in der Anwendung nur der letzte, Befund L3b,
+// und ist er nicht zu finden, der vorige an Platz 0; Platz 2 bleibt dann leer);
+// die 32 Fäden der Gruppe teilen sich die Stützstellen und das
+// Fernfeld (ZV_PARALLEL, seit S5b-4b nach Befund L3a), Faden 0 schreibt. H, w und 2 |Z| gelten am letzten Ort der
+// Suche. Den Puffer liest der Prozessor einige Bilder später (render.seegang.Fusssuche, core.szene.Fusswellen).
+#version 460
+layout(local_size_x = 32) in;
+#define ZEITVERSATZ
+#define ZV_PARALLEL
+#define ZV_LANES 32
+#include "see_gemein.glsl"
+
+// fuss[i], i < maxFuss: Eingabe (x, y relativ zu B, ω, –). Ausgabe ab maxFuss je Fuß fünf vec4: (Stufe + 1, negativ am
+// Rand zum Fernfeld, 0 außerhalb der Clipmap; η; θ; H_s), die Kämme vorig, letzter, nächster: (Δ, H, w, H_lin), dann
+// (T_m01, H_s der gezeichneten Wellen 4 √(Σ E g²), –, –).
+layout(std430, binding = 22) buffer Fuss { int zahlKopf; int r1; int r2; int r3; vec4 fuss[]; };
+
+layout(push_constant) uniform Suche { int zahl; int maxFuss; int erster; int pad1; } P;   // erster: Kamm der Gruppe y = 0 (0 alle drei, 1 nur der letzte)
+
+const int JE_FUSS = 5, SCHRITTE = 8;
+
+// Alle Fäden der Gruppe rufen gemeinsam auf (Summe über die Gruppe in punktK); alle bekommen dieselben Werte.
+void auswerten(vec2 p, float d, float nah, float dt, out float eta, out float theta, out float hoehe, out vec2 wl, out float m0, out float hlin, out float gez) {
+    zeitVersatz = dt;
+    fussE = 0.0;
+    fussEW = 0.0;
+    vec4 a, b;
+    vec2 auf;
+    float khp;
+    punktK(p, d, nah, a, b, auf, khp, wl);
+    eta = a.x;
+    theta = (b.x == 0.0 && b.y == 0.0) ? 0.0 : atan(b.y, b.x);
+    hoehe = 2.0 * a.w;
+    hlin = 2.0 * length(b.xy);
+    m0 = fussM0;
+    gez = auf.y;                                                         // gezeichnete Varianz Σ E g² (die Stufe löst nur einen Teil auf)
+}
+
+// Kamm kk (0 vorig, 1 letzter, 2 nächster) am Punkt: θ(Δ) = 0, θ fällt. Erste Schätzung mit −ω̄, dann Sekanten mit der
+// gemessenen Steigung (nur fallende; sonst −ω̄), Schritte höchstens eine halbe Periode, bis |θ| < 2 mrad oder acht
+// Schritte. Gefunden: |θ| < 0,003, die letzte Steigung fiel (kehrt θ vor 0 um, ist es kein Kamm) und Z ≠ 0 (wo die Stufe
+// keine Welle auflöst, ist Z = 0 und θ ohne Sinn). Alle Fäden der Gruppe
+// rufen gemeinsam auf.
+bool kamm(vec2 p, float dl, float nah, float th0, float om, float tp, int kk, out float da, out float h, out vec2 w, out float hl) {
+    da = -mod(-th0, ZWEI_PI) / om + float(kk - 1) * tp;
+    float ta, m, et, gz;
+    auswerten(p, dl, nah, da, et, ta, h, w, m, hl, gz);
+    float steig = -om;
+    bool fallend = true;                                                 // die letzte gemessene Steigung fiel
+    for (int it = 0; it < SCHRITTE && abs(ta) >= 0.002; it++) {
+        float db = da + clamp(-ta / steig, -0.5 * tp, 0.5 * tp);
+        float tb, hb, mb, hlb;
+        vec2 wb;
+        auswerten(p, dl, nah, db, et, tb, hb, wb, mb, hlb, gz);
+        float dth = tb - ta;
+        dth -= ZWEI_PI * round(dth / ZWEI_PI);
+        float s = db != da ? dth / (db - da) : steig;
+        fallend = s < 0.0;
+        steig = s < -0.1 * om ? s : -om;
+        da = db; ta = tb; h = hb; w = wb; hl = hlb;
+    }
+    return abs(ta) < 0.003 && fallend && hl > 0.0;                       // ohne Wellen (Z = 0, θ ohne Sinn) kein Kamm
+}
+
+void main() {
+    int i = int(gl_WorkGroupID.x), k = P.erster + int(gl_WorkGroupID.y);
+    bool schreibt = gl_LocalInvocationID.x == 0u;
+    if (i >= P.zahl || k > 2) return;                                    // für die ganze Gruppe gleich
+    vec4 e = fuss[i];
+    vec2 p = e.xy;
+    int o = P.maxFuss + JE_FUSS * i;
+    int n = W.I[I_N], st = W.I[I_STUFEN];
+    int L = -1, ii = 0, jj = 0;
+    float dl = 0.0;
+    for (int l = 0; l < st; l++) {
+        float d = W.F[F_D0] * exp2(float(l));
+        vec2 q = (p - vec2(W.F[F_MITTE + 2 * l], W.F[F_MITTE + 2 * l + 1])) / d + float(n / 2);
+        if (q.x >= 2.0 && q.x <= float(n - 3) && q.y >= 2.0 && q.y <= float(n - 3)) {
+            L = l; dl = d; ii = int(round(q.x)); jj = int(round(q.y));
+            break;
+        }
+    }
+    if (L < 0 || !(e.z > 0.0)) {
+        if (schreibt) {
+            if (k == 1) { fuss[o] = vec4(0.0); fuss[o + 4] = vec4(0.0); }
+            fuss[o + 1 + k] = vec4(0.0);
+        }
+        return;
+    }
+    // am Rand der äußersten Stufe geht die Synthese ins Fernfeld über (wie see_stufe)
+    float nah = 1.0;
+    if (L == st - 1 && W.I[I_RAND] > 0) nah = clamp(float(min(min(ii, jj), min(n - 1 - ii, n - 1 - jj))) / float(W.I[I_RAND]), 0.0, 1.0);
+    float eta0, th0, h0, m00, hl0, gez0;
+    vec2 wl0;
+    auswerten(p, dl, nah, 0.0, eta0, th0, h0, wl0, m00, hl0, gez0);
+    float om = fussE > 0.0 && fussEW > 0.0 ? fussEW / fussE : e.z;      // ω̄ = Σ E ω / Σ E
+    float tp = ZWEI_PI / om;
+    float da, h, hl;
+    vec2 w;
+    bool gefunden = kamm(p, dl, nah, th0, om, tp, k, da, h, w, hl);
+    // nur der letzte Kamm gesucht (erster = 1) und nicht gefunden – etwa wo θ vor 0 umkehrt: dann der vorige an Platz 0
+    float db = 0.0, hb = -1.0, hlb = 0.0;
+    vec2 wb = vec2(0.0);
+    bool vorig = false;
+    if (P.erster == 1 && !gefunden) vorig = kamm(p, dl, nah, th0, om, tp, 0, db, hb, wb, hlb);
+    if (!schreibt) return;
+    fuss[o + 1 + k] = vec4(da, gefunden ? h : -1.0, w.x, hl);
+    if (P.erster == 1) {
+        fuss[o + 1] = vec4(db, vorig ? hb : -1.0, wb.x, hlb);
+        fuss[o + 3] = vec4(0.0, -1.0, 0.0, 0.0);
+    }
+    if (k == 1) {
+        fuss[o] = vec4(float(L + 1) * (nah >= 1.0 ? 1.0 : -1.0), eta0, th0, 4.0 * sqrt(max(m00, 0.0)));
+        fuss[o + 4] = vec4(tp, 4.0 * sqrt(max(gez0, 0.0)), 0.0, 0.0);
+    }
+}

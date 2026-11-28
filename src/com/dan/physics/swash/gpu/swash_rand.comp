@@ -1,0 +1,65 @@
+// swash_rand.comp — die Randzellen aller vier Seiten (Swash.raender): Wand und offen aus der gespiegelten Zelle, Antrieb
+// über die Riemann-Invarianten (einlaufend aus der Welle, auslaufend aus der ersten Zelle innen). Je Faden eine Randzelle
+// (Seite, k, Lage l); die Ecken schreiben die Seiten S und N, wie in der Referenz (dort überschreiben sie W und E).
+// Der Grund der Randzellen steht schon in Zelle (beim Hochladen nach derselben Regel gesetzt).
+#version 460
+layout(local_size_x = 64) in;
+#include "swash_gemein.glsl"
+
+layout(push_constant) uniform Schritt { float dt; float t; float w; int stufe; int slotA; int slotB; int pad0; int pad1; } P;
+
+void main() {
+    int n = int(gl_GlobalInvocationID.x), mm = W.I[I_MMAX] + 2 * G, jeSeite = mm * G;
+    if (n >= 4 * jeSeite) return;
+    int seite = n / jeSeite, r = n - seite * jeSeite, k = r / G - G, l = r % G + 1;
+    bool xs = seite == SW || seite == SE;
+    int m = xs ? ny() : nx();
+    if (k >= m + G) return;
+    if (xs && (k < 0 || k >= m)) return;                                  // Ecken: S und N
+    int gi, gj, ii, jj, ai, aj;
+    if (seite == SW) { gi = -l; gj = k; ii = l - 1; jj = k; ai = 0; aj = k; }
+    else if (seite == SE) { gi = nx() - 1 + l; gj = k; ii = nx() - l; jj = k; ai = nx() - 1; aj = k; }
+    else if (seite == SS) { gi = k; gj = -l; ii = k; jj = l - 1; ai = k; aj = 0; }
+    else { gi = k; gj = ny() - 1 + l; ii = k; jj = ny() - l; ai = k; aj = ny() - 1; }
+    if (k < 0 || k >= m) {
+        ii = clamp(ii, 0, nx() - 1); jj = clamp(jj, 0, ny() - 1);
+        ai = clamp(ai, 0, nx() - 1); aj = clamp(aj, 0, ny() - 1);
+    }
+    int g = id(gi, gj), c = id(ii, jj);
+    int art = W.I[I_RAND + seite];
+    if (fels(g)) { u[g] = vec4(0.0); return; }
+    if (art == ANTRIEB) {
+        int a = id(ai, aj), platz = W.I[I_AOFF + seite] + (k + G) * G + (l - 1);
+        vec4 wa = antrieb[P.slotA * W.I[I_ASLOT] + platz], wb = antrieb[P.slotB * W.I[I_ASLOT] + platz];
+        // seit Datei 74 (F6): vierter Wert 1 = die erste Zelle innen (Grund ebenso, ein ruhender See bleibt in Ruhe)
+        if (max(wa.w, wb.w) > 0.5) {
+            vec4 ua = u[id(ai, aj)];
+            if (ua.x <= W.F[F_HTR]) { ua.y = 0.0; ua.z = 0.0; }
+            u[g] = vec4(ua.xyz, 0.0);
+            return;
+        }
+        vec3 we = mix(wa.xyz, wb.xyz, P.w);
+        float he = max(0.0, we.x - zelle[g].x), hge = W.F[F_HGE], gr = W.F[F_G];
+        float ue = he > hge ? we.y : 0.0, te = he > hge ? we.z : 0.0;
+        float sg = seite == SW || seite == SS ? 1.0 : -1.0;
+        vec4 ua = u[a];
+        float ha = ua.x, qa = xs ? ua.y : ua.z, ta = xs ? ua.z : ua.y;
+        float uaN = vel(qa, ha) * sg, vaT = vel(ta, ha);
+        float hg, ug, tg;
+        if (ha <= W.F[F_HTR]) { hg = he; ug = ue; tg = te; }
+        else {
+            float rp = ue + 2.0 * sqrt(gr * he), rm = uaN - 2.0 * sqrt(gr * ha);
+            float cc = 0.25 * (rp - rm);
+            ug = 0.5 * (rp + rm);
+            hg = cc > 0.0 ? cc * cc / gr : 0.0;
+            tg = ug > 0.0 ? te : vaT;
+        }
+        float qn = hg > hge ? hg * ug * sg : 0.0, qt = hg > hge ? hg * tg : 0.0;
+        u[g] = xs ? vec4(hg, qn, qt, 0.0) : vec4(hg, qt, qn, 0.0);
+        return;
+    }
+    vec4 uc = u[c];
+    if (art == WAND) { if (xs) uc.y = -uc.y; else uc.z = -uc.z; }
+    if (uc.x <= W.F[F_HTR]) { uc.y = 0.0; uc.z = 0.0; }
+    u[g] = vec4(uc.xyz, 0.0);
+}

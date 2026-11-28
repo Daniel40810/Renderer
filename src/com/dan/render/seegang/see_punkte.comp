@@ -1,0 +1,20 @@
+// see_punkte.comp — die Oberfläche an einer Liste von Punkten (Seegang Werkbuch, S3b; zur Prüfung gegen
+// core.szene.Oberflaeche.punkt). Je Faden ein Punkt (relativ zu B); P.d: Größe der Stelle (0: alles).
+#version 460
+layout(local_size_x = 64) in;
+#include "see_gemein.glsl"
+
+layout(std430, binding = 13) readonly buffer Punkte { vec2 punkte[]; };
+layout(std430, binding = 14) writeonly buffer Aus { vec4 aus[]; };
+
+layout(push_constant) uniform Schritt { float d; int stufe; int pad0; int pad1; } P;
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= W.I[I_PUNKTE]) return;
+    vec4 a, b;
+    vec2 auf;
+    punkt(punkte[i], P.d, 1.0, a, b, auf);
+    aus[2 * i] = a;
+    aus[2 * i + 1] = b;
+}

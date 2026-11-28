@@ -45,6 +45,11 @@ public final class Wetterfeld {
      * (0–1), {@code tp} (m je Stunde).
      */
     public static final String LUFT = "luft";
+    /**
+     * Name der Böe aus ERA5 im selben Ordner (Seegang S8b, SF156 A): {@code boee.txt}, {@code boee.f32}, Raster der
+     * Deutschen Bucht. Größe: {@code fg10} (m/s, stärkste Böe in 10 m in der Stunde vor der Zeit).
+     */
+    public static final String BOEE = "boee";
 
     public final Gradraster raster;
     public final Instant start;
@@ -139,6 +144,7 @@ public final class Wetterfeld {
         StringBuilder s = new StringBuilder();
         s.append("# Wetter auf einem Gradraster (Werkbuch HalligHooge Teil A, 12.6, P5b), Format in com.dan.core.gitter.Wetterfeld\n");
         if (name.equals(SEEGANG)) s.append("# Seegang aus ERA5 (P8b): Höhen in m, Perioden in s, Richtungen in Grad (woher, von Nord im Uhrzeigersinn), Richtungsbreiten ohne Einheit; über Land aus den Nachbarn über See\n");
+        else if (name.equals(BOEE)) s.append("# Böe aus ERA5 (Seegang S8b): fg10 in m/s, stärkste Böe in 10 m in der Stunde vor der Zeit\n");
         else if (name.equals(LUFT)) s.append("# Luft aus ERA5 (P10b): t2, d2, sst in K; ssrd, strd, sshf, slhf in W/m² (Mittel der Stunde vor der Zeit, nach unten positiv); tcc 0–1; tp in m je Stunde; sst über Land aus den Nachbarn über See\n");
         else s.append("# u10, v10 in m/s (nach Osten, Norden), msl in Pa; iews, inss in N/m² (nach Osten, Norden), charnock ohne Einheit (wo vorhanden);\n");
         s.append("# float32 Little Endian, je Zeit je Größe alle Punkte (j nx + i)\n");

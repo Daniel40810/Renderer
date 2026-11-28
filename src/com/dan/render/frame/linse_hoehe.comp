@@ -1,0 +1,20 @@
+#version 460
+// linse_hoehe.comp – render.frame (S8a): die Höhenkarte der Tropfen auf der Linse, je Zelle die höchste Kappe.
+// Seit S9b-3 (Seegang Werkbuch 107): mit Kacheln (kachel.x = 1) nur die Tropfen der Kachel, in derselben Reihenfolge wie alle
+// (aufsteigend); jeder andere liegt mit seinem Kasten nicht über der Zelle, also dieselbe Höhe.
+#define LINSE_SCHREIBT
+#include "/com/dan/render/frame/linse.glsl"
+layout(set = 0, binding = 3, std430) readonly buffer Kacheln { int kl[]; };
+layout(local_size_x = 16, local_size_y = 16) in;
+void main() {
+    ivec2 i = ivec2(gl_GlobalInvocationID.xy), n = ivec2(linse.zw);
+    if (i.x >= n.x || i.y >= n.y) return;
+    vec2 p = (vec2(i) + 0.5) / vec2(n) * linse.xy;
+    if (kachel.x > 0.5) {
+        int K = int(kachel.w), tx = int(kachel.y), txy = tx * int(kachel.z);
+        int t = (i.y / K) * tx + i.x / K, a = kl[t], e = kl[t + 1], basis = 2 * txy + 1;
+        vec4 best = vec4(0.0, 0.0, 0.0, -1.0);
+        for (int j = a; j < e; j++) lTropfen(kl[basis + j], p, best);
+        hk[i.x + n.x * i.y] = best;
+    } else hk[i.x + n.x * i.y] = lHoeheTropfen(p);
+}

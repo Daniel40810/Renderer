@@ -121,6 +121,29 @@ public final class Spiegelbild {
         return Float.NaN;
     }
 
+    /**
+     * Seit S3c-5 (B47, Seegang Werkbuch 19/20): η eines Scheitels des Netzes am Ort (x Ost, z Süd) relativ zum Auge, wie
+     * {@code netz.comp} ({@code etaOder}): η_Bild, wo Wasser ist; sonst der Spiegel des nächsten nassen Nachbarn im Abstand
+     * s = max(Zelle, dL) – erst die vier Seitennachbarn, dann die vier über Eck, von mehreren der höchste; ohne nassen
+     * Nachbarn {@code pegel} (der Pegel des Kopfs). In float wie auf der Karte.
+     */
+    public float etaScheitel(float px, float pz, float dL, float pegel) {
+        int[] g = {-1};
+        float e = etaBild(px, pz, g);
+        if (!Float.isNaN(e)) return e;
+        float s = g[0] >= 0 ? Math.max(dL, kf[8 * g[0] + 2]) : dL;
+        float m = max4(etaBild(px + s, pz, null), etaBild(px - s, pz, null), etaBild(px, pz + s, null), etaBild(px, pz - s, null));
+        if (Float.isNaN(m)) m = max4(etaBild(px + s, pz + s, null), etaBild(px + s, pz + -s, null), etaBild(px + -s, pz + s, null), etaBild(px - s, pz - s, null));
+        return Float.isNaN(m) ? pegel : m;
+    }
+
+    /** Größter der vier Werte, NaN (kein Wasser) zählt nicht; NaN, wenn alle NaN sind. */
+    private static float max4(float a, float b, float c, float d) {
+        float m = Float.NaN;
+        for (float v : new float[] {a, b, c, d}) if (!Float.isNaN(v) && (Float.isNaN(m) || v > m)) m = v;
+        return m;
+    }
+
     /** η_Bild am Ort (Ost, Nord) in UTM: der Ort wird relativ zum Auge in float genommen wie auf der Karte. */
     public float etaBildUtm(double ost, double nord, int[] gitter) {
         return etaBild((float) (ost - this.ost), (float) (this.nord - nord), gitter);

@@ -1,0 +1,23 @@
+// swash_stufe.comp — eine ganze Stufe nach Heun in einer Abgabe (Seegang Werkbuch, S6b-1b): je Gruppe eine Kachel von
+// 16 × 16 Zellen (seit S6e, Seegang Werkbuch 85; bis S6d 16 × 8, jetzt swash_stufe8.comp, -Dswash.kachel=8). Sie lädt Zustand und Grund mit drei Zellen Rand in den geteilten Speicher, rechnet dort Steigungen
+// (Rand 2), Kanten (Rand 1, für θ der Nachbarn), θ (Rand 1) und dann die Stufe ihrer Zellen mit denselben Formeln wie der
+// einzelne Weg (swash_gemein). Der Zustand liegt in zwei Puffern im Wechsel: Stufe 1 liest A (zugleich U0) und schreibt
+// B, Stufe 2 liest B und U0 = A und schreibt A; so liest keine Gruppe, was eine andere in derselben Stufe schreibt.
+//
+// Kacheln: Hälfte P.paritaet von Kachel hat die Marken der vorigen Stufe (Bit 1: eine Zelle nass, Bit 2: Sickerwasser,
+// Bit 4: A und B sind in dieser Kachel gleich), die andere bekommt die neuen. In einer Stufe kommt Wasser höchstens eine Zelle weit; ist keine der 3 × 3 Kacheln um diese
+// nass und liegt sie an keiner Seite mit Zufluss, bleibt sie trocken – dann läuft nur das Sickerwasser ab (Stufe 2).
+//
+// Seit S6c-2b (Seegang Werkbuch 83): mit P.bild = 1 (nur im letzten Schritt eines Bilds) schreibt die Stufe das Bild jeder
+// Zelle, deren Stand sich ändert (in Stufe 2 gerechnet oder mit Sickerwasser, in beiden Stufen übernommen). Vorher las
+// swash_bild.comp nach den Schritten jedes Bilds alle Zellen (L4o 0,165 ms); jetzt füllt es nur nach dem Setzen und schiebt
+// sonst je Zeile den Spülsaum weiter.
+//
+// Seit S6e: der Körper steht in swash_stufe.glsl; die größere Kachel rechnet weniger Rand je Zelle (Laden 1,89 statt 2,41,
+// Kanten 1,56 statt 1,88, Flüsse 2,67 statt 3,03 je Zelle), θ teilt sich den Speicher mit den Kanten in y (31,5 kB).
+#version 460
+#define VERSCHMOLZEN
+#define KACHEL_Y 16
+layout(local_size_x = 16, local_size_y = KACHEL_Y) in;
+#include "swash_gemein.glsl"
+#include "swash_stufe.glsl"

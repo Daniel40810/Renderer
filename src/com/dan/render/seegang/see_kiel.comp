@@ -1,0 +1,108 @@
+// see_kiel.comp — Seegang Werkbuch, S7d (Datei 89): das Kielwasser der fahrenden Schiffe in zwei Kacheln um das Auge
+// (nah und weit), wie core.szene.Kielwasser.kachel in double: je Zelle Höhe (m), Schaum (0 … 1), mittlere Wellenzahl der
+// Beiträge (1/m), 0. Je Quelle die Tafeln der stationären Phase bei endlicher Tiefe (K, K', K'', K''' über θ; θ über α je
+// Ast) und die ausgedünnte Spur des Bugs; Orte relativ zu B. Die größte Wellenzahl je Kachel: drei Zellen je Welle.
+// Seit S7d2 (Seegang Werkbuch 90) in Lagen: Lage 0 alle Quellen (Höhe, Schaum, mittleres K, Σ g), Lage 1 + q die Quelle q
+// allein (Höhe, Schaum, Σ K g, Σ g); z[((Lage · 2 + Kachel) · n + j) · n + i]. So lässt see_koerper an den Punkten eines
+// Schiffs dessen eigenes Kielwasser weg (see_kiel_am.glsl, kielAmOhne). Seit S7d3 (SF119 A) schreibt die Lage einer Quelle
+// nur die Zellen bis eine Länge plus zwei Zellen um ihre Mitte: Nur dort liegen die Punkte des Schiffs, die sie lesen.
+// Seit S7d4 (Seegang Werkbuch 92, SF123 A, Befund L5d3 3: 0,277 ms; je Zelle suchte sie über bis zu 95 Stücke der Spur):
+// Je Block von 8 × 8 Zellen wählt die Gruppe vorher die Stücke, deren Lotbereich (0 ≤ u ≤ 1) eine Zelle des Blocks treffen
+// kann – u ist affin im Ort, also reichen die vier Ecken (mit 1e-3 Rand gegen Rundung) –, in ihrer Reihenfolge. Jede Zelle
+// sucht dann nur unter diesen und findet dasselbe Stück wie vorher: dasselbe Ergebnis.
+// Seit S7d5 (Seegang Werkbuch 93, SF128 A): Kachel mit vierten Wert 1 (die weite) nur Schaum, ohne Wellen.
+// Seit S7d6 (Seegang Werkbuch 94, SF133 A, SF134 A): Quellen, Muster und Suche in see_kiel_spur.glsl; die Körper rechnen ihr
+// Kielwasser direkt aus den Spuren (see_koerper), darum keine Lagen der Quellen mehr – nur noch Lage 0 fürs Bild. Die
+// Kacheln im Wechsel: KP.erste ist die erste Kachel dieser Abgabe (gl_GlobalInvocationID.z kommt dazu).
+#version 460
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#define KIEL_QUELLEN 0
+#include "see_kiel_spur.glsl"
+
+layout(std430, binding = 1) buffer Kacheln { int n; int an; int k1; int k2; vec4 kachel[2]; vec4 z[]; } K;
+layout(push_constant) uniform Wahl { int erste; int p1; int p2; int p3; } KP;    // seit S7d6: Kacheln im Wechsel
+
+const float PI = 3.14159265358979;
+
+// seit S7d4: die vorgewählten Stücke der Spur des Blocks (Nummern aufsteigend)
+shared int spWahl[KS_SPUR];
+shared int spListe[KS_SPUR];
+shared int spZahl;
+
+/** Alle Fäden der Gruppe: wählt die Stücke der Spur der Quelle b, deren Lotbereich den Block [lo, hi] (Zellmitten) trifft. */
+void vorwahl(int b, int m, vec2 lo, vec2 hi) {
+    int l = int(gl_LocalInvocationIndex);
+    int s0 = b + KS_KOPF + 4 * KS_NT + 2 * KS_NA;
+    for (int k = l; k + 1 < m; k += 64) {
+        int ia = s0 + 4 * k;
+        vec2 a = vec2(E.q[ia], E.q[ia + 1]), c = vec2(E.q[ia + 4], E.q[ia + 5]);
+        vec2 sv = c - a;
+        float l2 = dot(sv, sv);
+        int w = 1;
+        if (!(l2 < 1e-12)) {
+            float u00 = dot(lo - a, sv), u10 = dot(vec2(hi.x, lo.y) - a, sv), u01 = dot(vec2(lo.x, hi.y) - a, sv), u11 = dot(hi - a, sv);
+            float umin = min(min(u00, u10), min(u01, u11)) / l2, umax = max(max(u00, u10), max(u01, u11)) / l2;
+            if (umax < -1e-3 || umin > 1.0 + 1e-3) w = 0;
+        }
+        spWahl[k] = w;
+    }
+    barrier();
+    if (l == 0) {
+        int z = 0;
+        for (int k = 0; k + 1 < m; k++) if (spWahl[k] != 0) spListe[z++] = k;
+        spZahl = z;
+    }
+    barrier();
+}
+
+// Spurkoordinaten über der ausgedünnten Spur: (Weg hinter dem Bug, Abstand quer, Alter); false vor dem Bug. Seit S7d4 nur über
+// die vorgewählten Stücke (vorwahl).
+bool spur(int b, vec2 p, out vec3 o) {
+    int s0 = b + KS_KOPF + 4 * KS_NT + 2 * KS_NA;
+    float best = 3.0e38;
+    bool gef = false;
+    o = vec3(0.0);
+    for (int z = 0; z < spZahl; z++) {
+        int i = spListe[z];
+        int ia = s0 + 4 * i;
+        vec2 a = vec2(E.q[ia], E.q[ia + 1]), c = vec2(E.q[ia + 4], E.q[ia + 5]);
+        vec2 sv = c - a;
+        float l2 = dot(sv, sv);
+        float u = l2 < 1e-12 ? 0.0 : dot(p - a, sv) / l2;
+        if (u < 0.0 || u > 1.0) continue;
+        vec2 qv = a + sv * u - p;
+        float d2 = dot(qv, qv);
+        if (d2 < best) {
+            best = d2;
+            o = vec3(E.q[ia + 2] + (E.q[ia + 6] - E.q[ia + 2]) * u, sqrt(d2), E.q[ia + 3] + (E.q[ia + 7] - E.q[ia + 3]) * u);
+            gef = true;
+        }
+    }
+    return gef && o.x > 1e-6;
+}
+
+void main() {
+    int n = K.n;
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y), t = int(gl_GlobalInvocationID.z) + KP.erste;
+    // seit S7d4: kein Rücksprung vor den Schranken (vorwahl); Zellen außerhalb rechnen nur mit
+    bool drin = i < n && j < n && t <= 1;
+    vec4 kd = K.kachel[min(t, 1)];
+    vec2 p = kd.xy + (vec2(float(i), float(j)) + 0.5) * kd.z;
+    vec2 lo = kd.xy + (vec2(gl_WorkGroupID.xy * gl_WorkGroupSize.xy) + 0.5) * kd.z, hi = lo + (vec2(gl_WorkGroupSize.xy) - 1.0) * kd.z;
+    float kMax = 2.0 * PI / (3.0 * kd.z);
+    float h = 0.0, f = 0.0, sk = 0.0, sg = 0.0;
+    for (int qq = 0; qq < E.zahl; qq++) {
+        int b = qq * KS_JE;
+        vorwahl(b, int(E.q[b + 17]), lo, hi);
+        vec3 o;
+        if (drin && kielInReichweite(b, p) && spur(b, p, o)) {
+            vec4 eigen = kielBeitrag(b, o, kMax, kd.w < 0.5);                // seit S7d5: Wellen nur in der nahen Kachel
+            h += eigen.x;
+            sk += eigen.z;
+            sg += eigen.w;
+            f = max(f, eigen.y);
+        }
+    }
+    if (drin) K.z[(t * n + j) * n + i] = vec4(h, f, sg > 0.0 ? sk / sg : 0.0, sg);
+}

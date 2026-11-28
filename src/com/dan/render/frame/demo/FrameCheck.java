@@ -421,7 +421,7 @@ public final class FrameCheck {
             double dk = 0;
             for (int i = 0; i < W * H; i++) {
                 double y = (0.2126 * px[4 * i] + 0.7152 * px[4 * i + 1] + 0.0722 * px[4 * i + 2]) / vorb;
-                double[] s = Belichtung.staebchen(px[4 * i] * fak, px[4 * i + 1] * fak, px[4 * i + 2] * fak, y), e = k.anwenden(s[0], s[1], s[2]);
+                double[] s = Belichtung.farbtreu(Belichtung.staebchen(px[4 * i] * fak, px[4 * i + 1] * fak, px[4 * i + 2] * fak, y), vorb), e = k.anwenden(s[0], s[1], s[2]);
                 for (int c = 0; c < 3; c++) dk = Math.max(dk, Math.abs(o[4 * i + c] - e[c]));
             }
             A.pruefe(dk <= 2e-4, "Ausgabe mit Stäbchen auf der Karte gegen Belichtung.staebchen und die Kurve in double (" + W * H + " Bildpunkte, 10⁻⁴ bis 10² cd/m²)",

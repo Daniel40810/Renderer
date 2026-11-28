@@ -1,0 +1,33 @@
+// see_kiel_dazu.comp — Seegang Werkbuch, S7d (Datei 89): das Kielwasser in die Stufen der Clipmap, nach see_stufe und vor
+// see_normale. Je Stelle (i, j) der Stufe L (wie see_stufe) die Höhe aus den Kacheln (see_kiel_am.glsl) zu η dazu; der
+// Schaum hinter dem Heck als Weißwasser w des Kamms (das Größere), so nimmt ihn das Schaumfeld auf und das Bild zeichnet ihn.
+// Nur die Stufen, die see_stufe in dieser Abgabe gerechnet hat (P wie dort), sonst stünde die Höhe doppelt darin.
+// Seit S7d6 (Seegang Werkbuch 94, SF134 A): nur wo Kielwasser ist. Wo die Kacheln an einer Stelle weder Höhe noch Schaum haben,
+// schreibt sie nichts (dasselbe Ergebnis, ohne Lesen und Schreiben von versatz und kamm); statt der Hülle der Spuren, die
+// für die Fähre (Reichweite unbegrenzt) fast die ganze Stufe wäre.
+#version 460
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(std430, binding = 0) readonly buffer Werte { int I[32]; float F[64]; } W;
+layout(std430, binding = 15) buffer Versatz { vec4 versatz[]; };
+layout(std430, binding = 19) buffer Kamm { vec4 kamm[]; };
+#define KIEL_BINDING 22
+#include "see_kiel_am.glsl"
+
+layout(push_constant) uniform Schritt { float d; int stufe; int erste; int pad1; } P;
+
+const int I_N = 2, F_D0 = 18, F_MITTE = 19;
+
+void main() {
+    int n = W.I[I_N];
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y);
+    if (i >= n || j >= n) return;
+    int L = P.stufe >= 0 ? P.stufe : P.erste + int(gl_GlobalInvocationID.z);
+    float dl = W.F[F_D0] * exp2(float(L));
+    vec2 p = vec2(W.F[F_MITTE + 2 * L], W.F[F_MITTE + 2 * L + 1]) + vec2(float(i - n / 2), float(j - n / 2)) * dl;
+    vec4 k = kielAm(p, dl);
+    if (k.w == 0.0 || (k.x == 0.0 && k.y == 0.0)) return;               // seit S7d6: ohne Kielwasser nichts zu tun
+    int ix = (L * n + j) * n + i;
+    versatz[ix].z += k.x;
+    if (k.y > kamm[ix].z) kamm[ix].z = k.y;
+}

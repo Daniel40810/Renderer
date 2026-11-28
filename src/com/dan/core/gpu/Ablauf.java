@@ -175,8 +175,8 @@ public final class Ablauf {
                 VkRenderingAttachmentInfo.Buffer ca = VkRenderingAttachmentInfo.calloc(farben.length, s);
                 for (int i = 0; i < farben.length; i++) {
                     ca.get(i).sType$Default().imageView(farben[i].ansicht).imageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-                            .loadOp(loeschen == null ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_STORE);
-                    if (loeschen != null) ca.get(i).clearValue().color().float32(0, loeschen[i][0]).float32(1, loeschen[i][1]).float32(2, loeschen[i][2]).float32(3, loeschen[i][3]);
+                            .loadOp(loeschen == null || loeschen[i] == null ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR).storeOp(VK_ATTACHMENT_STORE_OP_STORE);
+                    if (loeschen != null && loeschen[i] != null) ca.get(i).clearValue().color().float32(0, loeschen[i][0]).float32(1, loeschen[i][1]).float32(2, loeschen[i][2]).float32(3, loeschen[i][3]);
                 }
                 VkRenderingInfo ri = VkRenderingInfo.calloc(s).sType$Default().layerCount(1).pColorAttachments(ca);
                 if (tiefe != null) {

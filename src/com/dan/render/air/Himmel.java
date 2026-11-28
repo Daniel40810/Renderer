@@ -125,9 +125,23 @@ public final class Himmel implements Bildteil {
     /**
      * F62 A: Die Himmelsansicht wird über fünf Bilder verteilt, je Bild eine Gruppe, und nach der fünften getauscht.
      * In einem Zug gerechnet wird beim ersten Mal, bei neuer Luft und bei einem Sprung (Richtung über 1e-2, rund 0,6°,
-     * Stärke oder Höhe über 5 % [G]) – also bei jedem Standbild – oder immer, wenn der Schalter aus ist.
+     * Stärke oder Höhe über 5 % [G], die Höhe seit S9d-1 zudem um mehr als {@link #HOEHE_SPRUNG}) – also bei jedem
+     * Standbild mit anderem Ort – oder immer, wenn der Schalter aus ist.
      */
     public boolean verteilt = true;
+    /**
+     * Seit S9d-1 (Seegang Werkbuch 109, SF185 A): Änderungen der Augenhöhe bis zu dieser Grenze (m) lösen keine neue
+     * Himmelsansicht aus [G]. An Bord schwankt die Augenhöhe mit den Wellen; mit der relativen Schwelle allein (1e-3, bei
+     * 5 m also 5 mm) rechnete dort fast jedes Bild eine Gruppe neu (laufend 1,7–2,0 ms je Bild), über 5 % alle fünf in
+     * einem Bild. Die Luft am Auge ändert sich um rund 0,01 % je Meter; die Kimm der Ansicht (geometrisch, R/(R + h))
+     * rückt von 1 m auf 11 m um 0,074°, bei 5 m ± 1 m um 0,007°. Die Kimm im Bild ist ein eigener Durchgang und folgt dem
+     * Auge in jedem Bild. Die relative Schwelle gilt weiter dazu (ab 10 km Höhe ist sie die strengere).
+     */
+    public static final double HOEHE_MIN = 10;
+    /** Seit S9d-1: Ein Sprung der Höhe (Ansicht in einem Zug) muss zudem größer sein als diese Grenze (m) [G]; darunter verteilt. */
+    public static final double HOEHE_SPRUNG = 100;
+    /** Seit S9d-1: Schalter für die Grenzen der Höhe; {@code -Dlauf.himmel.hoehe=alt} rechnet wie bis S9c (nur relativ). */
+    public volatile boolean hoeheGrenze = !"alt".equals(System.getProperty("lauf.himmel.hoehe"));
     private int gruppeDran;
     private final Puffer werte, spektrum;
     private Streuordnungen kanaele, spektral;
@@ -447,9 +461,11 @@ public final class Himmel implements Bildteil {
         // seit P7e: die Ansicht nur neu, wenn Sonne, Mond, Höhe oder Luft sich merklich ändern [G]: Richtung 2e-4 (0,01°,
         // die Sonne wandert sie in 2,4 s), Stärke und Höhe 1e-3 relativ; sonst gilt die vom Bild davor.
         // Seit F62 A über fünf Bilder verteilt: je Bild eine Gruppe, nach der fünften die Abbildung nach sRGB.
-        boolean alles = ansichtWerte == null || neuGerechnet != gebautBei || abstand(w, 1e-2f, 5e-2f)
-                || !verteilt && (gruppeDran > 0 || jNeu || abstand(w, 2e-4f, 1e-3f));
-        if (alles || gruppeDran > 0 || jNeu || abstand(w, 2e-4f, 1e-3f)) {
+        // Seit S9d-1 (SF185 A): die Höhe erst ab HOEHE_MIN (verteilt) und HOEHE_SPRUNG (in einem Zug) dazu.
+        double hMin = hoeheGrenze ? HOEHE_MIN : 0, hSprung = hoeheGrenze ? HOEHE_SPRUNG : 0;
+        boolean alles = ansichtWerte == null || neuGerechnet != gebautBei || abstand(w, 1e-2f, 5e-2f, hSprung)
+                || !verteilt && (gruppeDran > 0 || jNeu || abstand(w, 2e-4f, 1e-3f, hMin));
+        if (alles || gruppeDran > 0 || jNeu || abstand(w, 2e-4f, 1e-3f, hMin)) {
             jNeu = false;
             gebautBei = neuGerechnet;
             boolean fertig;
@@ -501,15 +517,23 @@ public final class Himmel implements Bildteil {
         gruppeDran = 0;
     }
 
-    /** Ob die Werte von denen der letzten Ansicht um mehr als die Schwellen abweichen (Richtung absolut, Stärke und Höhe relativ). */
-    private boolean abstand(float[] w, float richtung, float relativ) {
-        float[] a = ansichtWerte;
+    /**
+     * Ob die Werte von denen der letzten Ansicht um mehr als die Schwellen abweichen (Richtung absolut, Stärke und Höhe
+     * relativ; die Höhe seit S9d-1 zudem um mehr als {@code hoeheMin} Meter).
+     */
+    private boolean abstand(float[] w, float richtung, float relativ, double hoeheMin) { return abstand(ansichtWerte, w, richtung, relativ, hoeheMin); }
+
+    /** Seit S9d-1: wie oben, für zwei beliebige Werte (Aufbau {@code Himmelswerte}); für Prüfungen ohne Karte. */
+    static boolean abstand(float[] a, float[] w, float richtung, float relativ, double hoeheMin) {
         // die Albedo (Wert 2) zählt hier nicht: Ihre Änderung rechnet die Tabellen neu oder mischt J (seit P10d)
         for (int i = 0; i < 4; i++) if (i != 2 && a[i] != w[i]) return true;
         if (a[51] != w[51]) return true;                                    // seit P13d: Streulicht des Nachthimmels an oder aus
         for (int i : new int[] {4, 5, 6, 12, 13, 14}) if (Math.abs(a[i] - w[i]) > richtung) return true;
-        for (int i : new int[] {7, 8, 9, 10, 15, 16, 17, 18})
-            if (Math.abs(a[i] - w[i]) > relativ * Math.max(Math.abs(a[i]), Math.abs(w[i]))) return true;
+        for (int i : new int[] {7, 8, 9, 10, 15, 16, 17, 18}) {
+            float d = Math.abs(a[i] - w[i]);
+            if (i == 7 && d <= hoeheMin) continue;                          // seit S9d-1: Höhe des Auges (m), SF185 A
+            if (d > relativ * Math.max(Math.abs(a[i]), Math.abs(w[i]))) return true;
+        }
         return false;
     }
 

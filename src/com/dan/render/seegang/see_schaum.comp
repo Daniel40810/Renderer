@@ -1,0 +1,267 @@
+// see_schaum.comp — das Schaumfeld (Seegang Werkbuch, S4a; SF42–SF45 A): ein Raster um das Auge, ein Schritt je Abgabe.
+// Je Zelle die Menge Schaum f (1 = frisch und deckend, Anteil im Bild min(1, f)):
+//  1. Transport mit der Drift (Strömung, Stokes-Drift, 3 % U10) im Flussverfahren, aufwind: Jede Fläche zwischen zwei
+//     Zellen rechnen beide Nachbarn mit derselben Drift am selben Ort, darum bleibt die Masse erhalten (bis auf den Rand
+//     des Fensters, über den sie abfließt). Wo die Drift zusammenläuft (∇·u < 0), steigt f: ∂f/∂t + ∇·(u f) = 0.
+//  2. Zerfall: f · exp(−Δt / τ), τ im offenen Wasser und im Watt (Tiefe unter wattBis), dazwischen glatt [G, SF45 A];
+//     trocken fällt der Schaum weg.
+//  3. Quelle: Wo ein Kamm bricht, ist der Schaum frisch: f = max(f, 1). Ein Kamm bricht
+//     - im tiefen und mittleren Wasser, wenn seine lineare Steilheit am Kamm (1 − J) / λ = Σ a k coth(kh) die lineare
+//       Schwelle zu u_s / c = 0,85 (Barthelemy u. a. 2018) erreicht: B̊ₜ(kh) / 1,04 nach Hulin u. a. (2025),
+//       im Tiefen rund 0,34; nur für Wellen kürzer als 6 h (kh über 2π/6), wie dort. kh ist das der Wellen, die die
+//       Stufe auflöst (k_eff = √(Σ k² E g² / Σ E g²), Puffer 18), nicht das des Gipfels: Um Hooge ist k_p h fast
+//       überall unter 1, die kurzen Wellen, die brechen, liegen weit darüber (Befund nach L2p, 24.11.2026);
+//     - im Flachen, wenn die Höhe 2 |Z| die Grenze nach Battjes und Janssen (1978) H_m = 0,88/k tanh(γ k h / 0,88),
+//       γ = 0,73, erreicht, und nur am Kamm (η ≥ 0,7 |Z|) [G].
+//     - seit S4a-2 (Befund L2q): auch die Windsee, die die Fläche nicht auflöst. Über 120 s Sturm lag keine Stelle der
+//       Fläche über der Schwelle; ihr fehlen die kurzen, steilen Wellen, auf denen Schaumkronen entstehen. Ihre Köpfe
+//       sitzen wie in P13c auf den Kämmen: X = C0 η/√m0 + Muster (Flecken 3 m und 0,8 m, Streifen längs des Winds ab
+//       Bft 8) über der Schwelle zu W_A. Die ganze Bedeckung W_Z = √(W_Callaghan · W_Monahan) aus U10 wie F161 A; davon ist
+//       W_A = W_Z / (1 + τ / (T_p / 4)) die aktive Krone (ein Kopf ist rund ein Viertel der Periode aktiv, danach lebt sein
+//       Schaum τ) [G]. Schalter WINDSEE.
+//     Die Quelle liest die Fläche aus der feinsten Stufe der Clipmap, die den Ort mit zwei Stellen Abstand enthält.
+// Das Fenster liegt als Ring im Puffer: Die Zelle (I, J) (absolut, in Zellen) hat den Platz (I mod n, J mod n). Wandert
+// das Fenster, behält jede Zelle ihren Platz; Zellen, die neu ins Fenster kommen, beginnen leer.
+#version 460
+layout(local_size_x = 16, local_size_y = 16) in;
+#include "see_gemein.glsl"
+
+layout(std430, binding = 15) readonly buffer Versatz { vec4 versatz[]; };
+layout(std430, binding = 16) readonly buffer Normale { vec4 normale[]; };
+layout(std430, binding = 18) readonly buffer Aufgeloest { vec2 aufg[]; };   // Σ k² E g², Σ E g² je Stelle (S3c)
+layout(std430, binding = 19) readonly buffer Kamm { vec4 kamm[]; };   // λ, k_p h, seit S5a w und t der Walze
+layout(std430, binding = 20) readonly buffer DriftF { vec4 driftF[]; };   // seit S4a-2: Drift Ost, Nord; U10 Ost, Nord
+layout(std430, binding = 21) readonly buffer DriftG { vec4 driftG[]; };
+layout(std430, binding = 22) buffer Schaum { float sf[]; };
+
+layout(push_constant, std430) uniform Schritt {
+    vec2 x0;          // Ecke (Süd-West) der Zelle (0, 0) des Fensters, relativ zu B (Ost, Nord)
+    float d;          // Abstand der Zellen (m)
+    int n;            // Zellen je Seite
+    ivec2 ring;       // Platz der Zelle (0, 0): (I0 mod n, J0 mod n)
+    ivec2 verschub;   // Fenster jetzt minus vorher (Zellen); 0 nach dem ersten Teilschritt
+    int lesen;        // Anfang der Kopie, aus der gelesen wird (Index in sf)
+    int schreiben;    // Anfang der Kopie, in die geschrieben wird
+    float dtT;        // Zeit des Transports (s)
+    float dtZ;        // Zeit des Zerfalls (s)
+    int schalter;     // Bits: QUELLE, ZERFALL, TRANSPORT, PRUEFDRIFT, DRIFT (geladen)
+    float pruefA;     // Prüfdrift u = (−a (x − xp), 0) (1/s)
+    float pruefX;     // xp der Prüfdrift, relativ zu B (m)
+    float tauOffen;   // Lebensdauer im offenen Wasser (s)
+    float tauWatt;    // Lebensdauer im Watt (s)
+    float wattBis;    // Tiefe, bis zu der das Watt gilt (m)
+    vec2 bMod;        // seit S4a-2: B modulo 4096 m (Ost, Nord), für das Muster der Köpfe
+    float tMod;       // seit S4a-2: Modellzeit modulo 4096 s (das Muster treibt mit 1 m/s im Wind, wie P13c)
+    float faktor;     // seit S4a-3: Faktor auf W_A der Köpfe (Kalibrierung gegen W_Z; Vorgabe 1)
+} P;
+
+const int QUELLE = 1, ZERFALL = 2, TRANSPORT = 4, PRUEFDRIFT = 8, DRIFT = 16, WINDSEE = 32, STEHT = 64;
+// Muster der Schaumköpfe wie core.szene.Seegangsoptik (P13c, F161 A, F164 A) [G]
+const float C0 = 0.7, C1 = 0.5, C2 = 0.3, C3 = 0.8, FLECK1 = 3.0, FLECK2 = 0.8, STREIF_LANG = 20.0, STREIF_QUER = 1.5;
+const float STREIF_AB = 17.0, STREIF_VOLL = 25.0;
+const float F_AKTIV = 1.0, GAMMA_BJ = 0.73, KH_MIN = 1.0471976, KAMM_ANTEIL = 0.7, HULIN = 1.04;
+
+// ------------------------------------------------------------------ Ring
+
+int platz(int ii, int jj) { return ((P.ring.y + jj) % P.n) * P.n + (P.ring.x + ii) % P.n; }
+
+/** Lag die Zelle (ii, jj) des Fensters vorher schon im Fenster? */
+bool imAlten(int ii, int jj) {
+    int io = ii + P.verschub.x, jo = jj + P.verschub.y;
+    return io >= 0 && jo >= 0 && io < P.n && jo < P.n;
+}
+
+/** Der Wert vor dem Schritt; 0 außerhalb des Fensters und für Zellen, die vorher nicht im Fenster lagen. */
+float alt(int ii, int jj) {
+    if (ii < 0 || jj < 0 || ii >= P.n || jj >= P.n) return 0.0;
+    int io = ii + P.verschub.x, jo = jj + P.verschub.y;
+    if (io < 0 || jo < 0 || io >= P.n || jo >= P.n) return 0.0;
+    return sf[P.lesen + platz(ii, jj)];
+}
+
+// ------------------------------------------------------------------ Gitter des Nahfelds
+
+/** Gewichte fein und grob wie die Tiefe in punkt (ohne das Überblenden der Fläche). */
+vec2 gewichte(vec2 p) {
+    bool hatF = W.I[I_FEIN] != 0, hatG = W.I[I_GROB] != 0;
+    float wf = hatF ? gewicht(p, W.F[F_F_X0], W.F[F_F_Y0], W.F[F_F_DX], W.I[I_F_NX], W.I[I_F_NY], W.I[I_F_RAND]) : 0.0;
+    float wg = hatG ? (1.0 - wf) * gewicht(p, W.F[F_G_X0], W.F[F_G_Y0], W.F[F_G_DX], W.I[I_G_NX], W.I[I_G_NY], W.I[I_G_RAND]) : 0.0;
+    return vec2(wf, wg);
+}
+
+float tiefe(vec2 p) {
+    bool hatF = W.I[I_FEIN] != 0, hatG = W.I[I_GROB] != 0;
+    vec2 w = gewichte(p);
+    float hf = 0.0, hg = 0.0;
+    ivec4 c;
+    vec2 a;
+    if (w.x > 0.0) {
+        zellen(p, W.F[F_F_X0], W.F[F_F_Y0], W.F[F_F_DX], W.I[I_F_NX], W.I[I_F_NY], c, a);
+        vec4 b = bilGewichte(a);
+        hf = b.x * zFein[c.x].x + b.y * zFein[c.y].x + b.z * zFein[c.z].x + b.w * zFein[c.w].x;
+    }
+    if (hatG) {
+        zellen(p, W.F[F_G_X0], W.F[F_G_Y0], W.F[F_G_DX], W.I[I_G_NX], W.I[I_G_NY], c, a);
+        vec4 b = bilGewichte(a);
+        hg = b.x * zGrob[c.x].x + b.y * zGrob[c.y].x + b.z * zGrob[c.z].x + b.w * zGrob[c.w].x;
+    }
+    float wn = w.x + w.y;
+    return wn > 0.0 ? (w.x * hf + w.y * hg) / wn : (hatG ? hg : W.F[F_TIEFE_FERN]);
+}
+
+vec2 drift(vec2 p) {
+    if ((P.schalter & PRUEFDRIFT) != 0) return vec2(-P.pruefA * (p.x - P.pruefX), 0.0);
+    if ((P.schalter & DRIFT) == 0) return vec2(0.0);
+    vec2 w = gewichte(p), u = vec2(0.0);
+    ivec4 c;
+    vec2 a;
+    if (w.x > 0.0) {
+        zellen(p, W.F[F_F_X0], W.F[F_F_Y0], W.F[F_F_DX], W.I[I_F_NX], W.I[I_F_NY], c, a);
+        vec4 b = bilGewichte(a);
+        u += w.x * (b.x * driftF[c.x].xy + b.y * driftF[c.y].xy + b.z * driftF[c.z].xy + b.w * driftF[c.w].xy);
+    }
+    if (w.y > 0.0) {
+        zellen(p, W.F[F_G_X0], W.F[F_G_Y0], W.F[F_G_DX], W.I[I_G_NX], W.I[I_G_NY], c, a);
+        vec4 b = bilGewichte(a);
+        u += w.y * (b.x * driftG[c.x].xy + b.y * driftG[c.y].xy + b.z * driftG[c.z].xy + b.w * driftG[c.w].xy);
+    }
+    return u;
+}
+
+/** U10 am Ort aus dem Nahfeld (seit S4a-2), 0 ohne geladene Drift. */
+vec2 wind(vec2 p) {
+    if ((P.schalter & DRIFT) == 0) return vec2(0.0);
+    vec2 w = gewichte(p), u = vec2(0.0);
+    ivec4 c;
+    vec2 a;
+    if (w.x > 0.0) {
+        zellen(p, W.F[F_F_X0], W.F[F_F_Y0], W.F[F_F_DX], W.I[I_F_NX], W.I[I_F_NY], c, a);
+        vec4 b = bilGewichte(a);
+        u += w.x * (b.x * driftF[c.x].zw + b.y * driftF[c.y].zw + b.z * driftF[c.z].zw + b.w * driftF[c.w].zw);
+    }
+    if (w.y > 0.0) {
+        zellen(p, W.F[F_G_X0], W.F[F_G_Y0], W.F[F_G_DX], W.I[I_G_NX], W.I[I_G_NY], c, a);
+        vec4 b = bilGewichte(a);
+        u += w.y * (b.x * driftG[c.x].zw + b.y * driftG[c.y].zw + b.z * driftG[c.z].zw + b.w * driftG[c.w].zw);
+    }
+    float wn = w.x + w.y;
+    return wn > 0.0 ? u / wn : u;
+}
+
+// ------------------------------------------------------------------ Muster (wie render.water/seegang.glsl, seit S4a-2)
+
+uint hashU(uint x) { x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16; return x; }
+float hashI(ivec2 i) { return float(hashU(uint(i.x) * 0x9E3779B1u ^ hashU(uint(i.y) + 0x632BE5ABu)) >> 8) * (1.0 / 16777216.0); }
+float gauss(ivec2 i) {
+    float u1 = max(hashI(i), 1e-7), u2 = hashI(i + ivec2(7919, 104729));
+    return sqrt(-2.0 * log(u1)) * cos(6.2831853 * u2);
+}
+/** Normalverteiltes Rauschen, je Ort genau N(0, 1). */
+float rauschN(vec2 q) {
+    vec2 f0 = floor(q), f = q - f0, u = f * f * (3.0 - 2.0 * f);
+    ivec2 i = ivec2(f0);
+    vec4 w = vec4((1.0 - u.x) * (1.0 - u.y), u.x * (1.0 - u.y), (1.0 - u.x) * u.y, u.x * u.y);
+    float n = w.x * gauss(i) + w.y * gauss(i + ivec2(1, 0)) + w.z * gauss(i + ivec2(0, 1)) + w.w * gauss(i + ivec2(1, 1));
+    return n / sqrt(dot(w, w));
+}
+/** Φ⁻¹ nach Acklam. */
+float phiInv(float p) {
+    p = clamp(p, 1e-7, 1.0 - 1e-7);
+    const float pl = 0.02425;
+    if (p < pl || p > 1.0 - pl) {
+        float q = sqrt(-2.0 * log(p < pl ? p : 1.0 - p));
+        float x = (((((-7.784894002430293e-03 * q - 3.223964580411365e-01) * q - 2.400758277161838e+00) * q - 2.549732539343734e+00) * q + 4.374664141464968e+00) * q + 2.938163982698783e+00)
+                / ((((7.784695709041462e-03 * q + 3.224671290700398e-01) * q + 2.445134137142996e+00) * q + 3.754408661907416e+00) * q + 1.0);
+        return p < pl ? x : -x;
+    }
+    float q = p - 0.5, r = q * q;
+    return (((((-3.969683028665376e+01 * r + 2.209460984245205e+02) * r - 2.759285104469687e+02) * r + 1.383577518672690e+02) * r - 3.066479806614716e+01) * r + 2.506628277459239e+00) * q
+         / (((((-5.447609879822406e+01 * r + 1.615858368580409e+02) * r - 1.556989798598866e+02) * r + 6.680131188771972e+01) * r - 1.328068155288572e+01) * r + 1.0);
+}
+
+/**
+ * Seit S4a-2: Sitzt am Ort ein Kopf der unaufgelösten Windsee? η, m0 der aufgelösten Wellen der Stufe (Σ E g²), k_p h,
+ * Tiefe h, U10 (Kopf der Datei).
+ */
+bool windsee(vec2 p, float h, float eta, float m0, float kh, vec2 u10) {
+    float U = length(u10);
+    // im Tal nie ein Kopf: die Schwelle liegt dort rund 4,5 σ über dem Muster allein (Anteil 3 · 10⁻⁶); spart die Hälfte
+    if (U < 1.0 || !(m0 > 0.0) || h < H_MIN || kh <= 0.0 || eta <= 0.0) return false;
+    float wz = min(1.0, sqrt(4.82e-6 * pow(U + 1.98, 3.0) * 3.84e-6 * pow(U, 3.41)));
+    float k = kh / max(h, H_MIN), om = sqrt(G * k * th(kh)), tp = om > 0.0 ? ZWEI_PI / om : 4.0;
+    float tau = mix(P.tauWatt, P.tauOffen, smoothstep(P.wattBis, P.wattBis + 1.0, h));
+    float wa = min(0.5, P.faktor * wz / (1.0 + tau / max(0.25 * tp, 0.25)));
+    if (wa <= 1e-6) return false;
+    vec2 wr = u10 / U;
+    vec2 q = p + P.bMod - wr * P.tMod;
+    vec2 qs = vec2(dot(q, wr) / STREIF_LANG, dot(q, vec2(-wr.y, wr.x)) / STREIF_QUER);
+    float c3 = C3 * clamp((U - STREIF_AB) / (STREIF_VOLL - STREIF_AB), 0.0, 1.0);
+    float x = C0 * eta / sqrt(m0) + C1 * rauschN(q / FLECK1) + C2 * rauschN(q / FLECK2 + vec2(17.0, 5.0)) + c3 * rauschN(qs + vec2(3.0, 11.0));
+    return x >= sqrt(C0 * C0 + C1 * C1 + C2 * C2 + c3 * c3) * phiInv(1.0 - wa);
+}
+
+// ------------------------------------------------------------------ Quelle
+
+/** Lineare Schwelle zu u_s / c = 0,85 nach Hulin u. a. (2025), Gl. 22 und 25: B̊ₜ(kh) / 1,04. */
+float schwelle(float kh) {
+    float e = exp(-kh);
+    return (0.3546 + 0.0113 * e - 0.3056 * e * e + 0.2298 * e * e * e) / HULIN;
+}
+
+/** Bricht am Ort p (relativ zu B) ein Kamm? h: Tiefe; mitWind: auch die Köpfe der unaufgelösten Windsee (seit S4a-2). */
+bool bricht(vec2 p, float h, bool mitWind) {
+    int n = W.I[I_N], st = W.I[I_STUFEN];
+    for (int L = 0; L < st; L++) {
+        float dl = W.F[F_D0] * exp2(float(L));
+        vec2 q = (p - vec2(W.F[F_MITTE + 2 * L], W.F[F_MITTE + 2 * L + 1])) / dl + float(n / 2);
+        if (q.x < 2.0 || q.y < 2.0 || q.x > float(n - 3) || q.y > float(n - 3)) continue;
+        ivec2 i = ivec2(floor(q));
+        vec2 a = q - vec2(i);
+        int b0 = L * n * n, i00 = b0 + i.y * n + i.x, i10 = i00 + 1, i01 = i00 + n, i11 = i01 + 1;
+        vec4 g = bilGewichte(a);
+        float J = g.x * normale[i00].w + g.y * normale[i10].w + g.z * normale[i01].w + g.w * normale[i11].w;
+        vec4 v = g.x * versatz[i00] + g.y * versatz[i10] + g.z * versatz[i01] + g.w * versatz[i11];
+        int ic = b0 + int(round(q.y)) * n + int(round(q.x));
+        vec4 km = kamm[ic];
+        vec2 au = aufg[ic];
+        float lam = km.x, kh = km.y, eta = v.z, za = v.w;
+        float khE = au.y > 0.0 ? sqrt(au.x / au.y) * max(h, H_MIN) : 0.0;   // kh der aufgelösten Wellen
+        if (lam > 0.0 && khE > KH_MIN && (1.0 - J) / lam >= schwelle(khE)) return true;
+        // seit S5a: Brechen in der Tiefe ist die Walze (core.szene.Walze; vorher 2 |Z'| ≥ H_m nach Miche am Kamm)
+        if (km.z >= 0.5) return true;
+        return mitWind && windsee(p, h, eta, au.y, kh, wind(p));
+    }
+    return false;
+}
+
+// ------------------------------------------------------------------ Schritt
+
+void main() {
+    int ii = int(gl_GlobalInvocationID.x), jj = int(gl_GlobalInvocationID.y);
+    if (ii >= P.n || jj >= P.n) return;
+    vec2 p = P.x0 + (vec2(float(ii), float(jj)) + 0.5) * P.d;
+    float f = alt(ii, jj);
+    if ((P.schalter & TRANSPORT) != 0 && P.dtT > 0.0) {
+        // je Fläche die Drift an ihrer Mitte; die Nachbarn rechnen dieselbe Stelle gleich (dieselben Zahlen)
+        float ue = drift(P.x0 + vec2(float(ii + 1), float(jj) + 0.5) * P.d).x;
+        float uw = drift(P.x0 + vec2(float(ii), float(jj) + 0.5) * P.d).x;
+        float vn = drift(P.x0 + vec2(float(ii) + 0.5, float(jj + 1)) * P.d).y;
+        float vs = drift(P.x0 + vec2(float(ii) + 0.5, float(jj)) * P.d).y;
+        float fe = ue > 0.0 ? ue * f : ue * alt(ii + 1, jj);
+        float fw = uw > 0.0 ? uw * alt(ii - 1, jj) : uw * f;
+        float fn = vn > 0.0 ? vn * f : vn * alt(ii, jj + 1);
+        float fs = vs > 0.0 ? vs * alt(ii, jj - 1) : vs * f;
+        f -= P.dtT / P.d * (fe - fw + fn - fs);
+    }
+    bool mitTiefe = (P.schalter & (ZERFALL | QUELLE)) != 0;
+    float h = mitTiefe ? tiefe(p) : 1e3;
+    if ((P.schalter & ZERFALL) != 0) {
+        if (P.dtZ > 0.0) f *= exp(-P.dtZ / mix(P.tauWatt, P.tauOffen, smoothstep(P.wattBis, P.wattBis + 1.0, h)));
+        if (h < H_MIN) f = 0.0;                                             // trocken
+    }
+    // seit S4b: Steht die Zeit (STEHT), bricht nichts Neues; nur Zellen, die gerade ins Fenster kommen, bekommen ihren
+    // Schaum (sonst sammelte das Überblenden in der Pause Köpfe aus jedem Zwischenstand)
+    bool quelleHier = (P.schalter & STEHT) == 0 || !imAlten(ii, jj);
+    if ((P.schalter & QUELLE) != 0 && quelleHier && h >= H_MIN && bricht(p, h, (P.schalter & WINDSEE) != 0)) f = max(f, F_AKTIV);
+    sf[P.schreiben + platz(ii, jj)] = max(f, 0.0);
+}

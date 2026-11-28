@@ -1,0 +1,17 @@
+// nah_verschieben.comp — das Gitter zieht um (di, dj) Zellen mit (Nahfeld.verschieben): Neu(i, j) = Alt(i + di, j + dj),
+// außerhalb 0 (die neuen Zellen setzt nah_einsetzen). schalter = di, pass = dj. Ein Faden je Stützstelle.
+#version 460
+layout(local_size_x = 64) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 8) readonly buffer Alt { float a[]; };
+layout(std430, binding = 9) writeonly buffer Neu { float n[]; };
+
+void main() {
+    int id = int(gl_GlobalInvocationID.x);
+    int m = W.nb * W.nd, nc = W.nx * W.ny;
+    if (id >= nc * m) return;
+    int c = id / m, x = id - c * m;
+    int i = c % W.nx + P.schalter, j = c / W.nx + P.pass;
+    n[id] = i >= 0 && i < W.nx && j >= 0 && j < W.ny ? a[(j * W.nx + i) * m + x] : 0.0;
+}

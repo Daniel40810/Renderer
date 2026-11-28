@@ -1,0 +1,27 @@
+// eichlast.comp — feste Arbeit für die Eichlast der Abnahme (Seegang Werkbuch 108, S9c-2, SF180 A).
+// modus 0 rechnet: je Faden vier unabhängige Ketten aus vec4-FMA, „schritte“ Runden, ohne Speicher (der Takt der Karte).
+// modus 1 kopiert n vec4 von a nach b (der Speicher). Das Ergebnis von modus 0 wird nur geschrieben, wenn es einen Wert
+// trifft, den es nie trifft; das hält die Rechnung am Leben, ohne Speicher zu brauchen.
+#version 460
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer A { vec4 a[]; };
+layout(std430, binding = 1) writeonly buffer B { vec4 b[]; };
+layout(push_constant) uniform Werte { int modus; int schritte; int n; int frei; };
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (modus == 1) {
+        if (i < uint(n)) b[i] = a[i];
+        return;
+    }
+    vec4 x0 = vec4(float(i & 1023u) * 1e-4, 0.1, 0.2, 0.3), x1 = x0 + 0.5, x2 = x0 + 0.25, x3 = x0 + 0.75;
+    const vec4 m = vec4(0.9999), c = vec4(1e-4);
+    for (int s = 0; s < schritte; s++) {
+        x0 = fma(x0, m, c);
+        x1 = fma(x1, m, c);
+        x2 = fma(x2, m, c);
+        x3 = fma(x3, m, c);
+    }
+    vec4 r = x0 + x1 + x2 + x3;
+    if (r.x == 12345.0) b[i % uint(n)] = r;
+}

@@ -1,0 +1,65 @@
+// nah_binden.comp — Bindung an das grobe Feld (Nahfeld.binden in float). Mit W.spektral = 1 (B20) jede Stützstelle einer
+// gebundenen nassen Zelle implizit zum Spektrum des Ziels: N ← (N + a · Z/σ) / (1 + a), a = Δt/τ. Sonst je Block von
+// bindungBlock² Zellen m₀ des Nahfelds und des Ziels über die gebundenen nassen Zellen; dann jede Stützstelle mal
+// clamp(1 + Δt/τ (m₀,Ziel / m₀ − 1), 0,5, 2). Δt aus P.h oder im Anlauf aus Tempo.w. Eine Gruppe je Block.
+#version 460
+layout(local_size_x = 256) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) readonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 5) readonly buffer Tempo { vec4 tempo[]; };
+layout(std430, binding = 9) buffer Neu { float n[]; };
+layout(std430, binding = 14) readonly buffer Ziel { float ziel[]; };
+
+const int GR = 256;
+shared vec4 red[GR];
+
+void main() {
+    int bs = max(1, W.bindungBlock);
+    int ib = int(gl_WorkGroupID.x), jb = int(gl_WorkGroupID.y);
+    uint t = gl_LocalInvocationID.x;
+    int m = W.nb * W.nd;
+    int i0 = ib * bs, j0 = jb * bs, wi = min(W.nx, i0 + bs) - i0, wj = min(W.ny, j0 + bs) - j0;
+    int zellen = wi * wj;
+    bool lokal = (P.schalter & 1) != 0;
+    if (W.spektral > 0.5) {
+        for (int z = 0; z < zellen; z++) {
+            int c = (j0 + z / wi) * W.nx + i0 + z % wi;
+            if (!nass(c) || zelle[5 * c + 2].w > 0.5) continue;
+            for (int x = int(t); x < m; x += GR) {
+                int id = c * m + x;
+                float sg = bin[id].y;
+                if (!(sg > 0.0)) continue;
+                float a = (lokal ? tempo[id].w : P.h) / W.bindungZeit;
+                n[id] = (n[id] + a * ziel[id] / sg) / (1.0 + a);
+            }
+        }
+        return;
+    }
+    vec4 s = vec4(0.0);                                                      // m₀, m₀ des Ziels, Zahl
+    for (int z = int(t); z < zellen; z += GR) {
+        int c = (j0 + z / wi) * W.nx + i0 + z % wi;
+        if (!nass(c) || zelle[5 * c + 2].w > 0.5) continue;
+        float m0 = 0.0;
+        for (int x = 0; x < m; x++) m0 += bin[c * m + x].y * n[c * m + x];
+        s += vec4(m0, zelle[5 * c + 4].z, 1.0, 0.0);
+    }
+    red[t] = s;
+    barrier();
+    for (uint h = GR / 2; h > 0; h >>= 1) {
+        if (t < h) red[t] += red[t + h];
+        barrier();
+    }
+    vec4 r = red[0];
+    if (r.z == 0.0 || r.x <= 1e-12 || !(r.y >= 0.0)) return;
+    float rel = r.y / r.x - 1.0;
+    for (int z = 0; z < zellen; z++) {
+        int c = (j0 + z / wi) * W.nx + i0 + z % wi;
+        if (!nass(c) || zelle[5 * c + 2].w > 0.5) continue;
+        for (int x = int(t); x < m; x += GR) {
+            int id = c * m + x;
+            float dt = lokal ? tempo[id].w : P.h;
+            n[id] *= clamp(1.0 + dt / W.bindungZeit * rel, 0.5, 2.0);
+        }
+    }
+}

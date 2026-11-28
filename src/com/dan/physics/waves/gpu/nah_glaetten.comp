@@ -1,0 +1,33 @@
+// nah_glaetten.comp — Beugung: ein Durchgang des 3 × 3-Filters (Gewichte 1-2-1 je Achse) über die nassen Nachbarn
+// (Nahfeld.glaette in float). Von Glatt[pass & 1] nach Glatt[1 − (pass & 1)]. Ein Faden je Zelle und Band.
+#version 460
+layout(local_size_x = 64) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 7) buffer Glatt { float glatt[]; };
+
+void main() {
+    int o = int(gl_GlobalInvocationID.x);
+    int nc = W.nx * W.ny, ncb = nc * W.nb;
+    if (o >= ncb) return;
+    int von = (P.pass & 1) * ncb, nach = ncb - von;
+    int c = o / W.nb, b = o - c * W.nb;
+    if (!nass(c)) { glatt[nach + o] = 0.0; return; }
+    int i = c % W.nx, j = c / W.nx;
+    float sum = 0.0, w = 0.0;
+    for (int dj = -1; dj <= 1; dj++)
+        for (int di = -1; di <= 1; di++) {
+            int ii = i + di, jj = j + dj;
+            if (ii < 0 || ii >= W.nx) continue;
+            if (jj < 0 || jj >= W.ny) {
+                if (W.periodischY == 0) continue;
+                jj = ((jj % W.ny) + W.ny) % W.ny;
+            }
+            int z = jj * W.nx + ii;
+            if (!nass(z)) continue;
+            float g = (di == 0 ? 2.0 : 1.0) * (dj == 0 ? 2.0 : 1.0);
+            sum += g * glatt[von + z * W.nb + b];
+            w += g;
+        }
+    glatt[nach + o] = w > 0.0 ? sum / w : glatt[von + o];
+}

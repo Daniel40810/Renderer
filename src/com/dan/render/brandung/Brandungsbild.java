@@ -38,7 +38,7 @@ import static org.lwjgl.vulkan.VK13.*;
  * ohne Quelle zeichnet er nichts; das Bild ist dann wie ohne ihn.
  */
 public final class Brandungsbild implements Bildteil {
-    public static final String VERSION = "0.1";
+    public static final String VERSION = "0.2";
     static final int KOPF = 64 + 5 * 16, RING = 3;
 
     /** Was die Brandung je Bild braucht; lauf setzt sie aus dem Wasser (render.water kennt dieser Teil nicht). */
@@ -61,7 +61,22 @@ public final class Brandungsbild implements Bildteil {
     public volatile double albedoSchaum = 0.6, albedoWasser = 0.04;
     /** Zuletzt: Scheitel, Bündel, Rechenzeit des Kerns (ms). */
     public volatile int letzteScheitel, letzteBuendel;
+    /** Seit S5b-2: die Gischt aus den Walzen ({@code render.seegang.Gischtsuche} findet die Orte), oder null. */
+    public volatile com.dan.core.szene.Kammgischt kammgischt;
+    /** Seit S5b-4: die Kämme der Fläche am Fuß der Kanten ({@code render.seegang.Fusssuche} findet sie), oder null. */
+    public volatile com.dan.core.szene.Fusswellen fuesse;
     public volatile double letzteMs;
+    /**
+     * Seit S9f (Seegang Werkbuch 115, SF197 A): halbe Weite (m) des Bereichs um das Auge, in dem das Netz der Clipmap
+     * zeichnen wird, solange es noch nicht zeichnet (die erste Fläche des Seegangs ist im Bau), sonst NaN; null: nie.
+     * {@code lauf.Buehne} setzt sie. Dort zeichnet der Kern wie im Netz weder Brecher noch Wasserfilm, die Gischt bleibt.
+     * Vorher gab das in den ersten rund 30 s nach dem Öffnen die starren Stücke aus P13c (B45, Kacheln).
+     */
+    public volatile java.util.function.DoubleSupplier netzErwartet;
+    /** Seit S9f: auf den erwarteten Bereich warten (Vorgabe) oder nicht ({@code -Dlauf.brandung.warten=aus}, Gegenprobe). */
+    public static volatile boolean WARTEN = !"aus".equalsIgnoreCase(System.getProperty("lauf.brandung.warten", "an"));
+    /** Seit S9f, zuletzt: galt der erwartete Bereich (kein Netz im Bild, eine Fläche kommt)? */
+    public volatile boolean letzteErwartet;
 
     private final Geraet g;
     private final Konto konto;
@@ -126,7 +141,21 @@ public final class Brandungsbild implements Bildteil {
         brandung.blickOst = Math.sin(rr);
         brandung.blickNord = Math.cos(rr);
         brandung.blickCos = Math.cos(Math.min(Math.PI, halb + Math.toRadians(15)));
+        // seit S3c-5 (SF28 A): wo das Wasser das Netz zeichnet, keine Brecher und kein Wasserfilm aus P13c (S5/S6 bringen sie
+        // neu aus der Fläche); die Gischt bleibt. Schlüssel "Wasser/Netz" wie render.water.Wasserbild.NETZ_GEZEICHNET.
+        double[] wn = z.werte.get("Wasser/Netz");
+        double[] nb = wn != null && wn.length >= 6 ? new double[] {wn[2], wn[3], wn[4], wn[5]} : null;
+        // seit S9f (SF197 A): ohne Netz, solange die erste Fläche im Bau ist, ihr künftiger Bereich um das Auge
+        java.util.function.DoubleSupplier ne = netzErwartet;
+        double netzHalb = nb == null && WARTEN && ne != null ? ne.getAsDouble() : Double.NaN;
+        letzteErwartet = netzHalb > 0;
+        if (netzHalb > 0) nb = new double[] {b.ost - netzHalb, b.ost + netzHalb, b.nord - netzHalb, b.nord + netzHalb};
+        brandung.netzBereich = nb;
+        brandung.fuesse = fuesse;                                          // seit S5b-4 (SF51 A): im Netz die Kämme der Fläche
         brandung.rechne(kanten, q.wasser(), q.zeit(), b.ost, b.nord, w[0], w[1]);
+        // seit S5b-2 (SF50 A): die Gischt aus den Walzen der Fläche dazu
+        com.dan.core.szene.Kammgischt kg = kammgischt;
+        if (kg != null && kg.an) brandung.anhaengen(kg.buendel(q.zeit(), brandung.e0, brandung.n0, q.wasser(), w[0], w[1]));
         letzteMs = brandung.ms;
         letzteScheitel = brandung.scheitel;
         letzteBuendel = brandung.buendelZahl;

@@ -1,0 +1,19 @@
+// swash_steigung.comp — Kanten (seit Swash 0.3: kantenZelle, Front im Teilgitter) und Steigungen der Geschwindigkeit für
+// die Zellen −1 … n (Swash.steigungen); der einzelne
+// Weg (SwashKarte.verschmolzen = false), zum Vergleich mit swash_stufe.
+#version 460
+layout(local_size_x = 16, local_size_y = 16) in;
+#include "swash_gemein.glsl"
+
+vec4 z4(int c) { return vec4(u[c].xyz, zelle[c].x); }
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x) - 1, j = int(gl_GlobalInvocationID.y) - 1;
+    if (i > nx() || j > ny()) return;
+    int c = id(i, j), px = W.I[I_PX];
+    vec4 kx, ky, zc = z4(c), zl = z4(c - 1), zr = z4(c + 1), zd = z4(c - px), zo = z4(c + px);
+    kantenZelle(zc, zl, zr, zd, zo, kx, ky);
+    steig[3 * c] = kx;
+    steig[3 * c + 1] = ky;
+    steig[3 * c + 2] = vec4(geschwSteigung(zc, zl, zr), geschwSteigung(zc, zd, zo));
+}

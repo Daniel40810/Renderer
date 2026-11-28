@@ -26,6 +26,26 @@ public final class Ansicht {
     /** Azimut in Grad; NaN: zur Sonne. */
     public final double richtung;
     public final double neigung, bildwinkel;
+    /**
+     * Seit S3c (Seegang Werkbuch, SF27 A): Mitte des feinen Nahfelds (UTM Ost, Nord), wenn die Ansicht sie vorgibt
+     * ({@code ansicht.<name>.fein = Ost Nord}); null: von selbst über der Brandungslinie im Blick.
+     */
+    public double[] fein;
+    /**
+     * Seit S3c-5 (SF29 A, Seegang Werkbuch 19/20): Mindesthöhe des Auges über dem Wasser am Ort (m), über dem Spiegel plus
+     * Hs/2 ({@code ansicht.<name>.wasser}; Vorgabe {@link #UEBER_WASSER}). Gilt in Standbildern und in der Anwendung
+     * ({@link #hebe}); der Blick unter Wasser bleibt Kür (SF12, S8).
+     */
+    public double ueberWasser = UEBER_WASSER;
+    /** Vorgabe der Mindesthöhe über dem Wasser (m) [G]. */
+    public static final double UEBER_WASSER = 1.5;
+    /**
+     * Seit S7c (Seegang Werkbuch 89, SF110 A): an Bord eines Schwimmers ({@code ansicht.<name>.bord = <schwimmer> [x y z]},
+     * Auge im Körper in m; ohne Zahlen die Vorgabe der {@link Bordkamera}); null: an Land. Die Bühne setzt dann eine
+     * {@link Bordkamera}; Richtung und Neigung gelten gegen den Bug.
+     */
+    public String bord;
+    public double[] bordAuge;
 
     public Ansicht(String schluessel, String name, double ost, double nord, double hoehe, boolean ueberBoden, double richtung, double neigung, double bildwinkel) {
         this.schluessel = schluessel;
@@ -59,6 +79,19 @@ public final class Ansicht {
             double[] ll = utm.grad(ost, nord);
             b.richtung = Gestirne.bei(zeit).sonne(ll[0], ll[1]).azimutGrad();
         }
+    }
+
+    /**
+     * Seit S3c-5 (SF29 A): hebt das Auge, wenn es tiefer liegt als {@code ueber} m über dem Wasser am Ort (Spiegel
+     * {@code eta} m NHN plus Hs/2); ohne Wasser am Ort ({@code eta} NaN) bleibt es. Gibt zurück, um wie viel es gehoben wurde (m).
+     */
+    public static double hebe(Blick b, double eta, double hs, double ueber) {
+        if (Double.isNaN(eta) || eta < -1e29) return 0;
+        double min = eta + 0.5 * Math.max(0, Double.isNaN(hs) ? 0 : hs) + ueber;
+        if (b.hoehe >= min) return 0;
+        double d = min - b.hoehe;
+        b.hoehe = min;
+        return d;
     }
 
     @Override public String toString() { return name; }

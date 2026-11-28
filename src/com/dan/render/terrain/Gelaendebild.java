@@ -50,7 +50,7 @@ public final class Gelaendebild implements Bildteil {
     public static final String VERSION = "0.3";
     public static final int EBENEN = 5, GITTER = 257, BLOECKE = 8;
     /** Kopf des Puffers der Stufen (Bytes) und Bytes je Stufe (gelaende.glsl). */
-    static final int KOPF = 64 + 12 * 16, JE_STUFE = 48;
+    static final int KOPF = 64 + 15 * 16, JE_STUFE = 48;
 
     public final Gelaende gelaende;
     public final Material material;
@@ -103,6 +103,17 @@ public final class Gelaendebild implements Bildteil {
     /** Für die Prüfung (Prüfsteine 12, 13): Stärke der Kräuselung und der Muster, sonst 1. */
     public volatile double gestaltKraeusel = 1, gestaltMuster = 1;
     static final int KOPF_GESTALT = 64;
+    /**
+     * Seit S6c-2 (Seegang Werkbuch 82, SF93 A): Schlüssel des Bilds des Auflaufs im Bildziel (Puffer und Werte, legt
+     * {@code lauf.Auflauf} ab; dieses Package kennt es nicht). Werte: Ecke Ost, Nord (UTM), Richtung x Ost, Nord, Richtung y
+     * Ost, Nord, Zelle, nx, ny, Ruhewasser, Zeit, Kontur. Im Rechteck zeichnet das Gelände den Film, den nassen Sand und
+     * den Spülsaum aus dem Löser ({@code gelaende.frag}); aus mit {@link #swashAn} = false.
+     */
+    public static final String SWASH_BILD = "Swash/Bild";
+    /** Seit S6c-2: das Bild des Auflaufs im Gelände an (aus mit {@code -Dgelaende.swash=aus}). */
+    public volatile boolean swashAn = !"aus".equals(System.getProperty("gelaende.swash"));
+    /** Seit S6c-2: Puffer, wenn kein Bild des Auflaufs abgelegt ist (Bindung 15). */
+    private Puffer swashLeer;
     private final Abtaster punkt;
     private Bild nassBild;
     private Gitter nassGitter;
@@ -111,6 +122,15 @@ public final class Gelaendebild implements Bildteil {
     /** Seit P9c: Das Gelände hebt und senkt sich mit {@code bed.dz} des Bodens aus dem Sediment (nur sinnvoll, wenn auch das Wasser mit diesem Boden gerechnet ist). */
     public boolean bodenHoehe = true;
     private Gitter bodGitter;
+    /**
+     * Seit S6d-1: das Bild des Bodens hat 2 · ny Zeilen – unten (0 … ny − 1) die Strömungsrippel und der Schlick aus
+     * {@code bed.ripple}, oben (ny … 2 ny − 1) die Wellenrippel aus {@code lauf.Wellenrippelfeld} (Höhe, Länge, Richtung,
+     * 0). Beide Hälften liegen hier, damit jede für sich neu geschrieben werden kann.
+     */
+    private float[] bodT;
+    private boolean wellenGesetzt;
+    /** Seit S6d-1: Wellenrippel zeichnen (false: nur die Strömungsrippel wie bis S6c). */
+    public volatile boolean wellenrippel = true;
     /** Schlick (P9b) [G]: Abdunklung des Watts bei vollem Schlick, Schlickanteil für die volle Abdunklung; Stärke des Reliefs der Rippel (1: wie gerechnet, 0: aus). */
     public volatile double schlickDunkel = 0.3, schlickVoll = 0.3, relief = 1;
     private int bildNr;
@@ -207,7 +227,9 @@ public final class Gelaendebild implements Bildteil {
         Kernel.Bindung P = Kernel.Bindung.PUFFER, X = Kernel.Bindung.TEXTUR;
         Zeichner.Art art = new Zeichner.Art();
         art.farben = new int[] {Bild.RGBA16F};
-        zeichner = Zeichner.lade(g, p + "gelaende.vert", p + "gelaende.frag", 16, null, art, P, P, P, P, X, P, X, X, X, X, X, P, X, P, X);
+        zeichner = Zeichner.lade(g, p + "gelaende.vert", p + "gelaende.frag", 16, null, art, P, P, P, P, X, P, X, X, X, X, X, P, X, P, X, P);
+        swashLeer = Puffer.speicher(g, konto, "Gelände, ohne Auflauf", 64);
+        swashLeer.schreibe(new float[16]);
         kSicht = Kernel.lade(g, p + "sicht.comp", 0, null, P, P, P, P, X);
         kLicht = Kernel.lade(g, p + "licht.comp", 0, null, P, P, P, P, X, P, X, X);
         punkt = new Abtaster(g, false, false);
@@ -319,13 +341,8 @@ public final class Gelaendebild implements Bildteil {
         if (gitter.lage != Gitter.Lage.UTM) throw new IllegalArgumentException("Boden: nur Gitter in UTM, nicht " + gitter);
         int n = gitter.zellen();
         if (werte.length < 5 * n) throw new IllegalArgumentException("Boden: " + werte.length + " Werte statt mindestens " + 5 * n);
-        if (bodBild == null || bodBild.breite != gitter.nx || bodBild.hoehe != gitter.ny) {
-            if (bodBild != null) bodBild.close();
-            bodBild = new Bild(g, konto, "Gelände, Boden " + gitter.name, gitter.nx, gitter.ny, Bild.RGBA32F);
-            if (dzBild != null) dzBild.close();
-            dzBild = new Bild(g, konto, "Gelände, Bodenänderung " + gitter.name, gitter.nx, gitter.ny, Bild.R32F);
-        }
-        float[] t = new float[4 * n];
+        bodAnlegen(gitter);
+        float[] t = bodT;
         for (int c = 0; c < n; c++) {
             t[4 * c] = werte[c];
             t[4 * c + 1] = werte[n + c];
@@ -337,6 +354,48 @@ public final class Gelaendebild implements Bildteil {
         if (werte.length >= 6 * n) System.arraycopy(werte, 5 * n, dz, 0, n);
         dzBild.schreibe(dz);
         bodGitter = gitter;
+    }
+
+    /** Das Bild des Bodens (2 · ny Zeilen) und der Bodenänderung für dieses Gitter; neu nur, wenn die Größe wechselt. */
+    private void bodAnlegen(Gitter gitter) {
+        if (bodBild == null || bodBild.breite != gitter.nx || bodBild.hoehe != 2 * gitter.ny) {
+            if (bodBild != null) bodBild.close();
+            bodBild = new Bild(g, konto, "Gelände, Boden " + gitter.name, gitter.nx, 2 * gitter.ny, Bild.RGBA32F);
+            if (dzBild != null) dzBild.close();
+            dzBild = new Bild(g, konto, "Gelände, Bodenänderung " + gitter.name, gitter.nx, gitter.ny, Bild.R32F);
+            bodT = new float[8 * gitter.zellen()];
+            wellenGesetzt = false;
+        }
+    }
+
+    /**
+     * Seit S6d-1: setzt die Wellenrippel ({@code lauf.Wellenrippelfeld#textur}: je Zelle Höhe, Länge, Richtung in rad, 0)
+     * auf dem Gitter des Bodens. Ohne Boden aus dem Archiv legt es ihn an (Strömungsrippel und Schlick 0). Null nimmt
+     * sie weg.
+     */
+    public void wellenrippel(Gitter gitter, float[] werte) {
+        if (gitter == null || werte == null) {
+            wellenGesetzt = false;
+            if (bodT != null && bodBild != null) {
+                java.util.Arrays.fill(bodT, bodT.length / 2, bodT.length, 0f);
+                bodBild.schreibe(bodT);
+            }
+            return;
+        }
+        if (gitter.lage != Gitter.Lage.UTM) throw new IllegalArgumentException("Wellenrippel: nur Gitter in UTM, nicht " + gitter);
+        int n = gitter.zellen();
+        if (werte.length < 4 * n) throw new IllegalArgumentException("Wellenrippel: " + werte.length + " Werte statt " + 4 * n);
+        if (bodGitter != null && (bodGitter.nx != gitter.nx || bodGitter.ny != gitter.ny || bodGitter.x0 != gitter.x0 || bodGitter.y0 != gitter.y0))
+            throw new IllegalArgumentException("Wellenrippel: Gitter " + gitter + " ist nicht das des Bodens " + bodGitter);
+        boolean neu = bodGitter == null;
+        bodAnlegen(gitter);
+        System.arraycopy(werte, 0, bodT, 4 * n, 4 * n);
+        bodBild.schreibe(bodT);
+        if (neu) {
+            dzBild.schreibe(new float[n]);
+            bodGitter = gitter;
+        }
+        wellenGesetzt = true;
     }
 
     /**
@@ -568,7 +627,7 @@ public final class Gelaendebild implements Bildteil {
         Gitter bg = bodGitter;
         if (bg != null) kopf.putFloat((float) (bg.x0 - b.ost)).putFloat((float) (bg.y0 - b.nord)).putFloat((float) bg.dx).putFloat(1).putInt(bg.nx).putInt(bg.ny).putInt(0).putInt(0);
         else kopf.putFloat(0).putFloat(0).putFloat(1).putFloat(0).putInt(0).putInt(0).putInt(0).putInt(0);
-        kopf.putFloat((float) schlickDunkel).putFloat((float) schlickVoll).putFloat((float) relief).putFloat(0);
+        kopf.putFloat((float) schlickDunkel).putFloat((float) schlickVoll).putFloat((float) relief).putFloat(bg != null && wellenGesetzt && wellenrippel ? 1 : 0);
         Gitter fg = flugGitter;
         if (fg != null) kopf.putFloat((float) (fg.x0 - b.ost)).putFloat((float) (fg.y0 - b.nord)).putFloat((float) fg.dx).putFloat(1).putInt(fg.nx).putInt(fg.ny).putInt(0).putInt(0);
         else kopf.putFloat(0).putFloat(0).putFloat(1).putFloat(0).putInt(0).putInt(0).putInt(0).putInt(0);
@@ -577,6 +636,16 @@ public final class Gelaendebild implements Bildteil {
         kopf.putFloat((float) flugDicke()).putFloat((float) (fz % 3600)).putFloat((float) flugStreifen).putFloat((float) flugZug);
         double[] sand = material.albedo != null && material.albedo.length > 2 && material.albedo[2] != null && !Double.isNaN(material.albedo[2][0]) ? material.albedo[2] : new double[] {0.45, 0.40, 0.32};
         kopf.putFloat((float) sand[0]).putFloat((float) sand[1]).putFloat((float) sand[2]).putFloat(0);
+        // seit S6c-2: das Rechteck des Auflaufs (relativ zum Auge dieses Bilds)
+        double[] sw = swashAn && z.puffer.containsKey(SWASH_BILD) ? z.werte.get(SWASH_BILD) : null;
+        if (sw != null && sw.length >= 12) {
+            kopf.putFloat((float) (sw[0] - b.ost)).putFloat((float) (sw[1] - b.nord)).putFloat((float) sw[2]).putFloat((float) sw[3]);
+            kopf.putFloat((float) sw[4]).putFloat((float) sw[5]).putFloat((float) sw[6]).putFloat((float) sw[11]);
+            kopf.putInt((int) sw[7]).putInt((int) sw[8]).putInt(1).putInt(Float.floatToRawIntBits((float) sw[10]));   // w seit S6c-2b: Zeit der Karte (Bits)
+        } else {
+            kopf.putFloat(0).putFloat(0).putFloat(1).putFloat(0).putFloat(0).putFloat(1).putFloat(1).putFloat(0);
+            kopf.putInt(0).putInt(0).putInt(0).putInt(0);
+        }
         for (int L = 0; L < stufen; L++) {
             Clipmap.Window w = gezeigt[L];
             double[] l = lage(w, auge);
@@ -638,12 +707,13 @@ public final class Gelaendebild implements Bildteil {
             a.durchgang("Gelände, Gestalt", new Ablauf.Zugriff[] {new Ablauf.Zugriff(gestaltPuffer, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, 0)},
                     c -> vkCmdUpdateBuffer(c, gestaltPuffer.handle, 0, gestaltKopf));
         }
+        Puffer swP = swashAn && z.werte.containsKey(SWASH_BILD) ? z.puffer.getOrDefault(SWASH_BILD, swashLeer) : swashLeer;   // seit S6c-2
         long satz = zeichner.satz(daten, sicht, stufenPuffer, werte, punkt.an(durch), licht, punkt.an(nb), punkt.an(bb), punkt.an(db), punkt.an(fb), punkt.an(bauB), bauW,
-                punkt.an(gb), gp, punkt.an(ansicht));
+                punkt.an(gb), gp, punkt.an(ansicht), swP);
         List<int[]> wahl = waehle(z.blick);
         ByteBuffer push = ByteBuffer.allocateDirect(16 * Math.max(1, wahl.size())).order(ByteOrder.nativeOrder());
         a.zeichne("Gelände", new Bild[] {z.hdr}, null, z.tiefe, null,
-                Ablauf.und(Ablauf.liest(Ablauf.ZEICHNEN, daten, sicht, stufenPuffer, werte, licht, bauW, gp), Ablauf.textur(Ablauf.ZEICHNEN, durch, nb, bb, db, fb, bauB, gb, ansicht)), c -> {
+                Ablauf.und(Ablauf.liest(Ablauf.ZEICHNEN, daten, sicht, stufenPuffer, werte, licht, bauW, gp, swP), Ablauf.textur(Ablauf.ZEICHNEN, durch, nb, bb, db, fb, bauB, gb, ansicht)), c -> {
                     int i = 0;
                     for (int[] w : wahl) {
                         ByteBuffer p = push.slice(16 * i++, 16).order(ByteOrder.nativeOrder());
@@ -715,6 +785,7 @@ public final class Gelaendebild implements Bildteil {
         ohneBau.close();
         gestaltLeer.close();
         gestaltOhne.close();
+        swashLeer.close();
         if (gestaltBild != null) gestaltBild.close();
         if (gestaltPuffer != null) gestaltPuffer.close();
         if (bodBild != null) bodBild.close();

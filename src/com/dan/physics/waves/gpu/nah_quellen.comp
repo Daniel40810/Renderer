@@ -1,0 +1,168 @@
+// nah_quellen.comp — die Quellen einer Zelle (Nahfeld.quellen in float): Wind (Cavaleri/Malanotte-Rizzoli mit Filter,
+// Komen), Schaumkronen (Komen), Brechen (Battjes–Janssen), Bodenreibung (JONSWAP), Pflanzen (Mendez und Losada),
+// halb implizit e₁ = (e* + Δt q) / (1 + Δt γ); die Raten aus Alt (schalter Bit 1: der Zustand vor der Ausbreitung)
+// oder aus Neu; danach die Kappung H_rms ≤ γ_BJ h. Im Anlauf (Bit 0) sind die Senken um den Zustand nach den Quellen
+// der Runde davor linearisiert (B22): e₁ = (e* + Δt q + Δt β e₁,vor) / (1 + Δt (γ + β)), β = 2 γ_wc + m_BJ γ_BJ + ½ γ_veg;
+// Bit 2: erste Runde, e₁,vor aus Alt. Leistung der Senken in Aus (im Anlauf 0). Eine Gruppe je Zelle (Gruppen nx × ny),
+// die Fäden teilen sich die Stützstellen.
+#version 460
+layout(local_size_x = 256) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) readonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 5) readonly buffer Tempo { vec4 tempo[]; };
+layout(std430, binding = 8) readonly buffer Alt { float alt[]; };
+layout(std430, binding = 9) buffer Neu { float n[]; };
+layout(std430, binding = 11) writeonly buffer Aus { vec4 aus[]; };
+layout(std430, binding = 15) buffer NachQ { float nq[]; };
+
+const int GR = 256;
+shared vec4 red[GR];
+shared float sEt, sSig, sK, sGam, sBrech, sMb, sVeg, sUs, sTw, sSPM, sFak;
+
+/** Anteil brechender Wellen nach Battjes und Janssen (1978): 1 − Q = −β² ln Q. */
+float brecheranteil(float beta) {
+    if (beta >= 1.0) return 1.0;
+    if (beta < 0.15) return 0.0;
+    float b2 = beta * beta, lo = 0.0, hi = 1.0 - min(0.5, (1.0 - b2) / b2);
+    for (int it = 0; it < 40; it++) {
+        float q = 0.5 * (lo + hi);
+        if (1.0 - q + b2 * log(q) > 0.0) hi = q; else lo = q;
+    }
+    return 0.5 * (lo + hi);
+}
+
+/** max(0, d ln γ_BJ / d ln λ) unter E → λ E (Nahfeld.steigungBrechen). */
+float steigungBrechen(float b, float qb) {
+    if (!(qb > 0.0) || qb >= 1.0 || b >= 1.0) return 0.0;
+    float nen = b * b - qb;
+    if (!(nen > 1e-6)) return 0.0;
+    return max(0.0, (1.0 - qb) / nen - 1.0);
+}
+
+void summe(uint t) {
+    for (uint s = GR / 2; s > 0; s >>= 1) {
+        if (t < s) red[t] += red[t + s];
+        barrier();
+    }
+}
+
+void main() {
+    int c = int(gl_WorkGroupID.y) * W.nx + int(gl_WorkGroupID.x);
+    uint t = gl_LocalInvocationID.x;
+    int m = W.nb * W.nd, basis = c * m;
+    bool lokal = (P.schalter & 1) != 0, ausAlt = (P.schalter & 2) != 0, erste = (P.schalter & 4) != 0;
+    if (!nass(c) || (W.mitWind == 0 && W.mitSchaum == 0 && W.mitBrechen == 0 && W.mitReibung == 0 && W.mitPflanzen == 0)) {
+        if (t == 0) aus[c] = vec4(0.0);
+        return;
+    }
+    float h = tiefe(c);
+    // ---- Summen aus dem Zustand der Raten
+    vec4 s4 = vec4(0.0);
+    for (int x = int(t); x < m; x += GR) {
+        vec4 bi = bin[basis + x];
+        if (bi.x <= 0.0 || bi.y == 0.0) continue;
+        float e = bi.y * (ausAlt ? alt[basis + x] : n[basis + x]);
+        s4 += vec4(e, e / bi.y, e / sqrt(bi.x), e * bi.y);
+    }
+    red[t] = s4;
+    barrier();
+    summe(t);
+    if (t == 0) {
+        vec4 r = red[0];
+        float et = r.x;
+        float sigMittel = et > 0.0 ? et / r.y : 0.0, kMittel = et > 0.0 ? (et / r.z) * (et / r.z) : 0.0;
+        vec4 z1 = zelle[5 * c + 1], z2 = zelle[5 * c + 2];
+        float uw = length(z1.zw);
+        float us = 0.0;
+        if (uw > 0.0) {
+            if (z2.x > 0.0) us = z2.x;
+            else { float cd = uw < 7.5 ? 1.2875e-3 : (0.8 + 0.065 * uw) * 1e-3; us = sqrt(cd) * uw; }
+        }
+        sUs = us; sTw = atan(z1.w, z1.z);
+        sSPM = us > 0.0 ? ZWEI_PI * 0.13 * G / (28.0 * us) : 0.0;
+        sGam = W.mitSchaum != 0 && et > 0.0 ? W.cds * pow(kMittel * sqrt(et) / W.steilheitPM, 4.0) : 0.0;
+        float gb = 0.0, mb = 0.0;
+        if (W.mitBrechen != 0 && et > 0.0) {
+            float hm = W.gammaBJ * h, bt = sqrt(8.0 * et) / hm, qb = brecheranteil(bt);
+            if (qb > 0.0) gb = 0.25 * W.alphaBJ * qb * (r.w / et) / ZWEI_PI * hm * hm / et;
+            mb = steigungBrechen(bt, qb);
+        }
+        sBrech = gb; sMb = mb;
+        float gv = 0.0;
+        if (W.mitPflanzen != 0 && z2.y > 0.0 && et > 0.0 && kMittel > 0.0) {
+            float hv = min(h, z2.z > 0.0 ? z2.z : h), kh = kMittel * h, kav = kMittel * hv;
+            float hrms = sqrt(8.0 * et);
+            float rat;                                                   // (sinh³ kav + 3 sinh kav) / cosh³ kh, in float ohne Überlauf (B37)
+            if (kh > 20.0) { float ea = exp(kav - kh); rat = ea * ea * ea; }
+            else { float sh = sinh(kav), ch = cosh(kh); rat = (sh * sh * sh + 3.0 * sh) / (ch * ch * ch); }
+            float eps = 1.0 / (2.0 * sqrt(PI)) * RHO * z2.y * pow(kMittel * G / (2.0 * sigMittel), 3.0)
+                    * rat / (3.0 * kMittel) * hrms * hrms * hrms;
+            gv = eps / (RHO * G * et);
+        }
+        sVeg = gv;
+        sEt = et; sSig = sigMittel; sK = kMittel;
+    }
+    barrier();
+    // ---- je Stützstelle
+    vec4 senk = vec4(0.0);                                                   // wc, br, bf, vg (Varianz × Δt)
+    for (int x = int(t); x < m; x += GR) {
+        int id = basis + x;
+        vec4 bi = bin[id];
+        if (bi.x <= 0.0 || bi.y == 0.0) continue;
+        int b = x / W.nd, q = x - b * W.nd;
+        float sg = bi.y, kk = bi.x, e0 = sg * n[id];
+        float qw = 0.0;
+        if (W.mitWind != 0 && sUs > 0.0) {
+            float co = cos(float(q) * W.dTheta - sTw);
+            if (co > 0.0) {
+                float ph = sg / kk, fil = exp(-pow(sg / sSPM, -4.0));
+                float dSigma = ZWEI_PI * band[b].z;
+                float lin = 1.5e-3 / (G * G) * pow(sUs * co, 4.0) * fil / ZWEI_PI * dSigma * W.dTheta;
+                float ex = max(0.0, 0.25 * RHO_A / RHO * (28.0 * sUs / ph * co - 1.0)) * sg;
+                qw = lin + ex * sg * (ausAlt ? alt[id] : n[id]);
+            }
+        }
+        float gs = sGam > 0.0 ? sGam * sSig * kk / sK : 0.0;
+        float gr = 0.0;
+        if (W.mitReibung != 0) {
+            float kd = kk * h;
+            if (kd < 20.0) { float shh = sinh(kd); gr = W.cReibung * sg * sg / (G * G * shh * shh); }
+        }
+        float dt = lokal ? tempo[id].w : P.h;
+        float e1;
+        if (lokal) {
+            float beta = 2.0 * gs + sMb * sBrech + 0.5 * sVeg, vor = sg * (erste ? alt[id] : nq[id]);
+            e1 = (e0 + dt * qw + dt * beta * vor) / (1.0 + dt * (gs + sBrech + gr + sVeg + beta));
+            nq[id] = e1 / sg;
+        } else e1 = (e0 + dt * qw) / (1.0 + dt * (gs + sBrech + gr + sVeg));
+        n[id] = e1 / sg;
+        float z = dt * e1;
+        senk += vec4(gs * z, sBrech * z, gr * z, sVeg * z);
+    }
+    // ---- Kappung H_rms ≤ γ h
+    float br = 0.0;
+    if (W.kappung != 0 && W.mitBrechen != 0) {
+        barrier();
+        float s0 = 0.0;
+        for (int x = int(t); x < m; x += GR) { int id = basis + x; if (bin[id].y > 0.0) s0 += bin[id].y * n[id]; }
+        red[t] = vec4(s0, 0.0, 0.0, 0.0);
+        barrier();
+        summe(t);
+        float m0 = red[0].x, grenze = W.gammaBJ * h * W.gammaBJ * h / 8.0;
+        if (m0 > grenze) {
+            float fk = grenze / m0;
+            for (int x = int(t); x < m; x += GR) n[basis + x] *= fk;
+            br = (1.0 - fk) * m0;
+        }
+        barrier();
+    }
+    red[t] = senk;
+    barrier();
+    summe(t);
+    if (t == 0) {
+        float r = lokal ? 0.0 : RHO * G / P.h;
+        vec4 s = red[0];
+        aus[c] = r * vec4(s.x, s.y + br, s.z, s.w);
+    }
+}

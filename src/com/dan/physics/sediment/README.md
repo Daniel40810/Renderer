@@ -76,3 +76,13 @@ Abweichungen stehen im Werkbuch, 12.10.
 - **`SedimentModul`**: mit `rueck` liest es `bed.dz` und rechnet das Wasser der Zelle aus V(η − dz); im Randstreifen (`rand` Zellen) geht die Bodenänderung am Bus auf null; `surf.z0.sediment` ist auf festem Boden 0; `anfang(...)` setzt den Boden aus einem früheren Lauf.
 - Karte: `Werte` um drei Vierer länger, Schalter STROM und AUFLAGE, `fest[3c + 2].z` trägt `water.spiral`, `bett[2c + 1].z` die Auflage, `abg[4c + 2].z` die Rate der Auflage, neuer Puffer `Wirk` (Bindung 12 in `transport.comp`).
 - Geprüft in `lauf.demo.MorphoCheck` (Prüfsteine 3–6, 8 von P9c) und `demo.SedimentKarteCheck` (Fall P9c).
+
+## Seit Seegang S6d-1 (Seegang Werkbuch 84, SF57 A): Wellenrippel
+
+- **`Wellenrippel`** (reine Formeln in double, auch für die Prüfung): Gleichgewicht der Rippel unter der Welle nach Wiberg und Harris (1994), Klassen nach Malarkey und Davies (2003).
+  - U_w = π H_s / (T_p sinh k h) aus der linearen Theorie (für ein schmales Spektrum 2 · `waves.ubot`), k nach Guo (2002) und Newton; d₀ = U_w T_p / π.
+  - Länge: orbital (d₀/D50 < 1754) 0,62 d₀; anorbital (> 5587) 535 D50; dazwischen logarithmisch in d₀/D50.
+  - Höhe: orbital 0,17 λ; sonst aus der Steilheit η/λ = exp[−0,095 (ln d₀/η)² + 0,442 ln d₀/η − 2,28], geschlossen gelöst (quadratisch in ln η, die größere Wurzel). An der Grenze orbital/suborbital springt die Höhe um 0,55 %.
+  - θ_w mit f_w nach Soulsby (1997), z₀ = 2,5 D50/30; θ_c mit c_D nach Soulsby; θ_cr nach Soulsby und Whitehouse.
+  - Regel [G]: θ_w ≥ 0,8 (Schichtfluss) wäscht weg; beide ≤ θ_cr: es bleibt; θ_w > θ_c: die Welle formt; sonst formt der Strom (seine Rippel in `bed.ripple`).
+- Das Gedächtnis über die Zeit liegt in `lauf.Wellenrippelfeld`, das Bild in `render.terrain` (zweite Lage der Feinform).

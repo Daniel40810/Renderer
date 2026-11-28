@@ -15,7 +15,7 @@ Grundlage ist das Werkbuch HalligHooge, Teil A, Abschnitt 6. Aus P0 stammen die 
 | `Zeitleiste` | Zeitleisten-Semaphore: die Ordnung zwischen Rechnen und Bild, ohne dass ein Faden wartet |
 | `Konto` | Speicherbudget eines Moduls; eine Zuteilung über die Grenze wird abgelehnt |
 | `Puffer` | Puffer über VMA in drei Arten: `KARTE`, `GETEILT` (vom Prozessor sichtbar), `WIRT` (Zwischenpuffer) |
-| `Bild` | 2D-Bild (`R32F`, `R16F`, `RG16F`, `RGBA16F`, `RGBA32F`, `RGBA8`, `RGBA8S` in sRGB, Tiefe `D32F`) zum Speichern, Zeichnen, Abtasten, Hochladen und Lesen; die Nutzung folgt aus dem, was das Gerät für das Format kann (seit P6a) |
+| `Bild` | 2D-Bild (`R32F`, `R16F`, `RG16F`, `RGBA16F`, `RGBA32F`, `RGBA8`, `RGBA8S` in sRGB, Tiefe `D32F`, seit S3c-6 `R32UI`) zum Speichern, Zeichnen, Abtasten, Hochladen und Lesen; die Nutzung folgt aus dem, was das Gerät für das Format kann (seit P6a) |
 | `Abtaster` | wie ein Shader ein Bild als Textur liest: Filter, Rand; `an(bild)` belegt eine Bindung `TEXTUR` (seit P6a) |
 | `Zeichner` | Raster-Pipeline aus Scheitel- und Bildpunkt-Shader mit dynamischem Rendern, ohne Scheitel-Eingänge (Daten über `gl_VertexIndex` aus Puffern), Satz 0 und Feldtafel wie ein Kernel, Tiefe umgekehrt (seit P6a) |
 | `Flaeche` | Vulkan-Fläche in einem AWT-Canvas über JAWT (Win32, unter Linux Xlib), Swapchain, Neuaufbau bei neuer Größe, höchstens zwei Bilder unterwegs (seit P6a); seit W3 mit `TRANSFER_SRC`, wenn die Fläche es kann (Merken für die Blende; `Bild.fremd(…, nutzung)`) |
@@ -24,7 +24,7 @@ Grundlage ist das Werkbuch HalligHooge, Teil A, Abschnitt 6. Aus P0 stammen die 
 | `Shader` | GLSL nach SPIR-V; `#include "/com/dan/…"` aus dem Klassenpfad; vorgebaut oder zur Laufzeit; Shader des Bestands (GLSL 430) nach Vulkan |
 | `Kernel` | Rechen-Pipeline aus SPIR-V mit Push-Konstanten; Satz 0 feste Bindungen (Puffer, Speicherbild, Textur, Beschleunigungsstruktur), Satz 1 die Feldtafel |
 | `Feldtafel` | bindlos: bis 1024 Puffer unter einer Nummer; der Kernel wählt Felder über Push-Konstanten |
-| `Ablauf` | Durchgänge mit gemeldeten Zugriffen; der Ablauf rechnet die Sperren (Barrieren) und Übergänge selbst; seit P6a auch Zeichnen (`zeichne`), Texturen (`textur`) und das Bild der Swapchain (`zeigen`) |
+| `Ablauf` | Durchgänge mit gemeldeten Zugriffen; der Ablauf rechnet die Sperren (Barrieren) und Übergänge selbst; seit P6a auch Zeichnen (`zeichne`), Texturen (`textur`) und das Bild der Swapchain (`zeigen`); seit S3c-8 löscht `zeichne` je Ziel (ein `null` in `loeschen` lädt dieses Ziel) |
 | `Stoppuhr` | Zeit auf der Karte je Abschnitt aus Zeitstempeln, ohne im Lauf zu warten |
 | `Karte`, `KartenFeld` | die Seite eines `Feld` auf der Karte: `hoch()`, `herunter()`, Kernels rechnen auf `puffer` |
 | `Mittel` | was Durchgänge lesen und schreiben: `Puffer` oder `Bild`, mit dem Stand des letzten Zugriffs |

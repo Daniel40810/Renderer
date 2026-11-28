@@ -1,0 +1,34 @@
+// see_antrieb_rand.comp — Seegang Werkbuch, S6b-2: verteilt den Antrieb der Punkte (see_antrieb) auf die Randzellen des
+// Lösers für Auflauf und Rücklauf. Je Ziel: Ort längs der Punkte (u, linear), Grund der Randzelle (m NHN), Richtung ins
+// Gitter n und längs t (Welt). Stand η = Wasserstand + η_Antrieb (m NHN), Tiefe h = η − Grund (mindestens H_U),
+// Geschwindigkeit u = q / h, zerlegt in n und t. Ergebnis je Platz im Stand: (η − Bezug, u · n, u · t, 0), wie
+// physics.swash.Swash.Antrieb (dieses Package kennt das Modul nicht; die Anwendung gibt Puffer und Plätze).
+#version 460
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Randwelle { vec4 rw[]; };
+layout(std430, binding = 1) readonly buffer Ziele { vec4 ziel[]; };          // je Ziel zwei: (Platz, u, Grund, Art), (n_x, n_y, t_x, t_y)
+layout(std430, binding = 2) buffer Antrieb { vec4 antrieb[]; };
+
+layout(push_constant) uniform Verteilen { int zahl; int maxPunkte; int punkte; int zeit; int ziel0; float wasserstand; float bezug; float pad; } P;
+
+const float H_U = 0.05;   // kleinste Tiefe für u = q / h (m) [G]
+const float TROCKEN = -1000.0;   // Stand des trockenen Außen relativ zum Bezug (m)
+
+void main() {
+    int n = int(gl_GlobalInvocationID.x);
+    if (n >= P.zahl) return;
+    vec4 a = ziel[2 * n], r = ziel[2 * n + 1];
+    // seit Datei 73 (F3): Art des Ziels in a.w: 0 die Welle, 1 trockenes Außen (Stand tief unter jedem Grund: nur Ausfluss),
+    // 2 ruhendes Wasser am Spiegel; seit Datei 74 (F6) 3 die Zelle innen (vierter Wert 1: swash_rand nimmt die erste Zelle innen)
+    if (a.w > 2.5) { antrieb[P.ziel0 + int(a.x)] = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    if (a.w > 1.5) { antrieb[P.ziel0 + int(a.x)] = vec4(P.wasserstand - P.bezug, 0.0, 0.0, 0.0); return; }
+    if (a.w > 0.5) { antrieb[P.ziel0 + int(a.x)] = vec4(TROCKEN, 0.0, 0.0, 0.0); return; }
+    float u = clamp(a.y, 0.0, float(P.punkte - 1));
+    int i0 = min(int(u), max(0, P.punkte - 2)), i1 = min(i0 + 1, P.punkte - 1);
+    float w = u - float(i0);
+    vec4 v = mix(rw[P.maxPunkte + 2 * i0 + P.zeit], rw[P.maxPunkte + 2 * i1 + P.zeit], w);
+    float eta = P.wasserstand + v.x, h = max(H_U, eta - a.z);
+    vec2 vel = v.yz / h;
+    antrieb[P.ziel0 + int(a.x)] = vec4(eta - P.bezug, dot(vel, r.xy), dot(vel, r.zw), 0.0);
+}

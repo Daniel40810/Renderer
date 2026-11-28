@@ -247,6 +247,7 @@ public final class Buehne implements AutoCloseable {
             // seit P13c: die Brandung (Brecher, Auflauf, Gischt) an den Kanten; aus mit -Dlauf.brandung=aus
             com.dan.render.brandung.Brandungsbild br = com.dan.render.brandung.Brandungsbild.aus(g, konto, gb);
             brandung = br != null ? halte(br) : null;
+            if (brandung != null) brandung.brandung.ton = tonEreignisse;             // seit S8c: Brecher und Überlauf klingen
             if (brandung != null) {
                 brandung.kruemmung = gelaendebild.hoehe.curvatureRadius;
                 Wasserbild wb = wasser;
@@ -266,7 +267,11 @@ public final class Buehne implements AutoCloseable {
                     @Override public com.dan.core.szene.Brandung.Wasser wasser() { return ww; }
                     @Override public double[] wind() { return new double[] {wb.u10, wb.v10}; }
                 };
+                // seit S9f (SF197 A): bis die erste Fläche steht, gilt ihr künftiger Bereich für die Brandung als Netz
+                brandung.netzErwartet = this::brandungNetzErwartet;
             }
+            // seit S3c-5 (SF29 A): die Steuerung hält das Auge über dem Wasser
+            steuerung.wasser = (o, n) -> wasserUndSeegang(o, n);
             laden.schritt(SCHRITTE[10], ANTEILE[9]);
             kimmung = halte(new Kimmung(g, konto));
             // seit W2: 48 Abschnitte (die Einblendungen bringen zwei mit)
@@ -366,6 +371,9 @@ public final class Buehne implements AutoCloseable {
     // ------------------------------------------------------------------ Szenario
 
     private void quelleWeg() {
+        Flaechenwart fw = flaechenwart;
+        if (fw != null) fw.szenario(null, null);                           // seit S3d: die Fläche des Seegangs weg
+        flotteWeg();                                                        // seit S7b-2: die Schwimmer weg
         Foto f = foto;
         if (f != null) f.abbrechen();
         Lauf l = lauf;
@@ -431,6 +439,7 @@ public final class Buehne implements AutoCloseable {
         }
         wasser.optik.schwebstoff = Double.isNaN(s.schwebstoff) ? new com.dan.core.szene.Wasseroptik().schwebstoff : s.schwebstoff;
         bild = new Bild(q, gebiet, wasser, gelaendebild);
+        bild.start = uhr.start;                                            // seit S8b: die Böe aus ERA5 für die Katzenpfoten
         messquelle = new Messquelle(q, s.live() ? null : s.archiv);
         schnittAn = false;
         if (messblick != null) {
@@ -453,6 +462,9 @@ public final class Buehne implements AutoCloseable {
         pause = false;
         sprung = Double.NaN;
         szenario = s;
+        // seit S3d: die neue Fläche des Seegangs in der Anwendung (nur aus einem Archiv; die Bildschleife baut sie)
+        wart().szenario(s.live() ? null : s.archiv.toPath(), bild.seegang(), raffer);   // seit S3d-2 mit dem Zeitraffer (SF39 A)
+        flotteNeu(s);                                                       // seit S7b-2: die Schwimmer des Szenarios
         if (lauf != null) lauf.takt.laufen(uhr);
     }
 
@@ -532,6 +544,7 @@ public final class Buehne implements AutoCloseable {
                 if (na != null) {
                     neueAnsicht = null;
                     steuerung.setze(na, gelaende, utm, uhr != null ? uhr.jetzt() : Instant.now());
+                    bord(na);                                                   // seit S7c: an Bord eines Schwimmers
                 }
                 steuerung.bewegen(dt, gelaende);
                 Blick bk0 = steuerung.blick();
@@ -559,6 +572,7 @@ public final class Buehne implements AutoCloseable {
                     if (!Double.isNaN(sp)) {
                         sprung = Double.NaN;
                         uhr.setze(Math.max(tAnfang, Math.min(tEnde, sp)));
+                        wart().zeitsprung();                                   // seit S3d: die Fläche des Seegangs neu
                     }
                     uhr.zeitraffer = rueckwaerts ? -gewollt : gewollt;
                     double tVor = uhr.sekunden();
@@ -582,6 +596,8 @@ public final class Buehne implements AutoCloseable {
                         tGezeigt = ts;
                     }
                 }
+                // seit S7c: die Schwimmer vor der Kamera (eine Bordkamera sitzt am Rumpf, wie er in diesem Bild gezeichnet wird)
+                flotteBild(ts, lauf != null ? gewollt : uhr.zeitraffer, dt);   // seit S7b-2: die Schwimmer
                 // seit W3: eine Kamera-Quelle bestimmt den Blick dieses Bilds; die Steuerung folgt ihr
                 final Blick bk = kameraBlick(bk0, dt, ts);
                 z.blick = bk;
@@ -596,6 +612,11 @@ public final class Buehne implements AutoCloseable {
                 Instant jetzt = uhr.bei(ts);
                 final double dtf = dt;
                 final List<com.dan.core.gpu.Auflage> auf = auflagen(ts, true);
+                // seit S3d-3: der gewollte Zeitraffer (rückwärts negativ, angehalten 0); wartet die Uhr auf Stände, bleibt er
+                wart().zeitraffer(lauf != null ? Double.NaN : uhr.zeitraffer);
+                if (brandung != null) brandung.kammgischt = wart().kammgischt();   // seit S5b-2: Gischt aus den Walzen
+                if (brandung != null) brandung.fuesse = wart().fusswellen();       // seit S5b-4: Kämme am Fuß der Kanten
+                wart().vorBild(bk, ts, n);                                      // seit S3d: Bau, Anlass, Überblenden
                 long nKarte = System.nanoTime();
                 flaeche.bild(null, 0, (c, ziel) -> {
                     // Das Bildziel folgt der Swapchain, wie sie für dieses Bild gebaut ist (die Fläche baut beim Holen
@@ -610,6 +631,7 @@ public final class Buehne implements AutoCloseable {
                     a.aufnehmen(c, stoppuhr);
                 });
                 stoppuhr.sammle(false);
+                wart().nachBild();
                 long nFertig = System.nanoTime();
                 if (nFertig - n >= LANG * 1e9) gcBild = gcMs() - gc0;
                 langesBild(n, nZu, nAuf, nKarte, nFertig, ts);
@@ -742,12 +764,21 @@ public final class Buehne implements AutoCloseable {
         gelaendebild.flugZeit = 0;
         double windZeit = bewuchs != null ? bewuchs.windZeit : Double.NaN;
         if (bewuchs != null) bewuchs.windZeit = 0;
+        boolean wellenSofort = bild.wellenSofort;
+        bild.wellenSofort = true;                                                // seit S6d-1: die Wellenrippel gleich, nicht nebenher
         try {
             if (messblickAn && messblick != null) {
                 // ein Standbild hat keine laufende Zeit: die Partikel neu und über eine Spur vorlaufen lassen (im Feld zur Zeit t)
                 messblick.zuruecksetzen();
                 messblick.vorlauf(messblick.spurDauer, 4 * (com.dan.render.analysis.Messblick.K - 1));
             }
+            Flotte fl = flotte;                                                   // seit S7b-3: die Schwimmer, wie sie stehen
+            com.dan.render.schwimmer.Schwimmerbild sbi = schwimmerbild;
+            if (fl != null && sbi != null) sbi.lagen(fl.lagen());
+            com.dan.render.schwimmer.Lichterbild lbi = lichterbild;            // seit S7e1
+            if (fl != null && lbi != null) lbi.lichter(fl.lichter(t, fl.lagen()));
+            com.dan.render.schwimmer.Gischtbild gbi = gischtbild;              // seit S8a
+            if (fl != null && gbi != null) gbi.buendel(fl.gischt.buendel(t));
             for (int i = 0; i < 12; i++) {
                 rahmen.belichtung.sofort();
                 bild.zu(t, b.ost, b.nord);
@@ -762,6 +793,7 @@ public final class Buehne implements AutoCloseable {
         } finally {
             gelaendebild.flugZeit = flugZeit;
             if (bewuchs != null) bewuchs.windZeit = windZeit;
+            bild.wellenSofort = wellenSofort;
         }
         return ausgabe.lies();
     }
@@ -969,11 +1001,47 @@ public final class Buehne implements AutoCloseable {
         List<com.dan.core.gpu.Bildteil> l = new ArrayList<>();
         if (haeuser != null) l.add(haeuser);
         if (bewuchs != null) l.add(bewuchs);
+        // seit S7b-3: die Schwimmer nach Häusern und Bewuchs (zeichnen sich in die Karte des Schattens), vor dem Wasser
+        com.dan.render.schwimmer.Schwimmerbild sb = schwimmerbild;
+        if (sb != null) l.add(sb);
         // seit P13c: die Brandung nach dem Wasser (dessen Tiefe verdeckt die Brecher unter der Fläche), vor dem Himmel
         l.add(gelaendebild);
+        if (seegangTeil != null) l.add(seegangTeil);                        // seit S3c: die Clipmap des Seegangs vor dem Wasser
         l.add(wasser);
         if (brandung != null) l.add(brandung);
         l.addAll(List.of(himmel, kimmung));
+        // seit S7e1: die Lichter der Schwimmer nach dem Himmel (er schreibt jeden Bildpunkt ohne Tiefe neu)
+        com.dan.render.schwimmer.Lichterbild lb = lichterbild;
+        if (lb != null) {
+            lb.sicht = 1000 * himmel.sichtKm;
+            l.add(lb);
+        }
+        // seit S8a (Seegang Werkbuch 104): die Gischt am Bug nach den Lichtern (testet die Tiefe, schreibt keine)
+        com.dan.render.schwimmer.Gischtbild gb = gischtbild;
+        if (gb != null) {
+            gb.sicht = 1000 * himmel.sichtKm;
+            l.add(gb);
+        }
+        // seit S8d (Seegang Werkbuch 104, SF160 A): im Schwimmerblick das Wasser von unten unter der Linie auf der Linse
+        Kamera ka = bordKam;
+        if (ka instanceof Schwimmerblick sbl && unterwasserAn) {
+            if (unterwasser == null) unterwasser = halte(new com.dan.render.water.Unterwasser(g, konto, wasser.optik, wasser.lichtPuffer()));
+            unterwasser.setze(sbl.tiefe, sbl.jeRechts, sbl.jeOben, sbl.normale(), sbl.grundTiefe(), sbl.zeit, Linsenglas.BREITE, Linsenglas.HOEHE);
+            l.add(unterwasser);
+        }
+        // seit S8a: die Tropfen auf der Linse einer Bordkamera, als letzter Teil (bricht das fertige Bild); seit S8d auch im
+        // Schwimmerblick, solange die Scheibe nicht ganz unter Wasser liegt
+        Linsenglas lg = ka instanceof Bordkamera bk ? bk.linse : ka instanceof Schwimmerblick sbl && !sbl.ganzUnter() ? sbl.linse : null;
+        if (lg != null && linseAn) {
+            if (linsenbild == null) linsenbild = halte(new com.dan.render.frame.Linse(g, konto));
+            Object[] lt = lg.fuerBild();
+            linsenbild.breite = Linsenglas.BREITE;
+            linsenbild.hoehe = Linsenglas.HOEHE;
+            linsenbild.tropfen((float[]) lt[0], (Integer) lt[1], (Double) lt[2]);
+            if (ka instanceof Schwimmerblick sw) linsenbild.wasser(sw.tiefe, sw.jeRechts, sw.jeOben);   // seit L6b2
+            else linsenbild.wasser(Double.NaN, 0, 0);
+            l.add(linsenbild);
+        }
         return l;
     }
 
@@ -1034,8 +1102,64 @@ public final class Buehne implements AutoCloseable {
 
     public boolean nachtStreuAn() { return himmel.nachtStreu > 0; }
 
+    /** Seit S6b-2: der Spiegel des Wassers am Ort (UTM, m NHN) im zuletzt gezeigten Stand, ohne Schwelle über dem Boden; NaN ohne Wert. */
+    public double spiegel(double ost, double nord) {
+        try {
+            Wasserbild w = wasser;
+            com.dan.core.szene.Spiegelbild sb = w != null ? w.spiegelbild() : null;
+            if (sb == null) return Double.NaN;
+            float f = sb.etaBildUtm(ost, nord, null);
+            return Float.isNaN(f) || f <= -1e29f ? Double.NaN : f;
+        } catch (RuntimeException x) {
+            return Double.NaN;
+        }
+    }
+
+    /** Seit S6b-2: der Auflauf am Blick (null: keiner). */
+    public Auflauf auflauf() { return wart().auflauf; }
+
+    /**
+     * Seit S3c-5 (SF29 A): Wasser am Ort (UTM) im zuletzt gezeigten Stand: {η_Bild des Wassers (m NHN; NaN, wo nicht mehr
+     * als 5 cm Wasser über dem Boden stehen), Hs (m; 0 ohne Seegang)}. Für die Mindesthöhe des Auges über dem Wasser
+     * ({@link Ansicht#hebe}) und die Prüfung der Nähte. Seit S3c-6 (B51, Seegang Werkbuch 21/22) aus dem Spiegelbild des
+     * Wassers selbst: Die Messquelle ({@code wasserAm}) hat ihre Stände nur bei eingeschaltetem Messblick.
+     */
+    public double[] wasserUndSeegang(double ost, double nord) {
+        double e = Double.NaN, hs = 0;
+        try {
+            Wasserbild w = wasser;
+            com.dan.core.szene.Spiegelbild sb = w != null ? w.spiegelbild() : null;
+            if (sb != null) {
+                float f = sb.etaBildUtm(ost, nord, null);
+                if (!Float.isNaN(f) && f > -1e29f) {
+                    double g = gelaende != null ? gelaende.hoehe(ost, nord, 1) : Double.NaN;
+                    if (Double.isNaN(g) || f - g > 0.05) e = f;
+                }
+            }
+            if (!Double.isNaN(e) && w.seegang) {
+                double[] sw = com.dan.core.szene.Seegangsoptik.werte(w.seeNetze(), w.zeit, ost, nord);
+                if (sw != null && sw[0] > 0) hs = sw[0];
+            }
+        } catch (RuntimeException x) {
+            // ohne Werte: das Auge bleibt, wo es ist
+        }
+        return new double[] {e, hs};
+    }
+
     /** Seit P13c: der Bildteil der Brandung (null ohne Kanten), für Prüfungen. */
     public com.dan.render.brandung.Brandungsbild brandungsbild() { return brandung; }
+
+    /**
+     * Seit S9f (Seegang Werkbuch 115, SF197 A): halbe Weite (m) des Bereichs um das Auge, in dem das Netz zeichnen wird, wie
+     * {@code Seegangbild.netzWerte}: (n/2 − 2) Stellen der äußersten Stufe (1984 m).
+     */
+    public static final double NETZ_ERWARTET_M = (Seegangsflaeche.N / 2 - 2) * Seegangsflaeche.D0 * Math.pow(2, Seegangsflaeche.STUFEN - 1);
+
+    /** Seit S9f: {@link #NETZ_ERWARTET_M}, solange die erste Fläche des Seegangs im Bau ist (Seegang an), sonst NaN. */
+    private double brandungNetzErwartet() {
+        Flaechenwart fw = flaechenwart;
+        return fw != null && wasser.seegang && fw.ersteFlaecheKommt() ? NETZ_ERWARTET_M : Double.NaN;
+    }
 
     /** Seit P13c: Gerät und Konto der Bühne (für Proben auf der Karte). */
     public Geraet geraet() { return g; }
@@ -1044,6 +1168,268 @@ public final class Buehne implements AutoCloseable {
 
     /** Seit P13c: das Wasser (für Prüfungen der Brandung im Wasser). */
     public Wasserbild wasserbild() { return wasser; }
+    /** Seit S9d-1 (Seegang Werkbuch 109): der Himmel, für Prüfungen (wie oft die Ansicht neu war). */
+    public Himmel himmel() { return himmel; }
+
+    private volatile com.dan.core.gpu.Bildteil seegangTeil;
+    /** Seit S7b-2 (Seegang Werkbuch 88): die Schwimmer des Szenarios und ihr Bild (null: keine). */
+    private volatile Flotte flotte;
+    private volatile com.dan.render.schwimmer.Schwimmerbild schwimmerbild;
+    /** Seit S7e1: die Lichter der Schwimmer (null ohne Flotte). */
+    private volatile com.dan.render.schwimmer.Lichterbild lichterbild;
+    /** Seit S8a: das Bild durch die Tropfen auf der Linse (beim ersten Gebrauch angelegt); aus mit {@code -Dlauf.linse=aus}. */
+    private com.dan.render.frame.Linse linsenbild;
+    public volatile boolean linseAn = !"aus".equalsIgnoreCase(System.getProperty("lauf.linse"));
+
+    /** Seit S8d: das Wasser von unten im Schwimmerblick (beim ersten Gebrauch angelegt); aus mit {@code -Dlauf.unterwasser=aus}. */
+    private com.dan.render.water.Unterwasser unterwasser;
+    public volatile boolean unterwasserAn = !"aus".equalsIgnoreCase(System.getProperty("lauf.unterwasser"));
+
+    /** Seit S8d: das Wasser von unten (null, solange kein Schwimmerblick war), für Prüfungen. */
+    public com.dan.render.water.Unterwasser unterwasser() { return unterwasser; }
+
+    /** Seit S8a: das Bild der Linse (null, solange keine Bordkamera Tropfen hatte), für Prüfungen. */
+    public com.dan.render.frame.Linse linsenbild() { return linsenbild; }
+
+    /**
+     * Seit S8c (Seegang Werkbuch 104, SF159 A): was in der Szene einmal klingt – Brecher und Überlauf (aus der Brandung),
+     * Bugschlag und Typhon (aus der Flotte). Das Steuerhaus holt sie ({@code Tonereignisse.seit}).
+     */
+    public final com.dan.core.szene.Tonereignisse tonEreignisse = new com.dan.core.szene.Tonereignisse();
+
+    /** Seit S8c: ein Ereignis für den Ton (wie {@code core.szene.Tonereignisse.Ereignis}, für das Steuerhaus ohne den Kern). */
+    public record Ton(long nr, String art, double ost, double nord, double hoehe, double staerke, double t) { }
+
+    /** Seit S8c: die Ereignisse für den Ton mit Nummer über seit. */
+    public List<Ton> toene(long seit) {
+        List<Ton> l = new ArrayList<>();
+        for (com.dan.core.szene.Tonereignisse.Ereignis e : tonEreignisse.seit(seit)) l.add(new Ton(e.nr(), e.art(), e.ost(), e.nord(), e.hoehe(), e.staerke(), e.t()));
+        return l;
+    }
+
+    /** Seit S8c: die Maschinen der Schiffe in Fahrt (wie {@link Flotte#maschinen}); leer ohne Flotte. */
+    public double[] maschinen() {
+        Flotte f = flotte;
+        return f == null ? new double[0] : f.maschinen();
+    }
+
+    /** Seit S8a: die Gischt am Bug (null ohne Flotte). */
+    private volatile com.dan.render.schwimmer.Gischtbild gischtbild;
+
+    /** Seit S8a: das Bild der Gischt (null ohne Flotte), für Prüfungen. */
+    public com.dan.render.schwimmer.Gischtbild gischtbild() { return gischtbild; }
+
+    /** Seit S7e1: das Bild der Lichter (null ohne Flotte), für Prüfungen. */
+    public com.dan.render.schwimmer.Lichterbild lichterbild() { return lichterbild; }
+
+    /** Seit S7b-2: die Flotte des Szenarios (null: keine). */
+    public Flotte flotte() { return flotte; }
+
+    /** Seit S7b-3: das Bild der Schwimmer (null: keine). */
+    public com.dan.render.schwimmer.Schwimmerbild schwimmerbild() { return schwimmerbild; }
+
+    /** Seit S7b-2: die Schwimmer eines Szenarios neu (die alten weg); -Dlauf.schwimmer=aus: keine. */
+    private void flotteNeu(Szenario s) {
+        flotteWeg();
+        if (s == null || s.schwimmer.isEmpty() || "aus".equalsIgnoreCase(System.getProperty("lauf.schwimmer", "an"))) return;
+        com.dan.core.gitter.Gelaende.Abfrage ga = gelaende != null ? gelaende.abfrage() : null;   // nur im Faden der Flotte
+        Flotte f = new Flotte(s.schwimmer, (o, n) -> {
+            if (ga == null) return Double.NaN;
+            float h = ga.hoehe(o, n, 1);
+            return Float.isNaN(h) ? Double.NaN : h;
+        });
+        float[][] nz = f.netze();
+        com.dan.render.schwimmer.Schwimmerbild b = new com.dan.render.schwimmer.Schwimmerbild(g, konto, nz[0], nz[1], f.schwimmer.size());
+        b.kruemmung = gelaendebild.hoehe.curvatureRadius;
+        f.startMs = uhr != null ? uhr.start.toEpochMilli() : Double.NaN;     // seit S7d: der Fahrplan
+        hwStand = -1;
+        hochwasserFuer(f);                                                  // seit S7d2: Fahrplan nach der Tide
+        stromort = bild != null ? Stromort.fuer(bild.quelle) : null;        // seit S7b-4: der Strom am Ort (A25)
+        // seit S7e1 (Seegang Werkbuch 99, SF148 A): die Lichter der Schwimmer, als letzter Teil des Bilds
+        com.dan.render.schwimmer.Lichterbild lb = new com.dan.render.schwimmer.Lichterbild(g, konto);
+        lb.kruemmung = b.kruemmung;
+        com.dan.render.schwimmer.Gischtbild gb = new com.dan.render.schwimmer.Gischtbild(g, konto);   // seit S8a
+        gb.kruemmung = b.kruemmung;
+        f.ton = tonEreignisse;                                              // seit S8c
+        flotte = f;
+        schwimmerbild = b;
+        lichterbild = lb;
+        gischtbild = gb;
+        wart().wasserpunkte(f.wasserpunkte, f.kielwasser);                 // seit S7d mit dem Kielwasser
+        wart().koerpermitte(s.koerper != null ? s.koerper : f.koerpermitte());   // seit S7d4 (SF121 A): die Körperfläche
+        if (bordAnsicht != null) bordKamera(bordAnsicht);                   // seit S7c: an Bord bleiben (neue Flotte)
+    }
+
+    private volatile Stromort stromort;
+    private volatile Ansicht bordAnsicht;
+    private int hwStand = -1;
+
+    /** Seit S7d2: die Hochwasser der Pegelreihe an die Flotte (Fähren nach der Tide); neu, wenn die Reihe gewachsen ist (live). */
+    private void hochwasserFuer(Flotte f) {
+        Pegelreihe pr = reihe;
+        Uhr u = uhr;
+        if (f == null || pr == null || u == null) return;
+        int n = pr.laenge();
+        if (n == hwStand) return;
+        hwStand = n;
+        java.util.List<Double> h = new java.util.ArrayList<>();
+        for (Pegelreihe.Marke m : pr.marken()) if (m.art() == Pegelreihe.Art.HOCHWASSER) h.add(pr.start.toEpochMilli() + 1000 * m.t());
+        double[] ms = new double[h.size()];
+        for (int i = 0; i < ms.length; i++) ms[i] = h.get(i);
+        f.hochwasser(ms);
+    }
+
+    /** Seit S7b-4: Strom am Ort {nach Ost, nach Nord} (m/s) zur Zeit ts, wie ihn die Schwimmer bekommen; null: keiner. */
+    public double[] stromAm(double ts, double ost, double nord) {
+        Stromort so = stromort;
+        return so != null ? so.am(ts, ost, nord) : null;
+    }
+
+    /**
+     * Seit S7c (Seegang Werkbuch 89): eine Ansicht an Bord ({@link Ansicht#bord}) setzt eine {@link Bordkamera} auf den
+     * Schwimmer dieses Namens; eine Ansicht an Land nimmt sie wieder weg. Ohne Flotte oder Schwimmer: keine (mit Fehler).
+     */
+    public Bordkamera bord(Ansicht a) { return bordKamera(a) instanceof Bordkamera bk ? bk : null; }
+
+    /**
+     * Seit S8d (Seegang Werkbuch 104): wie {@link #bord}, aber für jede Art: am Kopf eines Schwimmers (Art {@code kopf}) ein
+     * {@link Schwimmerblick}, sonst eine {@link Bordkamera}. Null ohne Ansicht an Bord oder ohne den Schwimmer.
+     */
+    public Kamera bordKamera(Ansicht a) {
+        if (a == null || a.bord == null) {
+            bordAnsicht = null;
+            bordKam = null;
+            return null;
+        }
+        bordAnsicht = a;
+        Flotte f = flotte;
+        if (f == null) { fehler = "Bordkamera: keine Schwimmer im Szenario"; return null; }
+        for (int i = 0; i < f.schwimmer.size(); i++)
+            if (f.schwimmer.get(i).angabe.name.equals(a.bord)) {
+                if ("kopf".equals(f.schwimmer.get(i).angabe.art)) {            // seit S8d: der Schwimmerblick
+                    Schwimmerblick sb = new Schwimmerblick(f, i);
+                    sb.richtung = Double.isNaN(a.richtung) ? 0 : a.richtung;
+                    sb.neigung = a.neigung;
+                    sb.bildwinkel = a.bildwinkel;
+                    bordKam = sb;
+                    return sb;
+                }
+                Bordkamera bk = new Bordkamera(f, i, a.bordAuge);
+                bk.richtung = Double.isNaN(a.richtung) ? 0 : a.richtung;
+                bk.neigung = a.neigung;
+                bk.bildwinkel = a.bildwinkel;
+                bordKam = bk;
+                return bk;
+            }
+        fehler = "Bordkamera: Schwimmer „" + a.bord + "“ fehlt";
+        return null;
+    }
+
+    private void flotteWeg() {
+        Flotte f = flotte;
+        com.dan.render.schwimmer.Schwimmerbild b = schwimmerbild;
+        com.dan.render.schwimmer.Lichterbild lb = lichterbild;
+        com.dan.render.schwimmer.Gischtbild gb = gischtbild;
+        flotte = null;
+        schwimmerbild = null;
+        lichterbild = null;
+        gischtbild = null;
+        Stromort so = stromort;
+        stromort = null;
+        if (so != null) so.close();
+        Flaechenwart fw = flaechenwart;
+        if (fw != null) { fw.wasserpunkte(null, null); fw.koerpermitte(null); }   // seit S7d4 auch die Körperfläche
+        if (f != null) f.close();
+        if (b != null || lb != null || gb != null) {
+            g.ruhe();
+            if (b != null) b.close();
+            if (lb != null) lb.close();
+            if (gb != null) gb.close();
+        }
+    }
+
+    /**
+     * Seit S7b-2: je Bild die Schwimmer – Lagen für das Bild, Anfrage an die Karte, ein Schritt im eigenen Faden bis ts.
+     * zeitraffer wie die Uhr (0 angehalten, rückwärts negativ), dtUhr: Zeit der Uhr seit dem letzten Bild (s). Die
+     * Bildschleife ruft es; Prüfungen dürfen es ebenso.
+     */
+    public void flotteBild(double ts, double zeitraffer, double dtUhr) {
+        Flotte f = flotte;
+        com.dan.render.schwimmer.Schwimmerbild b = schwimmerbild;
+        if (f == null || b == null) return;
+        Bild bi = bild;
+        double wu = bi != null ? bi.windU : 0, wv = bi != null ? bi.windV : 0;
+        Stromort so = stromort;
+        hochwasserFuer(f);                                                  // seit S7d2 (live wächst die Reihe)
+        double[] lg = f.vorBild(ts, zeitraffer, dtUhr, new Flotte.Umwelt() {
+            @Override public double pegel(double ost, double nord) { return spiegel(ost, nord); }
+
+            @Override public double[] wind() { return new double[] {wu, wv}; }
+
+            @Override public double[] strom(double ost, double nord) { return so != null ? so.am(ts, ost, nord) : null; }
+
+            @Override public double hs(double ost, double nord) { return wasserUndSeegang(ost, nord)[1]; }   // seit S7e2: für die Enten
+
+            @Override public double[] auge() { return bi != null && !Double.isNaN(bi.augeOst) ? new double[] {bi.augeOst, bi.augeNord} : null; }   // seit S8b
+        });
+        b.lagen(lg);
+        com.dan.render.schwimmer.Lichterbild lb = lichterbild;                 // seit S7e1: die Lichter zu denselben Lagen
+        if (lb != null) lb.lichter(f.lichter(ts, lg));
+        com.dan.render.schwimmer.Gischtbild gb = gischtbild;                   // seit S8a: die Gischt zur Zeit des Bilds
+        if (gb != null) gb.buendel(f.gischt.buendel(ts));
+    }
+    private volatile Flaechenwart flaechenwart;
+
+    /** Seit S3d: der Wart der neuen Fläche des Seegangs in der Anwendung (für Prüfungen auch von außen zu führen). */
+    public synchronized Flaechenwart wart() {
+        if (flaechenwart == null) {
+            flaechenwart = new Flaechenwart(g, g.konto("Seegangsfläche", 1L << 30), ordner, this::seegang);
+            // seit S6b-2 (Seegang Werkbuch 67): der Auflauf am Blick; -Dlauf.auflauf=aus: keiner
+            if (!"aus".equalsIgnoreCase(System.getProperty("lauf.auflauf", "an"))) {
+                com.dan.core.gitter.Gelaende.Abfrage ga = gelaende != null ? gelaende.abfrage() : null;   // nur im Faden der Bilder (Auflauf.setze)
+                flaechenwart.auflauf = new Auflauf(g, g.konto("Auflauf", 512L << 20), (o, n) -> ga != null ? ga.hoehe(o, n, Auflauf.DX) : Double.NaN, this::spiegel);
+                // seit S6c-3 (Seegang Werkbuch 80, SF89 A): der Boden aus Gestalt und Korn des Gebiets; -Dlauf.boden=sand: wie bis S6c-1b
+                if (!"sand".equalsIgnoreCase(System.getProperty("lauf.boden", "klassen"))) {
+                    try {
+                        flaechenwart.auflauf.boden = Bodenkarte.aus(ordner, gelaendebild != null ? gelaendebild.gestalt() : null);
+                    } catch (java.io.IOException e) {
+                        System.out.println("Auflauf: Boden aus den Klassen nicht lesbar, Sand: " + e.getMessage());
+                    }
+                }
+            }
+        }
+        return flaechenwart;
+    }
+
+    /**
+     * Seit S3d (SF37 A): die neue Fläche des Seegangs in der Anwendung an oder aus (Qualität „Seegang“ und Schalter im
+     * Steuerhaus); aus zeichnet das Wasser wie vor S3c. Gilt nur in der Bildschleife ({@link #laufen}); Standbilder setzen
+     * ihre Fläche selbst ({@link #seegang}).
+     */
+    public void seegangFlaeche(boolean an) { wart().an(an); }
+
+    public boolean seegangFlaecheAn() { return wart().an(); }
+
+    /** Seit S3d: hat das Szenario Seegang aus einem Archiv (die neue Fläche ist möglich)? */
+    public boolean hatSeegangFlaeche() { return wart().moeglich(); }
+
+    /**
+     * Seit S3c (Seegang Werkbuch): die Clipmap des Seegangs ({@code render.seegang.Seegangbild}) als Teil des Bilds vor
+     * dem Wasser; null nimmt sie weg. Das Wasser zeichnet dann dort ein Netz mit ihrer Verschiebung.
+     */
+    public void seegang(com.dan.core.gpu.Bildteil t) {
+        seegangTeil = t;
+        // die Ablage bleibt im Bildziel von Bild zu Bild: ohne Teil darf das Wasser sie nicht mehr finden
+        if (t == null && rahmen != null) {
+            rahmen.ziel().puffer.remove(com.dan.render.seegang.Seegangbild.NETZ);
+            rahmen.ziel().werte.remove(com.dan.render.seegang.Seegangbild.NETZ);
+            rahmen.ziel().puffer.remove(Auflauf.BILD);                          // seit S6c-2: ohne Fläche kein Auflauf im Bild
+            rahmen.ziel().werte.remove(Auflauf.BILD);
+        }
+    }
+
+    /** Seit S3c: die Netze des Seegangs aus dem Archiv (grob zuerst, wie lauf.Bild), leer ohne Szenario oder ohne Seegang. */
+    public java.util.List<com.dan.core.szene.Seegangsnetz> seegangsnetze() { return bild != null ? bild.seegang() : java.util.List.of(); }
 
     public boolean hatSalzwiese() { return gelaendebild.hatZonen; }
 
@@ -1106,6 +1492,18 @@ public final class Buehne implements AutoCloseable {
 
     private double filmZeit, filmOffen;
     private long filmBilder;
+    /**
+     * Seit S8e2 (Seegang Werkbuch 104, Befund L6c2: im Video fehlten Seegang, Brandung und Schiffe): die Uhr des Wartes der
+     * Seegangsfläche im Film (ns, Filmzeit statt Uhr des Rechners), und ob nach einem Schnitt (Szenario, Ansicht, Sprung)
+     * die Fläche erst stehen muss.
+     */
+    private long filmUhrNs;
+    private boolean filmVorlauf;
+    /** Seit S8e2: so viele Schritte des Wartes höchstens im Vorlauf nach einem Schnitt [G] (bei 24 je s rund 2 min Filmuhr). */
+    public static final int FILM_VORLAUF_MAX = 3000;
+    /** Seit S8e2: Auskunft – Schritte und Sekunden (Rechner) des letzten Vorlaufs, Zahl der Vorläufe. */
+    public volatile int filmVorlaufSchritte, filmVorlaeufe;
+    public volatile double filmVorlaufS;
     /** Seit W4: Liegen die Einblendungen (und der Messblick) auf den Filmbildern? Vorgabe ja (F189 A: im Video wählbar). */
     public volatile boolean filmMitEinblendung = true;
 
@@ -1133,6 +1531,7 @@ public final class Buehne implements AutoCloseable {
                 fehler = ns.name + ": " + e;
             }
             wechselt = neuesSzenario != null;
+            filmVorlauf = true;                                                // seit S8e2
         }
         if (bild == null) throw new IllegalStateException("Buehne: kein Szenario" + (fehler != null ? " (" + fehler + ")" : ""));
         if (lauf != null) throw new IllegalStateException("Buehne: Filmbilder nur aus dem Archiv, nicht live (" + szenario.name + ")");
@@ -1140,12 +1539,16 @@ public final class Buehne implements AutoCloseable {
         if (na != null) {
             neueAnsicht = null;
             steuerung.setze(na, gelaende, utm, uhr.jetzt());
+            bord(na);                                                           // seit S7c
+            filmVorlauf = true;                                                // seit S8e2
         }
         Blick bk0 = steuerung.blick().kopie().groesse(breite, hoehe);
         double sp = sprung;
         if (!Double.isNaN(sp)) {
             sprung = Double.NaN;
             uhr.setze(Math.max(tAnfang, Math.min(tEnde, sp)));
+            wart().zeitsprung();                                               // seit S8e2: wie im Fenster
+            filmVorlauf = true;
         }
         double gewollt = pause ? 0 : raffer;
         uhr.zeitraffer = rueckwaerts ? -gewollt : gewollt;
@@ -1153,6 +1556,9 @@ public final class Buehne implements AutoCloseable {
         if (ts < tAnfang || ts > tEnde) uhr.setze(ts = Math.max(tAnfang, Math.min(tEnde, ts)));
         filmZeit += dt;
         filmOffen += dt;
+        filmUhrNs += Math.round(dt * 1e9);
+        // seit S8e2 (Befund L6c2): die Schwimmer vor der Kamera, wie in der Bildschleife (eine Bordkamera sitzt am Rumpf)
+        flotteBild(ts, uhr.zeitraffer, dt);
         Blick bk = kameraBlick(bk0, dt, ts);
         bk.groesse(breite, hoehe);
         Instant jetzt = uhr.bei(ts);
@@ -1166,9 +1572,18 @@ public final class Buehne implements AutoCloseable {
             gelaendebild.flugZeit = filmZeit;
             if (bewuchs != null) bewuchs.windZeit = filmZeit;
             List<com.dan.core.gpu.Auflage> auf = auflagen(ts, filmMitEinblendung);
+            // seit S8e2 (Befund L6c2): die Seegangsfläche wie in der Bildschleife, auf der Filmuhr; nach einem Schnitt erst,
+            // wenn sie für diesen Blick steht (die Szenenzeit steht so lange, im Film ist das ein langes Bild)
+            Flaechenwart fw = wart();
+            fw.zeitraffer(uhr.zeitraffer);
+            if (filmVorlauf) filmFlaecheVorlauf(fw, bk, ts);
+            if (brandung != null) brandung.kammgischt = fw.kammgischt();
+            if (brandung != null) brandung.fuesse = fw.fusswellen();
+            fw.vorBild(bk, ts, filmUhrNs);
             Ablauf a = new Ablauf(g, g.grafik);
             rahmen.bild(a, bildteile(), auf, bk, jetzt, ausgabe, Math.max(1e-4, filmOffen));
             g.grafik.einmal(c -> a.aufnehmen(c, null));
+            fw.nachBild();
             filmOffen = 0;
             filmBilder++;
         }
@@ -1195,10 +1610,38 @@ public final class Buehne implements AutoCloseable {
         return z;
     }
 
+    /**
+     * Seit S8e2: nach einem Schnitt im Film den Wart führen, bis die Seegangsfläche für diesen Blick steht (gebaut, eingeblendet,
+     * kein Bau mehr), höchstens {@link #FILM_VORLAUF_MAX} Schritte. Die Szenenzeit steht; die Filmuhr des Wartes läuft je
+     * Schritt 1/24 s weiter (Ruhe, Überblenden). Je Schritt darf der Bau ein Stück rechnen; der Faden wartet, bis er es hat.
+     */
+    private void filmFlaecheVorlauf(Flaechenwart fw, Blick bk, double ts) {
+        filmVorlauf = false;
+        if (!fw.an() || !fw.moeglich()) return;
+        long t0 = System.nanoTime();
+        int i = 0;
+        for (; i < FILM_VORLAUF_MAX; i++) {
+            if (i > 2 && fw.steht(bk, ts)) break;
+            fw.vorBild(bk, ts, filmUhrNs);
+            filmUhrNs += 1_000_000_000L / 24;
+            fw.nachBild();
+            fw.warteStueck(200);
+        }
+        filmVorlaufSchritte = i;
+        filmVorlaufS = (System.nanoTime() - t0) / 1e9;
+        filmVorlaeufe++;
+    }
+
     /** Seit W4: Filmzeit (s) seit dem Öffnen der Bühne, Summe der {@code dt} von {@link #filmbild}. */
     public double filmZeit() { return filmZeit; }
 
     /** Seit W4: die Bildpunkte des letzten gezeichneten Bilds, RGBA8 sRGB, zeilenweise von oben (wartet). */
+    /** Seit S7c: das zuletzt gezeichnete Bild ohne Fenster ({@link #bildzeiten}, {@link #standbild}): RGBA (0 … 1), von oben. */
+    public float[] letztesBild() {
+        if (ausgabe == null) throw new IllegalStateException("Buehne mit Fenster");
+        return ausgabe.lies();
+    }
+
     public byte[] filmBytes() {
         if (ausgabe == null) throw new IllegalStateException("Buehne mit Fenster");
         java.nio.ByteBuffer r = ausgabe.roh();
@@ -1347,6 +1790,15 @@ public final class Buehne implements AutoCloseable {
     // ------------------------------------------------------------------ Kamera (W3)
 
     private volatile Kamera kamera;
+    /**
+     * Seit S8e (Befund L6c: im Video blieb die Regie mit der Ansicht an Bord stehen – die Bordkamera ersetzte den Regisseur,
+     * der selbst die Kamera der Bühne ist): Bordkamera und Schwimmerblick sitzen in einem eigenen Platz hinter der Kamera.
+     * Erst gilt der Blick der Kamera (Regisseur, Fahrt), dann setzt die Kamera an Bord ihn an den Rumpf.
+     */
+    private volatile Kamera bordKam;
+
+    /** Seit S8e: die Kamera an Bord (Bordkamera oder Schwimmerblick; null: keine). */
+    public Kamera bordKamera() { return bordKam; }
 
     /**
      * Seit W3 (Werkbuch HalligHooge 116, F192 A): eine Quelle für den Blick, die die Bildschleife je Bild fragt; null:
@@ -1357,15 +1809,23 @@ public final class Buehne implements AutoCloseable {
     public Kamera kamera() { return kamera; }
 
     private Blick kameraBlick(Blick jetzt, double dt, double ts) {
-        Kamera k = kamera;
-        if (k == null) return jetzt;
-        Blick b;
+        Kamera k = kamera, bk = bordKam;
+        if (k == null && bk == null) return jetzt;
+        Blick b = null;
         try {
-            b = k.weiter(dt, ts, jetzt.kopie());
+            if (k != null) b = k.weiter(dt, ts, jetzt.kopie());
         } catch (RuntimeException e) {
             kamera = null;
             fehler = "Kamera: " + e;
-            return jetzt;
+        }
+        try {                                                               // seit S8e: an Bord nach der Kamera
+            if (bk != null) {
+                Blick c = bk.weiter(dt, ts, (b != null ? b : jetzt).kopie());
+                if (c != null) b = c;
+            }
+        } catch (RuntimeException e) {
+            bordKam = null;
+            fehler = "Kamera an Bord: " + e;
         }
         if (b == null) return jetzt;
         steuerung.setze(b.ost, b.nord, b.hoehe, b.richtung, b.neigung, b.bildwinkel);
@@ -1469,6 +1929,12 @@ public final class Buehne implements AutoCloseable {
      */
     public Bildzeiten bildzeiten(Blick blick, double t, int n) { return bildzeiten(blick, t, n, false); }
 
+    /**
+     * Seit S9b (Seegang Werkbuch 107): die Zeit je Bild für die Belichtung in {@link #bildzeiten} (s); 0 hält die Belichtung
+     * fest (Vergleich zweier Bilder, Prüfstein 45/46). Vorgabe 1/60 wie bisher.
+     */
+    public volatile double bildzeitenDt = 1.0 / 60;
+
     /** Wie {@link #bildzeiten(Blick, double, int)}; mit {@code alle} (seit P13d) das Mittel jedes Abschnitts in {@code abschnitte}. */
     public Bildzeiten bildzeiten(Blick blick, double t, int n, boolean alle) {
         if (ausgabe == null) throw new IllegalStateException("Buehne mit Fenster: laufen() benutzen");
@@ -1484,7 +1950,7 @@ public final class Buehne implements AutoCloseable {
                 List<com.dan.core.gpu.Auflage> auf = auflagen(t, true);
                 long n0 = System.nanoTime();
                 Ablauf a = new Ablauf(g, g.grafik);
-                rahmen.bild(a, bildteile(), auf, b, zeit, ausgabe, 1.0 / 60);
+                rahmen.bild(a, bildteile(), auf, b, zeit, ausgabe, bildzeitenDt);
                 g.grafik.einmal(c -> {
                     su.runde(c);
                     a.aufnehmen(c, su);
@@ -1535,6 +2001,8 @@ public final class Buehne implements AutoCloseable {
         ende = true;
         Foto f = foto;
         if (f != null) f.abbrechen();
+        Flaechenwart fw = flaechenwart;
+        if (fw != null) fw.close();
         if (g != null) {
             quelleWeg();
             g.ruhe();

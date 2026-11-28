@@ -24,7 +24,7 @@ import static org.lwjgl.vulkan.VK13.*;
  * <p>
  * Formate: {@link #R32F} (ein float je Bildpunkt, etwa ein Wasserstand), {@link #R16F}, {@link #RG16F},
  * {@link #RGBA16F} (HDR), {@link #RGBA32F}, {@link #RGBA8} (linear), {@link #RGBA8S} (sRGB, Ausgabe),
- * {@link #D32F} (Tiefe). Die Nutzung folgt aus dem, was das Gerät für das Format kann: Speicherbild nur, wenn es
+ * {@link #D32F} (Tiefe), seit S3c-6 {@link #R32UI}. Die Nutzung folgt aus dem, was das Gerät für das Format kann: Speicherbild nur, wenn es
  * geht (sRGB und Tiefe meist nicht), Farb- bzw. Tiefenziel, Textur und Kopie immer.
  * <p>
  * Seit P6a (Werkbuch 12.7): Tiefe, sRGB, Ziel beim Zeichnen, Hochladen, Lesen in jedem Format, Bilder der Swapchain
@@ -34,7 +34,9 @@ public final class Bild implements Mittel, AutoCloseable {
     public static final int R32F = VK_FORMAT_R32_SFLOAT, R16F = VK_FORMAT_R16_SFLOAT, RG16F = VK_FORMAT_R16G16_SFLOAT, RGBA16F = VK_FORMAT_R16G16B16A16_SFLOAT,
             RGBA32F = VK_FORMAT_R32G32B32A32_SFLOAT, RGBA8 = VK_FORMAT_R8G8B8A8_UNORM, RGBA8S = VK_FORMAT_R8G8B8A8_SRGB, D32F = VK_FORMAT_D32_SFLOAT,
             /** Seit P12b: zwei Byte je Bildpunkt (die Gestaltkarte). */
-            RG8 = VK_FORMAT_R8G8_UNORM;
+            RG8 = VK_FORMAT_R8G8_UNORM,
+            /** Seit S3c-6 (Seegang Werkbuch 22): eine Ganzzahl je Bildpunkt (Ziel beim Zeichnen, Textur; hoch und lesen roh). */
+            R32UI = VK_FORMAT_R32_UINT;
 
     final Geraet g;
     public final long handle, ansicht;
@@ -123,7 +125,7 @@ public final class Bild implements Mittel, AutoCloseable {
     public static int bytesJePunkt(int format) {
         return switch (format) {
             case R16F, RG8 -> 2;
-            case R32F, RG16F, RGBA8, RGBA8S, D32F, VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM -> 4;
+            case R32F, R32UI, RG16F, RGBA8, RGBA8S, D32F, VK_FORMAT_B8G8R8A8_SRGB, VK_FORMAT_B8G8R8A8_UNORM -> 4;
             case RGBA16F -> 8;
             case RGBA32F -> 16;
             default -> throw new IllegalArgumentException("Bild: Format " + format + " unbekannt");

@@ -31,11 +31,15 @@ layout(set = 0, binding = 2, std430) readonly buffer Stufen {
     vec4 nass;          // Restnässe, Abdunklung, Halbwertszeit (s), 1 = das Bild der Nässe trägt die Sättigung (surf.wet) statt wetAge
     vec4 bodLage;       // seit P9b: Südwestecke des Gitters des Sediments relativ zum Auge (Ost, Nord), Zelle (m), 1 = Boden vorhanden
     ivec4 bodN;         // nx, ny, 0, 0
-    vec4 bod;           // Abdunklung durch Schlick, Schlickanteil für die volle Abdunklung, Stärke des Reliefs der Rippel, 0
+    vec4 bod;           // Abdunklung durch Schlick, Schlickanteil für die volle Abdunklung, Stärke des Reliefs der Rippel, seit S6d-1: 1 = Wellenrippel gesetzt
     vec4 flugLage;      // seit P10c: Südwestecke des Gitters des Flugsands relativ zum Auge (Ost, Nord), Zelle (m), 1 = Flugsand vorhanden
     ivec4 flugN;        // nx, ny, 0, 0
     vec4 flug;          // senkrechte optische Dicke des Schleiers je Fluss (m s/kg), Zeit (s), Stärke der Streifen (0 … 1), Zug der Streifen (m/s)
     vec4 flugFarbe;     // Albedo des trockenen Sands (R, G, B), 0
+    // seit S6c-2 (Seegang Werkbuch 82, SF93 A): das Rechteck des Auflaufs (physics.swash, Bild über lauf.Auflauf)
+    vec4 swLage;        // Ecke der Zelle (0, 0) relativ zum Auge (Ost, Nord), Richtung x (quer, landwärts) Ost, Nord
+    vec4 swAchse;       // Richtung y (längs) Ost, Nord, Zelle (m), Kontur des Spülsaums (m)
+    ivec4 swN;          // nx, ny, 1 = Bild vorhanden, Zeit der Karte (s, Bits von float; seit S6c-2b)
     Stufe st[];
 };
 layout(set = 0, binding = 3, std430) readonly buffer Werte { Himmelswerte hw; };

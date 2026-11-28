@@ -1,0 +1,17 @@
+#version 460
+// katzenprobe.comp – render.water (Seegang S8b, Prüfstein 37): rechnet die Katzenpfoten von katzen.glsl an gegebenen
+// Orten (x Ost, z Süd relativ zum Auge) mit dem Kopf des letzten Bilds, für Katzenprobe. Je Ort 2 Werte: Wind am Ort
+// (m/s), wirksame Neigungsvarianz der Kräusel. Push: x Zahl.
+#include "/com/dan/render/water/wasser.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 6, std430) writeonly buffer Aus { float aus[]; };
+layout(set = 0, binding = 7, std430) readonly buffer Orte { vec2 ort[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.x) return;
+    float u;
+    float s2 = katzenSigma2(ort[i], u);
+    aus[2 * i] = u;
+    aus[2 * i + 1] = s2;
+}

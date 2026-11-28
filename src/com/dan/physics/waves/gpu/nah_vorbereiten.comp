@@ -1,0 +1,78 @@
+// nah_vorbereiten.comp — je Stützstelle k, σ, c_g und c_θ der Refraktion aus Tiefe und Strömung (Nahfeld.vorbereiten
+// in float). k aus ω = σ(k, h) + k U_θ; ohne Lösung blockiert (k = −1), dann und in trockenen Zellen ist die Wirkung 0.
+// Ein Faden je Zelle und Band.
+#version 460
+layout(local_size_x = 64) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) writeonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 9) buffer Neu { float n[]; };
+
+/** Wellenzahl ohne Strömung (Newton wie Waves.wellenzahl). */
+float wellenzahl0(float om, float h) {
+    float k0 = om * om / G, x = k0 * h;
+    if (x > 30.0) return k0;
+    float y = x < 1.0 ? sqrt(x) : x;
+    for (int it = 0; it < 50; it++) {
+        float t = th(y), fy = y * t - x, dy = t + y * (1.0 - t * t), s = fy / dy;
+        y -= s;
+        if (abs(s) < 1e-7 * y) break;
+    }
+    return y / h;
+}
+
+/** Wellenzahl zu ω bei U_θ (Nahfeld.wellenzahl); −1: blockiert. */
+float wellenzahl(float om, float h, float ut) {
+    float k0 = wellenzahl0(om, h);
+    if (ut == 0.0) return k0;
+    if (ut > 0.0) {
+        float lo = 0.0, hi = k0;
+        for (int it = 0; it < 60; it++) {
+            float m = 0.5 * (lo + hi);
+            if (sigmaK(m, h) + m * ut > om) hi = m; else lo = m;
+        }
+        return 0.5 * (lo + hi);
+    }
+    float kmax = 4.0 * k0;
+    for (int t = 0; t < 60 && gruppe(sigmaK(kmax, h), kmax, h) + ut >= 0.0 && sigmaK(kmax, h) + kmax * ut < om; t++) kmax *= 2.0;
+    float kb = kmax;
+    if (gruppe(sigmaK(kmax, h), kmax, h) + ut < 0.0) {
+        float lo = 0.0, hi = kmax;
+        for (int it = 0; it < 60; it++) {
+            float m = 0.5 * (lo + hi);
+            if (gruppe(sigmaK(m, h), m, h) + ut > 0.0) lo = m; else hi = m;
+        }
+        kb = lo;
+    }
+    if (sigmaK(kb, h) + kb * ut < om) return -1.0;
+    float lo = 0.0, hi = kb;
+    for (int it = 0; it < 60; it++) {
+        float m = 0.5 * (lo + hi);
+        if (sigmaK(m, h) + m * ut > om) hi = m; else lo = m;
+    }
+    return 0.5 * (lo + hi);
+}
+
+void main() {
+    int id = int(gl_GlobalInvocationID.x);
+    int nc = W.nx * W.ny;
+    if (id >= nc * W.nb) return;
+    int c = id / W.nb, b = id - c * W.nb;
+    if (!nass(c)) {
+        for (int q = 0; q < W.nd; q++) { bin[ix(c, b, q)] = vec4(-1.0, 0.0, 0.0, 0.0); n[ix(c, b, q)] = 0.0; }
+        return;
+    }
+    float h = tiefe(c), om = band[b].x;
+    vec4 z1 = zelle[5 * c + 1], z3 = zelle[5 * c + 3], z4 = zelle[5 * c + 4];
+    for (int q = 0; q < W.nd; q++) {
+        int i = ix(c, b, q);
+        float co = winkel[q].x, si = winkel[q].y;
+        float ut = z1.x * co + z1.y * si;
+        float k = wellenzahl(om, h, ut);
+        if (k < 0.0) { bin[i] = vec4(-1.0, 0.0, 0.0, 0.0); n[i] = 0.0; continue; }
+        float sg = sigmaK(k, h), cg = gruppe(sg, k, h);
+        float zkh = 2.0 * k * h, r = zkh > 60.0 ? 0.0 : sg / sinh(zkh);
+        float ct = W.mitRefraktion != 0 ? r * (si * z3.x - co * z3.y) + si * (co * z3.z + si * z4.x) - co * (co * z3.w + si * z4.y) : 0.0;
+        bin[i] = vec4(k, sg, cg, ct);
+    }
+}
