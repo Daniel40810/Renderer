@@ -267,6 +267,8 @@ public final class Buehne implements AutoCloseable {
                     @Override public com.dan.core.szene.Brandung.Wasser wasser() { return ww; }
                     @Override public double[] wind() { return new double[] {wb.u10, wb.v10}; }
                 };
+                // seit S9f (SF197 A): bis die erste Fläche steht, gilt ihr künftiger Bereich für die Brandung als Netz
+                brandung.netzErwartet = this::brandungNetzErwartet;
             }
             // seit S3c-5 (SF29 A): die Steuerung hält das Auge über dem Wasser
             steuerung.wasser = (o, n) -> wasserUndSeegang(o, n);
@@ -1146,6 +1148,18 @@ public final class Buehne implements AutoCloseable {
 
     /** Seit P13c: der Bildteil der Brandung (null ohne Kanten), für Prüfungen. */
     public com.dan.render.brandung.Brandungsbild brandungsbild() { return brandung; }
+
+    /**
+     * Seit S9f (Seegang Werkbuch 115, SF197 A): halbe Weite (m) des Bereichs um das Auge, in dem das Netz zeichnen wird, wie
+     * {@code Seegangbild.netzWerte}: (n/2 − 2) Stellen der äußersten Stufe (1984 m).
+     */
+    public static final double NETZ_ERWARTET_M = (Seegangsflaeche.N / 2 - 2) * Seegangsflaeche.D0 * Math.pow(2, Seegangsflaeche.STUFEN - 1);
+
+    /** Seit S9f: {@link #NETZ_ERWARTET_M}, solange die erste Fläche des Seegangs im Bau ist (Seegang an), sonst NaN. */
+    private double brandungNetzErwartet() {
+        Flaechenwart fw = flaechenwart;
+        return fw != null && wasser.seegang && fw.ersteFlaecheKommt() ? NETZ_ERWARTET_M : Double.NaN;
+    }
 
     /** Seit P13c: Gerät und Konto der Bühne (für Proben auf der Karte). */
     public Geraet geraet() { return g; }

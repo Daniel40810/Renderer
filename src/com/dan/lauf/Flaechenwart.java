@@ -57,7 +57,7 @@ import java.util.function.Consumer;
  * (SeegangAppCheck). Nur für Szenarien aus einem Archiv (das Nahfeld liest es).
  */
 public final class Flaechenwart implements AutoCloseable {
-    public static final String VERSION = "0.5";
+    public static final String VERSION = "0.6";
     /** Seit S7d4: Körperfläche an (Vorgabe) oder aus ({@code -Dseegang.koerperflaeche=aus}). */
     public static volatile boolean KOERPERFLAECHE = !"aus".equalsIgnoreCase(System.getProperty("seegang.koerperflaeche", "an"));
     /** Seit S7d4: Einblenden der ersten Körperfläche (s) [G]. */
@@ -109,6 +109,9 @@ public final class Flaechenwart implements AutoCloseable {
     private volatile String fehler;
     private boolean sprung, gescheitert;
     private volatile double tJetzt;
+    /** Seit S9f (SF197 A): Uhr (System.nanoTime) des letzten {@link #vorBild}; ob es eins gab. */
+    private long gefuehrtNs;
+    private boolean gefuehrt;
     private volatile int rundenJeStueck = RUNDEN_JE_BILD;
 
     // seit S3d-2 (SF39 A): Zeitraffer und Dauer der Baue auf der Uhr der Bildschleife
@@ -298,6 +301,20 @@ public final class Flaechenwart implements AutoCloseable {
     /** Steht eine Fläche (mit Nahfeld) im Bild? */
     public synchronized boolean bereit() { return aktiv != null; }
 
+    /** Seit S9f (Seegang Werkbuch 115, SF197 A): so lange (s) nach dem letzten {@link #vorBild} gilt der Wart als geführt [G]. */
+    public static final double GEFUEHRT_S = 2;
+
+    /**
+     * Seit S9f (Seegang Werkbuch 115, SF197 A): Kommt die erste Fläche erst noch? An, Seegang aus einem Archiv, noch keine
+     * Fläche gezeigt, kein Fehler, und jemand führt den Wart (Bildschleife, Film oder Prüfung: {@link #vorBild} vor höchstens
+     * {@link #GEFUEHRT_S}). Ein Standbild ohne Wart erwartet keine. Die Bühne gibt das an die Brandung
+     * ({@code Brandungsbild.netzErwartet}).
+     */
+    public synchronized boolean ersteFlaecheKommt() {
+        return an && archiv != null && !netze.isEmpty() && aktiv == null && !gescheitert && fehler == null
+                && gefuehrt && System.nanoTime() - gefuehrtNs < GEFUEHRT_S * 1e9;
+    }
+
     /**
      * Seit S8e2 (Video): Steht eine Fläche für diesen Blick und diese Zeit – kein Bau, kein Wechsel, kein Sprung offen, nicht
      * weiter als {@link #WEG_M} und {@link #DREHUNG_GRAD} vom Ort des Baus, nicht älter als {@link #ALTER_S}?
@@ -396,6 +413,8 @@ public final class Flaechenwart implements AutoCloseable {
      */
     public synchronized void vorBild(Blick b, double ts, long jetztNs) {
         bildNr++;
+        gefuehrtNs = System.nanoTime();                                     // seit S9f (SF197 A)
+        gefuehrt = true;
         tJetzt = ts;
         // seit S3d-2 (SF39 A): der Zeitraffer aus den Bildern, gleitend über RAFFER_TAU_S
         if (!Double.isNaN(tVor) && jetztNs > nsVor) {

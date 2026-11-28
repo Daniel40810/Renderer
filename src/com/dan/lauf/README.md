@@ -732,3 +732,13 @@ zusätzlich Kohärenz fein in den geraden Stücken ≥ 0,8 [G].
 - Prüfung: `demo.KielwasserCheck --teil 5` (Adler-Express kommt an: pünktlich ± 2 min, nicht gekentert, 4 Leinen; Attest
   `S7e_Adler.md`), `demo.SeezeichenCheck` mit Bildern des Adler-Express bei Tag und Nacht, der Enten und des Treibguts.
   Läufe L5e2 und L5e3 (Abnahme S7).
+
+## Seit S9f (Seegang Werkbuch 114/115, SF197 A): die Brandung wartet auf die erste Fläche
+
+- `Flaechenwart` 0.6: `ersteFlaecheKommt()` – an, Seegang aus einem Archiv, noch keine Fläche gezeigt, kein Fehler, und
+  `vorBild` vor höchstens `GEFUEHRT_S` (2 s [G]). Ein Standbild ohne geführten Wart erwartet keine Fläche.
+- `Buehne`: setzt `Brandungsbild.netzErwartet` auf `NETZ_ERWARTET_M` (1984 m), solange die erste Fläche kommt und der
+  Seegang an ist. Die Brandung zeichnet dann im künftigen Bereich des Netzes keine starren Brecher und keinen Film (B45),
+  die Gischt bleibt. Vorher: Kacheln in den ersten rund 30 s nach dem Öffnen.
+- Prüfung: `demo.BrandungBildCheck --teil anlauf` (Prüfstein 21a Gegenprobe ohne Warten, 21b mit Warten, 21c nach der
+  Fläche; Attest `docs/status/S9f_Brandung_Anlauf.md`).

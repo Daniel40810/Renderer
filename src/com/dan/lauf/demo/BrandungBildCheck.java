@@ -4,6 +4,7 @@ import com.dan.core.pruef.Attest;
 import com.dan.core.raum.Blick;
 import com.dan.lauf.Ansicht;
 import com.dan.lauf.Buehne;
+import com.dan.lauf.Flaechenwart;
 import com.dan.lauf.Szenario;
 import com.dan.lauf.Szenen;
 import com.dan.render.brandung.Brandungsbild;
@@ -37,6 +38,9 @@ import static com.dan.core.pruef.Attest.f;
  * <li><b>Teil bitgleich:</b> Prüfstein 7 – ohne Seegang ist das Bild mit Brandung an und aus bitgleich.</li>
  * <li><b>Teil bild:</b> Prüfsteine 9 (Kosten mit und ohne Brandung) und 10 (Bilder zur Sichtprüfung
  * {@code docs/status/P13c_Brandung_Bild.png}, je Ansicht mit und ohne).</li>
+ * <li><b>Teil anlauf</b> (seit S9f, Seegang Werkbuch 115, SF197 A): Prüfstein 21 – vor der ersten Fläche des Seegangs keine
+ * starren Brecher und kein Wasserfilm (Gegenprobe ohne Warten), nach der Fläche das Netz wie bisher. Attest
+ * {@code docs/status/S9f_Brandung_Anlauf.md}.</li>
  * </ul>
  * Attest {@code docs/status/P13c_BrandungBild.md}.
  * <pre>  BrandungBildCheck --szenen ..\HalligHooge\src\szenen\Hooge.szenen [--teil probe,bitgleich,bild]</pre>
@@ -72,13 +76,19 @@ public final class BrandungBildCheck {
                     case "bitgleich" -> bitgleich(sz);
                     case "bild" -> bild(sz);
                     case "diagnose" -> diagnose(sz);
+                    case "anlauf" -> anlauf(sz);
                     default -> A.info("Teil " + t, "unbekannt");
                 }
             }
         } catch (Throwable e) {
             A.fehler(e);
         }
-        Path p = A.schreibe(Path.of("docs", "status", teile.strip().equals("diagnose") ? "P13c_Diagnose.md" : "P13c_BrandungBild.md"), "P13c – BrandungBildCheck (" + teile + ")");
+        String datei = switch (teile.strip()) {
+            case "diagnose" -> "P13c_Diagnose.md";
+            case "anlauf" -> "S9f_Brandung_Anlauf.md";                     // seit S9f (SF197 A)
+            default -> "P13c_BrandungBild.md";
+        };
+        Path p = A.schreibe(Path.of("docs", "status", datei), "P13c – BrandungBildCheck (" + teile + ")");
         if (p != null) System.out.println("\nAttest: " + p);
         System.out.println();
         System.out.println(A.pruefsteine() + " Prüfsteine. " + A.urteil());
@@ -139,6 +149,112 @@ public final class BrandungBildCheck {
                 A.pruefe(da > 0 && Math.abs(sk / Math.max(1e-9, sw) - 1) <= 0.05, f("Prüfstein 18 (Karte): Mittel der Schaumköpfe gegen die Bedeckung W, Bildpunkt %.1f m", fuss),
                         f("%.4f gegen %.4f: %.3f", sk / Math.max(1, da), sw / Math.max(1, da), sk / Math.max(1e-9, sw)), "1 ± 0,05");
             }
+        }
+    }
+
+    // ------------------------------------------------------------------ Teil anlauf (seit S9f)
+
+    /** Seit S9f: Bilder der Gegenprobe ohne Warten, mit Warten vor der Fläche, nach der Fläche; höchstens bis zur Fläche. */
+    static final int OHNE = 10, MIT = 20, NACH = 30, BIS_FLAECHE = 1800;
+
+    /** Zahlen je Abschnitt des Anlaufs. */
+    static final class Anlauf {
+        int bilder, erwartet, scheitelMax, scheitelBilder, aktivMax, imNetzWeniger, buendelMax, mitFlaeche;
+        long scheitelSumme;
+
+        void zaehle(Brandungsbild br, Flaechenwart w) {
+            bilder++;
+            if (br.letzteErwartet) erwartet++;
+            int sc = br.letzteScheitel;
+            scheitelMax = Math.max(scheitelMax, sc);
+            scheitelSumme += sc;
+            if (sc > 0) scheitelBilder++;
+            aktivMax = Math.max(aktivMax, br.brandung.aktiv);
+            if (br.brandung.imNetz < br.brandung.aktiv) imNetzWeniger++;
+            buendelMax = Math.max(buendelMax, br.letzteBuendel);
+            if (w.bereit()) mitFlaeche++;
+        }
+
+        String text() {
+            return f("%d Bilder: erwarteter Bereich in %d, Scheitel der Brecher und Filme höchstens %d (in %d Bildern, Summe %d), "
+                    + "aktive Abschnitte höchstens %d, Bilder mit Abschnitten außerhalb des Netzes %d, Gischt höchstens %d Bündel, mit Fläche %d",
+                    bilder, erwartet, scheitelMax, scheitelBilder, scheitelSumme, aktivMax, imNetzWeniger, buendelMax, mitFlaeche);
+        }
+    }
+
+    /** Ein Bild wie die Anwendung: der Wart davor und danach, Zeitraffer 1, 30 Bilder/s. */
+    static void bildMitWart(Buehne b, Flaechenwart w, Blick bl0, double[] zt, long[] ns) {
+        w.zeitraffer(1);
+        Blick bl = bl0.kopie();
+        bl.groesse(bl0.breite, bl0.hoehe_px);
+        w.vorBild(bl, zt[0], ns[0]);
+        b.bildzeiten(bl, zt[0], 1, true);
+        w.nachBild();
+        zt[0] += 1.0 / 30;
+        ns[0] += 1_000_000_000L / 30;
+    }
+
+    /**
+     * Seit S9f (Seegang Werkbuch 115, SF197 A), Prüfstein 21: Xaver an der Hanswarft, die Bühne wie die Anwendung mit dem
+     * Wart. Vor der ersten Fläche zeichnet die Brandung ohne Warten die starren Stücke aus P13c (Gegenprobe, B45), mit
+     * Warten keine (die Gischt bleibt); nach der Fläche nimmt sie den Bereich aus dem Netz wie bisher.
+     */
+    static void anlauf(Szenen sz) throws Exception {
+        A.teil("Anlauf: Brandung vor der ersten Fläche des Seegangs (Prüfstein 21, SF197 A)");
+        Szenario s = szenario(sz, "xaver");
+        if (s == null) { A.pruefe(false, "Szenario xaver", "fehlt", "vorhanden"); return; }
+        boolean warten = Brandungsbild.WARTEN;
+        try (Buehne b = Buehne.ohneFenster(sz.gebiet(), BREITE, HOEHE)) {
+            b.oeffne(s);
+            b.brandung(true);
+            double t = zeit(b, "2013-12-05T13:30:00Z");
+            Blick bl = blick(b, sz, "landunter_hanswarft", t);
+            Brandungsbild br = b.brandungsbild();
+            Flaechenwart w = b.wart();
+            if (br == null || !w.moeglich() || !w.an()) {
+                A.pruefe(false, "Brandung und Fläche des Seegangs im Szenario xaver", f("Brandung %s, Fläche möglich %s, an %s", br != null, w.moeglich(), w.an()), "vorhanden");
+                return;
+            }
+            b.standbild(bl, t);                                             // Stände um t laden (wie SeegangAbnahme)
+            double[] zt = {t};
+            long[] ns = {0};
+            long t0 = System.nanoTime();
+            Anlauf ohne = new Anlauf(), mit = new Anlauf(), nach = new Anlauf();
+            Brandungsbild.WARTEN = false;
+            for (int i = 0; i < OHNE; i++) {
+                bildMitWart(b, w, bl, zt, ns);
+                ohne.zaehle(br, w);
+            }
+            Brandungsbild.WARTEN = true;
+            for (int i = 0; i < MIT; i++) {
+                bildMitWart(b, w, bl, zt, ns);
+                mit.zaehle(br, w);
+            }
+            int bis = OHNE + MIT;
+            while (bis < BIS_FLAECHE && !(w.bereit() && !w.wechselt())) {
+                bildMitWart(b, w, bl, zt, ns);
+                bis++;
+            }
+            double sBis = (System.nanoTime() - t0) / 1e9;
+            for (int i = 0; i < NACH; i++) {
+                bildMitWart(b, w, bl, zt, ns);
+                nach.zaehle(br, w);
+            }
+            A.info("Ohne Warten (Gegenprobe), vor der Fläche", ohne.text());
+            A.info("Mit Warten, vor der Fläche", mit.text());
+            A.info("Erste Fläche", w.bereit() ? f("steht nach %d Bildern (%.1f s auf der Uhr dieser Prüfung)", bis, sBis) : f("NICHT nach %d Bildern", bis));
+            A.info("Nach der Fläche", nach.text());
+            A.pruefe(ohne.mitFlaeche == 0 && ohne.scheitelMax > 0 && ohne.erwartet == 0,
+                    "Prüfstein 21a: ohne Warten (Gegenprobe), vor der Fläche: starre Brecher und Filme aus P13c", f("höchstens %d Scheitel, in %d von %d Bildern", ohne.scheitelMax, ohne.scheitelBilder, ohne.bilder), "> 0 (B45 nachgestellt)");
+            A.pruefe(mit.mitFlaeche == 0 && mit.erwartet == mit.bilder && mit.scheitelMax == 0 && mit.imNetzWeniger == 0 && mit.aktivMax > 0,
+                    "Prüfstein 21b: mit Warten, vor der Fläche: keine Brecher und kein Film, alle aktiven Abschnitte im erwarteten Bereich",
+                    f("erwartet in %d von %d Bildern, höchstens %d Scheitel, %d Bilder mit Abschnitten außerhalb, bis %d aktive Abschnitte, Gischt bis %d Bündel",
+                            mit.erwartet, mit.bilder, mit.scheitelMax, mit.imNetzWeniger, mit.aktivMax, mit.buendelMax), "erwartet in allen, 0 Scheitel, 0 außerhalb");
+            A.pruefe(w.bereit() && nach.mitFlaeche == nach.bilder && nach.erwartet == 0 && nach.imNetzWeniger == 0,
+                    "Prüfstein 21c: nach der Fläche: Bereich aus dem Netz, nicht mehr der erwartete",
+                    f("erwartet in %d von %d Bildern, %d Bilder mit Abschnitten außerhalb, Fläche in %d", nach.erwartet, nach.bilder, nach.imNetzWeniger, nach.mitFlaeche), "0 erwartet, 0 außerhalb");
+        } finally {
+            Brandungsbild.WARTEN = warten;
         }
     }
 
