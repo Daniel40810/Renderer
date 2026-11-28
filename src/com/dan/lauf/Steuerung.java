@@ -15,13 +15,21 @@ import java.time.Instant;
 /**
  * Die Kamera mit Maus und Tasten (Werkbuch HalligHooge Teil B, B.3; aus {@code lauf.demo.BildDemo} herausgezogen):
  * Ziehen mit der Maus dreht und neigt, das Rad ändert den Bildwinkel; W A S D bewegen (mit Umschalt zehnmal
- * schneller), Q und E heben und senken. Die Geschwindigkeit wächst mit der Höhe über dem Boden.
+ * schneller), Q und E heben und senken. Die Geschwindigkeit wächst mit der Höhe über dem Boden. Seit S3c-5 (SF29 A)
+ * bleibt das Auge über dem Wasser ({@link #wasser}).
  * <p>
  * Die Ereignisse kommen im Faden der Oberfläche, {@link #bewegen} ruft die Bildschleife; beides ist gesperrt.
  */
 public final class Steuerung {
     private final Blick blick = new Blick();
     private double vor, seit, hoch, dreh, neig, schnell = 1, boden;
+    /**
+     * Seit S3c-5 (SF29 A): Wasser am Ort (Ost, Nord → {Spiegel m NHN oder NaN, Hs m}), von der Bühne gesetzt; null: ohne.
+     * Das Auge bleibt mindestens {@link #ueberWasser} m über Spiegel plus Hs/2.
+     */
+    public volatile java.util.function.BiFunction<Double, Double, double[]> wasser;
+    /** Mindesthöhe über dem Wasser (m), aus der zuletzt gesetzten Ansicht. */
+    private double ueberWasser = Ansicht.UEBER_WASSER;
     private int mx, my;
 
     /** Hängt Maus und Tasten an eine Komponente (die Leinwand). */
@@ -83,6 +91,15 @@ public final class Steuerung {
         blick.nord += v * (vor * Math.cos(a) - seit * Math.sin(a));
         boden = gel != null ? gel.hoehe(blick.ost, blick.nord, 1) : 0;
         blick.hoehe = Math.max(boden + 1.0, blick.hoehe + hoch * v);
+        ueberWasser();
+    }
+
+    /** Seit S3c-5 (SF29 A): hebt das Auge über das Wasser am Ort, wenn die Bühne es kennt. */
+    private void ueberWasser() {
+        java.util.function.BiFunction<Double, Double, double[]> w = wasser;
+        if (w == null) return;
+        double[] e = w.apply(blick.ost, blick.nord);
+        if (e != null) Ansicht.hebe(blick, e[0], e[1], ueberWasser);
     }
 
     /** Setzt den Blick auf eine Ansicht (siehe {@link Ansicht#setze}). */
@@ -90,6 +107,8 @@ public final class Steuerung {
         a.setze(blick, gel, utm, zeit);
         boden = gel != null ? gel.hoehe(blick.ost, blick.nord, 1) : 0;
         dreh = neig = 0;
+        ueberWasser = a.ueberWasser;
+        ueberWasser();
     }
 
     /** Setzt den Blick frei. */

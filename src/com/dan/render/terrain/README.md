@@ -118,3 +118,37 @@ Spiegelung gegen Fresnel · L_Himmel in Java, Muster im Mittel ± 2 %, außerhal
 ## Nässe bilinear (seit C2b, Werkbuch HalligHooge 138, A52)
 
 `gelaende.frag` liest die Nässe (`water.wetAge` oder `surf.wet`) bilinear zwischen den vier Zellmitten um den Ort; vorher galt die Zelle am Ort, und das Watt war in Kacheln der Zellgröße dunkler (unter flachem Wasser sichtbar, Xaver). Die Referenz (`render.reference.Gelaendeszene.naesse`) rechnet dieselbe Regel.
+
+## Auflauf im Gelände (seit S6c-2, Seegang Werkbuch 82, SF93 A)
+
+Legt `lauf.Auflauf` sein Bild unter `Swash/Bild` ab (`Gelaendebild.SWASH_BILD`, Puffer an Bindung 15, Lage im Kopf der
+Stufen: `swLage`, `swAchse`, `swN`), zeichnet `gelaende.frag` im Rechteck aus dem Löser [G]: den Film unter 3 cm als Spiegel
+(Fresnel, Himmel aus der Ansicht, Glanz der Sonne wie das Wasser der Gräben; Neigung aus dem Stand des Lösers), eben
+abgelaufenen Sand mit Glanz (abklingend mit 4 s), Nässe aus der Zeit seit nass (Halbwertszeit der Nässe wie `wetAge`) und dem
+versickerten Wasser (voll ab 5 mm), auf Gras, Klei und Deckwerk mit 35 % der Abdunklung, und den Spülsaum an der höchsten
+Linie je Zeile (0,3 m breit, unregelmäßig, Albedo 0,55). Ab 3 cm zeigt das Wasser (render.water) den Löser. Ohne Bild
+oder mit `swashAn` = false (`-Dgelaende.swash=aus`) wie bisher; die Referenz (`render.reference`) kennt den Auflauf nicht,
+ihre Prüfungen laufen ohne ihn.
+
+Seit S6c-2b (Seegang Werkbuch 83): „zuletzt nass“ steht absolut im Bild, die Zeit der Karte in `swN.w` (Bits von float);
+der Spülsaum je Zeile als Index der Zelle + 1. Film, Glanz und Spülsaum nur, wo das Netz nicht zeichnet (bilinear unter
+3 cm, wie das Netz, das ab 2,5 cm zeigt): Unter dem Netz ging der Glanz des Grunds als Albedo in die Säule des Wassers und
+gab helle Flecken unter tiefem Wasser (L4p). Der Film spiegelt mit der Normale des Geländes (dazu die Kräuselung); vorher
+waagerecht mit der Neigung des Stands (auf ± 0,3 begrenzt, 0 neben trockenen Zellen) – auf der Böschung ein streifender,
+himmelheller Spiegel mit Zähnen (L4o).
+
+## Wellenrippel (seit S6d-1, Seegang Werkbuch 84, SF57 A)
+
+- Das Bild des Bodens (`bodenT`, Bindung 7) hat 2 · ny Zeilen.
+  - Unten die Strömungsrippel und der Schlick aus `bed.ripple` wie bisher.
+  - Oben die Wellenrippel (`Gelaendebild.wellenrippel`: Höhe, Länge, Richtung der formenden Welle, 0).
+  - `bod.w` = 1, wenn sie gesetzt und an sind (`wellenrippel`).
+- `rippel()` in `gelaende.frag`: Wo die Welle die Zelle zuletzt geformt hat, gilt ihr Muster statt des Stroms.
+  - Symmetrisch mit spitzem Kamm: z = η/2 (cos φ + 0,2 cos 2φ).
+  - Kämme quer zur Welle, leicht gebogen und längs ungleich hoch [G].
+  - Wie die Strömungsrippel nur, wo ein Bildpunkt sie auflöst.
+
+## Seit S6e (Seegang Werkbuch 85, A21): Rand von Film und Spülsaum glatt
+
+- `swashAmOrt` nimmt Film, Glanz, Nässe, Stand und Wasser als quadratischen B-Spline über 3 × 3 Zellen, wie `swFlaeche` im Wasser; die Neigung des Films aus der Ableitung.
+- Der Spülsaum liegt zwischen den Mitten zweier Zeilen linear. Je Zeile fest gab an 1-m-Zellen eine Treppe (L4y).

@@ -31,6 +31,7 @@ import java.util.Set;
  * ansicht.westspitze.richtung   = 259                 # Grad von Nord über Ost; oder: sonne
  * ansicht.westspitze.neigung    = -2
  * ansicht.westspitze.bildwinkel = 55
+ * ansicht.westspitze.wasser     = 1.5                 # seit S3c-5: mindestens so hoch über Wasser + Hs/2 (Vorgabe 1,5 m)
  *
  * szenario.sturm.name           = Sturmflut, 25.10.2026
  * szenario.sturm.archiv         = D:\Daten\HalligHooge\_p6\archiv
@@ -119,7 +120,20 @@ public final class Szenen {
         if (h.length >= 2 && !boden && !h[1].equalsIgnoreCase("nhn")) throw new IOException(datei + ": " + v + "hoehe = Zahl und „boden“ oder „nhn“ erwartet");
         String r = text(v + "richtung", "0");
         double richtung = r.equalsIgnoreCase("sonne") ? Double.NaN : zahl(datei, v + "richtung", r);
-        return new Ansicht(k, text(v + "name", k), ort[0], ort[1], zahl(datei, v + "hoehe", h[0]), boden, richtung, zahl(v + "neigung", -2), zahl(v + "bildwinkel", 55));
+        Ansicht a = new Ansicht(k, text(v + "name", k), ort[0], ort[1], zahl(datei, v + "hoehe", h[0]), boden, richtung, zahl(v + "neigung", -2), zahl(v + "bildwinkel", 55));
+        double[] fein = zahlen(v + "fein");                                  // seit S3c (SF27 A): Mitte des feinen Nahfelds
+        if (fein != null && fein.length != 2) throw new IOException(datei + ": " + v + "fein = Ost Nord erwartet");
+        a.fein = fein;
+        a.ueberWasser = zahl(v + "wasser", Ansicht.UEBER_WASSER);       // seit S3c-5 (SF29 A): Mindesthöhe über dem Wasser
+        if (!(a.ueberWasser >= 0)) throw new IOException(datei + ": " + v + "wasser = Meter über dem Wasser (≥ 0) erwartet");
+        String bord = text(v + "bord", null);                               // seit S7c: an Bord eines Schwimmers
+        if (bord != null) {
+            String[] t = bord.strip().split("\\s+");
+            a.bord = t[0];
+            if (t.length == 4) a.bordAuge = new double[] {zahl(datei, v + "bord", t[1]), zahl(datei, v + "bord", t[2]), zahl(datei, v + "bord", t[3])};
+            else if (t.length != 1) throw new IOException(datei + ": " + v + "bord = Schwimmer [x y z] erwartet");
+        }
+        return a;
     }
 
     private Szenario baueSzenario(String k) throws IOException {
@@ -139,7 +153,135 @@ public final class Szenen {
                 beginn == null ? null : zeit(v + "beginn", beginn), zahl(v + "zeitraffer", archiv != null ? 300 : 100), an);
         sz.schwebstoff = zahl(v + "schwebstoff", Double.NaN);
         sz.sediment = List.of("an", "ja", "true").contains(text(v + "sediment", "aus").trim().toLowerCase(java.util.Locale.ROOT));
+        // seit S7b-2 (Seegang Werkbuch 88): die Schwimmer
+        String sw = text(v + "schwimmer", null);
+        if (sw != null) {
+            List<Schwimmerangabe> l = new java.util.ArrayList<>();
+            for (String n : sw.split("[\\s;]+")) if (!n.isEmpty()) l.addAll(schwimmer(n));
+            sz.schwimmer = java.util.Collections.unmodifiableList(l);
+        }
+        // seit S7d4 (SF121 A): die Mitte der Körperfläche, je Szenario oder für alle
+        double[] km = zahlen(v + "koerper");
+        if (km == null) km = zahlen("seegang.koerper");
+        if (km != null && km.length != 2) throw new IOException(datei + ": seegang.koerper = Ost Nord erwartet");
+        sz.koerper = km;
         return sz;
+    }
+
+    /** Seit S7b-2: die Schwimmer zu einem Namen ({@code schwimmer.<name>.…}); eine Datei gibt viele. */
+    /**
+     * Seit S7e2 (Seegang Werkbuch 101, SF151 A): ein Trupp Eiderenten – anzahl Tiere um (ost, nord) in einer Sonnenblume
+     * (goldener Winkel) bis zum Halbmesser, mit Zufall aus dem Namen; Erpel (schwarz-weiß) und Enten (braun) je zur Hälfte,
+     * Kurs zufällig [G]. Jede hält ihren eigenen Platz (fest = trupp, Zahlen: Ost Nord des Platzes).
+     */
+    static List<Schwimmerangabe> trupp(String name, double ost, double nord, int anzahl, double halbmesser) {
+        java.util.Random z = new java.util.Random(name.hashCode() * 0x9E3779B97F4A7C15L + 0x632BE59BD9B4E019L);
+        List<Schwimmerangabe> l = new java.util.ArrayList<>();
+        for (int i = 0; i < anzahl; i++) {
+            double r = halbmesser * Math.sqrt((i + 0.5) / anzahl), a = i * Math.toRadians(137.508) + 0.3 * z.nextGaussian();
+            double x = ost + r * Math.sin(a) + 0.3 * z.nextGaussian(), y = nord + r * Math.cos(a) + 0.3 * z.nextGaussian();
+            Schwimmerangabe e = new Schwimmerangabe(name + "." + (i + 1), "eiderente", x, y, 360 * z.nextDouble(), "trupp", new double[] {x, y});
+            e.farbe = z.nextBoolean() ? "erpel" : "ente";
+            e.titel = "Eiderente";
+            l.add(e);
+        }
+        return l;
+    }
+
+    public List<Schwimmerangabe> schwimmer(String n) throws IOException {
+        String v = "schwimmer." + n + ".";
+        File d = pfad(v + "datei");
+        List<Schwimmerangabe> l = new java.util.ArrayList<>();
+        if (d != null) {
+            // je Zeile: art Ost Nord Farbe Kette(m) Name [Kennung …]; seit S7e1 auch pricke Ost Nord Seite Länge(m) Name; # Kommentar
+            int nr = 0;
+            for (String zeile : Files.readAllLines(d.toPath(), StandardCharsets.UTF_8)) {
+                nr++;
+                String z = zeile.strip();
+                if (!z.isEmpty() && z.charAt(0) == '\uFEFF') z = z.substring(1).strip();
+                if (z.isEmpty() || z.startsWith("#")) continue;
+                String[] t = z.split("\\s+");
+                if (t.length < 6) throw new IOException(d + ", Zeile " + nr + ": art Ost Nord Farbe Kette Name erwartet");
+                // seit S7e2 (SF151 A): „trupp Ost Nord Anzahl Halbmesser Name“ – so viele Eiderenten um den Ort
+                if ("trupp".equals(t[0])) { l.addAll(trupp(n + "." + t[5], zahl(d, "Ost", t[1]), zahl(d, "Nord", t[2]), (int) zahl(d, "Anzahl", t[3]), zahl(d, "Halbmesser", t[4]))); continue; }
+                // seit S7e2: „art Ost Nord Farbe frei Name“ treibt frei (Treibgut), Kurs aus dem Namen [G]
+                if ("frei".equals(t[4])) {
+                    Schwimmerangabe a = new Schwimmerangabe(n + "." + t[5], t[0], zahl(d, "Ost", t[1]), zahl(d, "Nord", t[2]), Math.floorMod(t[5].hashCode() * 37, 360), "frei", new double[0]);
+                    a.farbe = t[3];
+                    a.titel = t[5];
+                    l.add(a);
+                    continue;
+                }
+                // seit S7e1 (SF149 A): „pricke Ost Nord Seite Länge Name“ steht fest im Grund
+                boolean pricke = "pricke".equals(t[0]);
+                Schwimmerangabe a = new Schwimmerangabe(n + "." + t[5], t[0], zahl(d, "Ost", t[1]), zahl(d, "Nord", t[2]), 0, pricke ? "pricke" : "kette",
+                        new double[] {zahl(d, pricke ? "Länge" : "Kette", t[4])});
+                a.farbe = t[3];
+                a.titel = t[5];
+                a.kennung = t.length > 6 ? String.join(" ", java.util.Arrays.copyOfRange(t, 6, t.length)) : null;
+                l.add(a);
+            }
+            return l;
+        }
+        String art = text(v + "art", null);
+        double[] ort = zahlen(v + "ort");
+        if (art == null || ort == null || ort.length != 2) throw new IOException(datei + ": " + v + "art und " + v + "ort = Ost Nord erwartet (oder " + v + "datei)");
+        String[] f = text(v + "fest", "frei").split("\\s+");
+        double[] fz = new double[f.length - 1];
+        for (int i = 1; i < f.length; i++) fz[i - 1] = zahl(datei, v + "fest", f[i]);
+        Schwimmerangabe a = new Schwimmerangabe(n, art, ort[0], ort[1], zahl(v + "kurs", 0), f[0].toLowerCase(java.util.Locale.ROOT), fz);
+        a.farbe = text(v + "farbe", null);
+        a.titel = text(v + "name", n);
+        // seit S7d (Seegang Werkbuch 89): Weg und Fahrplan einer Fähre; seit S7e2 (Datei 101) ein eigener Weg der Abfahrt
+        a.route = route(pfad(v + "route"));
+        a.routeAb = route(pfad(v + "route_ab"));
+        // seit S7e2: Werte des Lotsen je Schiff, Wort Zahl … (fahrt, plan, anlegen, hebel, pegel) und „sturm weg“
+        String lw = text(v + "lotse", null);
+        if (lw != null) {
+            String[] t = lw.strip().split("\\s+");
+            for (int i = 0; i + 1 < t.length; i += 2)
+                if (t[i].equalsIgnoreCase("sturm")) a.sturmWeg = t[i + 1].equalsIgnoreCase("weg");
+                else a.lotse.put(t[i].toLowerCase(java.util.Locale.ROOT), zahl(datei, v + "lotse", t[i + 1].replace('\u2212', '-')));
+        }
+        String fp = text(v + "fahrplan", null);
+        if (fp != null) {
+            String[] t = fp.strip().split("\\s+");
+            // seit S7d2: „tide −2:00 +1:30“ – Ankunft und Abfahrt gegen das Hochwasser am Pegel (SF117 A)
+            boolean tide = t.length == 3 && t[0].equalsIgnoreCase("tide");
+            if (tide) t = new String[] {t[1], t[2]};
+            // seit S7e2: „13:20 18:30 Europe/Berlin“ – in der Ortszeit (mit Sommerzeit), sonst UTC
+            if (!tide && t.length == 3) {
+                try { a.zone = java.time.ZoneId.of(t[2]); } catch (RuntimeException e) { throw new IOException(datei + ": " + v + "fahrplan: Zeitzone " + t[2] + " unbekannt"); }
+                t = new String[] {t[0], t[1]};
+            }
+            if (t.length != 2) throw new IOException(datei + ": " + v + "fahrplan = hh:mm hh:mm (Ankunft Abfahrt, UTC) oder tide -h:mm +h:mm erwartet");
+            a.fahrplan = new double[2];
+            a.nachTide = tide;
+            for (int i = 0; i < 2; i++) {
+                String w = t[i].replace('\u2212', '-');
+                double vz = w.startsWith("-") ? -1 : 1;
+                if (w.startsWith("-") || w.startsWith("+")) w = w.substring(1);
+                String[] hm = w.split(":");
+                a.fahrplan[i] = vz * (3600 * zahl(datei, v + "fahrplan", hm[0]) + 60 * (hm.length > 1 ? zahl(datei, v + "fahrplan", hm[1]) : 0));
+            }
+        }
+        l.add(a);
+        return l;
+    }
+
+    /** Seit S7e2: ein Weg aus einer Datei (je Zeile Ost Nord); null ohne Datei. */
+    private static double[][] route(File rd) throws IOException {
+        if (rd == null) return null;
+        List<double[]> pk = new java.util.ArrayList<>();
+        for (String zeile : Files.readAllLines(rd.toPath(), StandardCharsets.UTF_8)) {
+            String z = zeile.strip();
+            if (!z.isEmpty() && z.charAt(0) == '\uFEFF') z = z.substring(1).strip();
+            if (z.isEmpty() || z.startsWith("#")) continue;
+            String[] t = z.split("\\s+");
+            pk.add(new double[] {zahl(rd, "Ost", t[0]), zahl(rd, "Nord", t[1])});
+        }
+        if (pk.size() < 2) throw new IOException(rd + ": mindestens zwei Punkte (Ost Nord) erwartet");
+        return pk.toArray(new double[0][]);
     }
 
     private Instant zeit(String schluessel, String wert) throws IOException {

@@ -1,0 +1,11 @@
+// see_koerper.comp — Seegang Werkbuch, S7b-1 (Datei 88), seit S7b-4 und S7d (Datei 89): das Wasser unter den schwimmenden
+// Körpern, ein Faden je Punkt. Seit S7d2 (Datei 90) steht der Rumpf in see_koerper_rumpf.glsl; see_koerper16.comp und
+// see_koerper64.comp rechnen denselben mit 16 und 64 Fäden je Punkt (render.seegang.Koerpersuche wählt).
+#version 460
+layout(local_size_x = 64) in;
+#define BAENDER
+#define KOERPERFLAECHE                                                   // seit S7d4 (Seegang Werkbuch 92): die Körperfläche
+#include "see_gemein.glsl"
+#define KIEL_QUELLEN 24                                                 // seit S7d6 (SF133 A): die Quellen, nicht die Kacheln
+#include "see_kiel_spur.glsl"
+#include "see_koerper_rumpf.glsl"

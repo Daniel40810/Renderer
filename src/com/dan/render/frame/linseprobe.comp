@@ -1,0 +1,16 @@
+#version 460
+// linseprobe.comp – render.frame (S8a, Prüfstein 36): wohin ein Bildpunkt durch die Tropfen zeigt (lDurch), für
+// Linse.probe. Je Probe 4 Werte: uv aus, Anteil des Lichts, 1 wenn Wasser. Push: x Zahl.
+#include "/com/dan/render/frame/linse.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 3, std430) readonly buffer Proben { vec2 pr[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer Aus { vec4 aus[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.x) return;
+    vec2 uo;
+    float t;
+    bool w = lDurch(pr[i], uo, t);
+    aus[i] = vec4(uo, t, w ? 1.0 : 0.0);
+}

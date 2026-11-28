@@ -1,0 +1,7 @@
+// swash_stufe8.comp — wie swash_stufe.comp mit der Kachel 16 × 8 (bis S6d; -Dswash.kachel=8, Vergleich in SwashKarteCheck).
+#version 460
+#define VERSCHMOLZEN
+#define KACHEL_Y 8
+layout(local_size_x = 16, local_size_y = KACHEL_Y) in;
+#include "swash_gemein.glsl"
+#include "swash_stufe.glsl"

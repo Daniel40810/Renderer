@@ -61,6 +61,10 @@ public final class Brandungsbild implements Bildteil {
     public volatile double albedoSchaum = 0.6, albedoWasser = 0.04;
     /** Zuletzt: Scheitel, Bündel, Rechenzeit des Kerns (ms). */
     public volatile int letzteScheitel, letzteBuendel;
+    /** Seit S5b-2: die Gischt aus den Walzen ({@code render.seegang.Gischtsuche} findet die Orte), oder null. */
+    public volatile com.dan.core.szene.Kammgischt kammgischt;
+    /** Seit S5b-4: die Kämme der Fläche am Fuß der Kanten ({@code render.seegang.Fusssuche} findet sie), oder null. */
+    public volatile com.dan.core.szene.Fusswellen fuesse;
     public volatile double letzteMs;
 
     private final Geraet g;
@@ -126,7 +130,15 @@ public final class Brandungsbild implements Bildteil {
         brandung.blickOst = Math.sin(rr);
         brandung.blickNord = Math.cos(rr);
         brandung.blickCos = Math.cos(Math.min(Math.PI, halb + Math.toRadians(15)));
+        // seit S3c-5 (SF28 A): wo das Wasser das Netz zeichnet, keine Brecher und kein Wasserfilm aus P13c (S5/S6 bringen sie
+        // neu aus der Fläche); die Gischt bleibt. Schlüssel "Wasser/Netz" wie render.water.Wasserbild.NETZ_GEZEICHNET.
+        double[] wn = z.werte.get("Wasser/Netz");
+        brandung.netzBereich = wn != null && wn.length >= 6 ? new double[] {wn[2], wn[3], wn[4], wn[5]} : null;
+        brandung.fuesse = fuesse;                                          // seit S5b-4 (SF51 A): im Netz die Kämme der Fläche
         brandung.rechne(kanten, q.wasser(), q.zeit(), b.ost, b.nord, w[0], w[1]);
+        // seit S5b-2 (SF50 A): die Gischt aus den Walzen der Fläche dazu
+        com.dan.core.szene.Kammgischt kg = kammgischt;
+        if (kg != null && kg.an) brandung.anhaengen(kg.buendel(q.zeit(), brandung.e0, brandung.n0, q.wasser(), w[0], w[1]));
         letzteMs = brandung.ms;
         letzteScheitel = brandung.scheitel;
         letzteBuendel = brandung.buendelZahl;

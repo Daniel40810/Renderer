@@ -1,0 +1,20 @@
+// swash_fluss.comp — Flüsse nach HLL über die Kanten mit der hydrostatischen Rekonstruktion nach Audusse (Swash.hll,
+// Swash.raten). Faden (a, b): die Kante in x zwischen (a − 1, b) und (a, b), wenn b < ny, und die Kante in y zwischen
+// (a, b − 1) und (a, b), wenn a < nx. Der einzelne Weg (SwashKarte.verschmolzen = false), zum Vergleich mit swash_stufe.
+#version 460
+layout(local_size_x = 16, local_size_y = 16) in;
+#include "swash_gemein.glsl"
+
+void main() {
+    int a = int(gl_GlobalInvocationID.x), b = int(gl_GlobalInvocationID.y);
+    if (a <= nx() && b < ny()) {                                           // Kante in x: normal hu, längs hv
+        int ca = id(a - 1, b), cc = ca + 1;
+        vec4 ka = steig[3 * ca], kc = steig[3 * cc], va = steig[3 * ca + 2], vc = steig[3 * cc + 2];
+        fx[b * (nx() + 1) + a] = kante(vec4(u[ca].xyz, zelle[ca].x), ka.yw, va.xy, vec4(u[cc].xyz, zelle[cc].x), kc.xz, vc.xy);
+    }
+    if (a < nx() && b <= ny()) {                                           // Kante in y: normal hv, längs hu
+        int ca = id(a, b - 1), cc = id(a, b);
+        vec4 ka = steig[3 * ca + 1], kc = steig[3 * cc + 1], va = steig[3 * ca + 2], vc = steig[3 * cc + 2];
+        fy[b * nx() + a] = kante(vec4(u[ca].xzy, zelle[ca].x), ka.yw, va.wz, vec4(u[cc].xzy, zelle[cc].x), kc.xz, vc.wz);
+    }
+}

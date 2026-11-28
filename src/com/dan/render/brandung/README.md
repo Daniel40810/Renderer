@@ -32,3 +32,13 @@ Im Rahmen nach dem Wasser: `gelaende, wasser, brandung, himmel, kimmung`. Aus (`
 - Die Brecher an den Böschungen haben ihre eigene Wellenfolge; die langen Wellen des Wassers laufen ohne Übergang bis an den Hang.
 - Kein Rückwirken auf hydro oder sediment; Überlauf über die Krone nur gezeigt.
 - Die Referenz kennt Brecher und Gischt nicht.
+- Seit S3c-5 (SF28 A, Seegang Werkbuch 19/20): Wo das Wasser das Netz der Clipmap zeichnet (`Wasser/Netz` in `z.werte`),
+  zeichnet der Kern keine Brecher und keinen Wasserfilm (`Brandung.netzBereich`); die Gischt bleibt. Je Abschnitt ein
+  starres Stück von 5,2 m mit eigener Wasserlinie und Phase gab dort Kacheln (B45). S5/S6 bringen Brecher und Auflauf
+  neu aus der Fläche.
+- Seit S5b-4 (Seegang Werkbuch 46, SF51 A): `Brandungsbild.fuesse` – im Netz nimmt der Kern seine Wellen aus den
+  Kämmen der Fläche am Fuß (`core.szene.Fusswellen`); Gischt am Hang und Überlauf hängen an den Kämmen, die man vor der
+  Kante kommen sieht. Jenseits der Clipmap bleibt die eigene Wellenfolge.
+- Seit S5b-5 (Seegang Werkbuch 50): im Netz wieder Brecher, aber nur die Lippen der Sturz- und Reflexionsbrecher, mit
+  Zeit und Höhe aus den Kämmen der Fläche und mit Enden, die sich Nachbarn teilen (`core.szene.Brandung.lippen`); die
+  Bänder laufen durch dasselbe Netz wie bisher (Schaum, Dicke).

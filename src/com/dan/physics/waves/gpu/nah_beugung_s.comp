@@ -1,0 +1,35 @@
+// nah_beugung_s.comp — Beugung, zweiter Teil (Nahfeld.beugung in float): δ = ∇·(c c_g ∇a) / (k² c c_g a) über den
+// Abstand m Δx ≈ L/4, fehlende Nachbarn linear fortgesetzt; s = √(1 + δ) in Beug.w. Das geglättete a liegt in
+// Glatt[pass & 1]. Ein Faden je Zelle und Band.
+#version 460
+layout(local_size_x = 64) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 6) buffer Beug { vec4 beug[]; };
+layout(std430, binding = 7) readonly buffer Glatt { float glatt[]; };
+
+void main() {
+    int o = int(gl_GlobalInvocationID.x);
+    int nc = W.nx * W.ny, ncb = nc * W.nb;
+    if (o >= ncb) return;
+    int g0 = (P.pass & 1) * ncb;
+    int c = o / W.nb, b = o - c * W.nb;
+    vec4 bo = beug[o];
+    float ao = glatt[g0 + o];
+    if (!nass(c) || ao <= 1e-12 || bo.y <= 0.0) { beug[o].w = 1.0; return; }
+    int i = c % W.nx, j = c / W.nx;
+    int m = max(1, min(W.abstandMax, int(floor(W.stencil * ZWEI_PI / bo.y / W.dx + 0.5))));
+    int nb4[4] = int[4](i - m >= 0 ? c - m : -1, i + m < W.nx ? c + m : -1, zeileVon(j - m, i), zeileVon(j + m, i));
+    float sum = 0.0;
+    for (int r = 0; r < 4; r++) {
+        if (r >= 2 && W.ny == 1) continue;
+        int z = nb4[r], g = nb4[r ^ 1];
+        bool da = z >= 0 && nass(z), gegen = g >= 0 && nass(g);
+        if (da) sum += 0.5 * (bo.z + beug[z * W.nb + b].z) * (glatt[g0 + z * W.nb + b] - ao);
+        else if (gegen) sum += bo.z * (ao - glatt[g0 + g * W.nb + b]);
+    }
+    float md = float(m) * W.dx;
+    float d = sum / (md * md) / (bo.y * bo.y * bo.z * ao);
+    d = clamp(d, W.deltaMin, W.deltaMax);
+    beug[o].w = sqrt(1.0 + d);
+}

@@ -216,6 +216,8 @@ public final class Bild {
     private final Bodennetz boden;
     private float[] sedC, bodRippel, bodSchlick, bodDz;
     private double sedPaarA = Double.NaN, sedPaarB = Double.NaN, bodStand = Double.NaN;
+    // Wellenrippel (S6d-1): das Gedächtnis auf dem Gitter des Bodens; null ohne Boden oder ohne Seegang
+    private final Wellenrippelfeld wellen;
     // atmos (P10b): Nässe und Luft des jüngsten Stands bis zur Szenenzeit
     private final Gitter atmosGitter, luftGitter, flugGitter;
     private float[] flugQ;
@@ -236,6 +238,7 @@ public final class Bild {
      *           relativ zum Fenster)
      */
     public Bild(Quelle quelle, Gebiet ge, Wasserbild wasser, Gelaendebild gelaende) throws IOException {
+        this.gebietOrdner = ge == null ? null : ge.ordner;                  // seit S8b: für die Böe aus ERA5
         this.quelle = quelle;
         this.wasser = wasser;
         this.gelaende = gelaende;
@@ -302,6 +305,13 @@ public final class Bild {
             wasser.boden(null);
             if (gelaende != null) gelaende.boden(null, null);
         }
+        // seit S6d-1: Wellenrippel aus dem Seegang auf dem Gitter des Bodens (Korn aus dem Kornfeld des Gebiets)
+        if (bg != null && bg.lage == Gitter.Lage.UTM && see.length > 0) {
+            com.dan.core.gitter.Kornfeld korn = ge != null && com.dan.core.gitter.Kornfeld.vorhanden(ge.ordner) ? com.dan.core.gitter.Kornfeld.lies(ge.ordner) : null;
+            wellen = new Wellenrippelfeld(bg, korn, quelle);
+        } else {
+            wellen = null;
+        }
         atmosGitter = quelle.atmosGitter();
         if (atmosGitter != null) nassWet = new float[atmosGitter.zellen()];
         flugGitter = quelle.flugGitter();
@@ -329,6 +339,12 @@ public final class Bild {
 
     /** Das Netz des Sediments (P9b; null ohne). */
     public Bodennetz boden() { return boden; }
+
+    /** Seit S6d-1: das Gedächtnis der Wellenrippel (null ohne Boden oder Seegang). */
+    public Wellenrippelfeld wellenrippel() { return wellen; }
+
+    /** Seit S6d-1: Wellenrippel rechnen und zeigen (false: wie bis S6c). */
+    public boolean wellenAn = true;
 
     /** Die Netze des Seegangs, grob zuerst (P8b). */
     public List<Seegangsnetz> seegang() { return List.of(see); }
@@ -389,7 +405,12 @@ public final class Bild {
         return sb.length() == 0 ? "alle unter 1 ms" : sb.toString();
     }
 
+    /** Seit S8b: das Auge des letzten {@code zu} (UTM; NaN vor dem ersten), für die Flotte (Wellen der kleinen Schwimmer). */
+    public volatile double augeOst = Double.NaN, augeNord = Double.NaN;
+
     private boolean zuIntern(double t, double ost, double nord, long n0) {
+        augeOst = ost;
+        augeNord = nord;
         java.util.Arrays.fill(zuTeile, 0);
         double[] z = quelle.zeiten();
         if (z.length == 0) return false;
@@ -420,6 +441,7 @@ public final class Bild {
         long n2 = System.nanoTime();
         zuTeile[1] = (n2 - n1) / 1e9;
         if (boden != null) sedimentZu(t);
+        if (wellen != null && wellenAn) wellenZu(t);
         long n3 = System.nanoTime();
         zuTeile[2] = (n3 - n2) / 1e9;
         if (atmosGitter != null || luftGitter != null) atmosZu(t);
@@ -450,8 +472,51 @@ public final class Bild {
             windV = ua[1] + w * (ub[1] - ua[1]);
             wasser.u10 = windU;
             wasser.v10 = windV;
+            if (start != null) wasser.boeFaktor = boeFaktor(t, ost, nord, Math.hypot(windU, windV));   // seit S8b
         }
         return !Double.isNaN(paarA);
+    }
+
+    // ------------------------------------------------------------------ Böe (seit S8b)
+
+    /**
+     * Seit S8b (Seegang Werkbuch 104, SF156 A): Beginn der Zeit der Quelle (t = 0); die Bühne setzt ihn. Damit liest das
+     * Bild die Böe {@code fg10} aus {@code antrieb/boee} (Aufbereitung, Schritt boee) und gibt dem Wasser den Böenfaktor
+     * für die Katzenpfoten. null: ohne Böe.
+     */
+    public volatile java.time.Instant start;
+    private final java.io.File gebietOrdner;
+    private com.dan.core.gitter.Wetterfeld boeen;
+    private java.io.File boeenOrdner;
+    private boolean boeenFehlt;
+    /** Zuletzt: Böe am Auge (m/s; NaN: keine), für Prüfungen und die Statuszeile. */
+    public volatile double boee = Double.NaN;
+
+    /**
+     * Böenfaktor G = fg10 / U am Auge (ost, nord) zur Zeit t (s seit {@link #start}); u: Wind des Bilds (m/s). fg10 ist die
+     * stärkste Böe der Stunde vor der vollen Stunde; zwischen den Stunden linear. NaN ohne Böe oder bei Wind unter 0,5 m/s.
+     */
+    double boeFaktor(double t, double ost, double nord, double u) {
+        if (gebietOrdner == null || boeenFehlt) return Double.NaN;
+        java.time.Instant it = start.plusMillis(Math.round(t * 1000));
+        try {
+            java.io.File o = com.dan.core.gitter.Wetterfeld.ordnerFuer(gebietOrdner, com.dan.core.gitter.Wetterfeld.BOEE, it);
+            if (o == null) { boee = Double.NaN; return Double.NaN; }
+            if (!o.equals(boeenOrdner)) {
+                boeen = com.dan.core.gitter.Wetterfeld.lies(gebietOrdner, com.dan.core.gitter.Wetterfeld.BOEE, it);
+                boeenOrdner = o;
+            }
+            double[] ll = com.dan.core.raum.Utm.rueckwaerts(ost, nord, 32);
+            com.dan.core.gitter.Gradraster.Gewichte g = boeen.raster.gewichte(ll[0], ll[1], null, 0, 1, 0);
+            if (g == null) { boee = Double.NaN; return Double.NaN; }
+            double f = boeen.wert(boeen.groesse("fg10"), it.plusSeconds(1800), g);   // die Stunde, in der t liegt, steht an ihrem Ende
+            boee = f;
+            return u < 0.5 || Double.isNaN(f) ? Double.NaN : f / u;
+        } catch (java.io.IOException e) {
+            boeenFehlt = true;
+            System.out.println("Bild: Böe nicht lesbar (" + e.getMessage() + ") – Katzenpfoten mit dem Böenfaktor der Vorgabe");
+            return Double.NaN;
+        }
     }
 
     /**
@@ -555,6 +620,53 @@ public final class Bild {
             }
         }
     }
+
+    /**
+     * Seit S6d-1: das Gedächtnis der Wellenrippel bis t; geändert geht es ans Gelände. Gerechnet in einem eigenen Faden
+     * (ein Stand 20–60 ms auf allen Kernen, L4u), das Bild nimmt das Ergebnis, sobald es fertig ist; mit
+     * {@link #wellenSofort} hier und gleich (Standbild, Prüfungen).
+     */
+    private void wellenZu(double t) {
+        boolean neu = false;
+        if (wellenArbeit != null && (wellenSofort || wellenArbeit.isDone())) {
+            try {
+                neu = wellenArbeit.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (java.util.concurrent.ExecutionException e) {
+                System.err.println("Wellenrippel: " + e.getCause());
+                e.getCause().printStackTrace();
+            }
+            wellenArbeit = null;
+        }
+        if (wellenArbeit == null) {
+            if (wellenSofort) neu |= wellen.zu(quelle, t);
+            else if (Double.compare(wellen.ziel(quelle, t), wellen.stand) != 0) {
+                final double tt = t;
+                wellenArbeit = WELLEN_FADEN.submit(() -> wellen.zu(quelle, tt));
+            }
+        }
+        if (neu && gelaende != null) {
+            long n0 = System.nanoTime();
+            gelaende.wellenrippel(wellen.gitter, wellen.textur());
+            wellenHochS = (System.nanoTime() - n0) * 1e-9;
+            wellenHochMaxS = Math.max(wellenHochMaxS, wellenHochS);
+            wellenHoch++;
+        }
+    }
+
+    /** Seit S6d-1: der Faden für das Gedächtnis der Wellenrippel (einer für alle Bilder). */
+    private static final java.util.concurrent.ExecutorService WELLEN_FADEN = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread th = new Thread(r, "Wellenrippel");
+        th.setDaemon(true);
+        return th;
+    });
+    private java.util.concurrent.Future<Boolean> wellenArbeit;
+    /** Seit S6d-1: das Gedächtnis gleich im Faden des Bilds rechnen (Standbild, Prüfungen) statt nebenher. */
+    public volatile boolean wellenSofort;
+    /** Seit S6d-1: Hochladen der Wellenrippel ins Gelände (im Faden des Bilds): zuletzt, höchstens (s), wie oft. */
+    public volatile double wellenHochS, wellenHochMaxS;
+    public volatile long wellenHoch;
 
     /** Von atmos der jüngste Stand bis t: die Nässe ins Gelände, die Luft für die Kimmung ({@link #blick}). */
     /** Flugsand (P10c): der jüngste Stand von {@code aeol.q} bis zur Zeit t geht ans Gelände (Sandfegen). */

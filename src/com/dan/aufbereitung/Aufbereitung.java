@@ -123,6 +123,7 @@ public final class Aufbereitung {
                 case "luftbild" -> luftbild();
                 case "seegang" -> seegang();
                 case "luft" -> luft();
+                case "boee" -> boee();
                 case "sediment" -> sediment();
                 case "sentinel" -> sentinel();
                 case "morpho" -> morpho();
@@ -1303,6 +1304,43 @@ public final class Aufbereitung {
         Path oz = ziel.resolve(Wetterfeld.ordner(zeitraumOrdner()));
         ablagen(oz.resolve(Wetterfeld.LUFT + ".txt"), oz.resolve(Wetterfeld.LUFT + ".f32"));
         log(f("  %s geschrieben (%.1f MB); Schritt luft in %.1f s.", oz.resolve(Wetterfeld.LUFT + ".f32"), Files.size(oz.resolve(Wetterfeld.LUFT + ".f32")) / 1e6, (System.nanoTime() - t0) / 1e9));
+    }
+
+    /**
+     * Schritt boee (Seegang S8b, SF156 A): die Böe in 10 m ({@code fg10}, m/s) aus ERA5 (GRIB der Quelle
+     * {@code era5_cds_boee}) nach {@code antrieb/boee.txt} und {@code .f32} ({@link Era5Boee}, {@link Wetterfeld#BOEE}),
+     * Raster der Deutschen Bucht, stündlich. Sie gibt den Katzenpfoten im Seegang ihre Stärke. Rezept: {@code boee.ordner}
+     * (Vorgabe {@code wetter\era5_cds_boee}). Mit Zeitraum ({@code --antrieb.zeitraum 201312}) in dessen Ordner. Nicht in
+     * {@link #SCHRITTE}: er läuft nur, wenn er genannt ist.
+     */
+    public void boee() throws IOException {
+        long t0 = System.nanoTime();
+        log("Schritt boee" + (zeitraum() != null ? ", Zeitraum " + zeitraum() + " nach " + Wetterfeld.ordner(zeitraumOrdner()) : ""));
+        Path o = pfad(rezept.text("boee.ordner", "wetter\\era5_cds_boee"));
+        List<Path> dateien = new ArrayList<>();
+        if (Files.isDirectory(o)) try (var w = Files.list(o)) {
+            dateien.addAll(w.filter(p -> p.getFileName().toString().matches("(?i).*\\.(grib|grb|grib1|grib2)$") && imZeitraum(p)).sorted().toList());
+        }
+        if (dateien.isEmpty()) throw new IOException("boee: keine GRIB-Dateien in " + o
+                + " – zuerst laden: python tools\\kartenmaterial\\kartenmaterial.py laden --quellen era5_cds_boee --monate 202610 --ziel " + daten);
+        Era5Boee.Daten d = Era5Boee.lies(dateien);
+        log(f("  %d Dateien, %d Nachrichten, %d anderer Größen übergangen, %d ersetzt; %s; %s bis %s, Schritt %d s, %d Zeiten",
+                dateien.size(), d.nachrichten, d.andere, d.ersetzt, d.raster, d.start(), d.ende(), d.schritt(), d.felder.size()));
+        String l = Era5Boee.luecken(d);
+        if (!l.isEmpty()) throw new IOException("boee: " + l);
+        double[] s = Era5Boee.spanne(d);
+        log(f("  Böe %.1f bis %.1f m/s, im Mittel %.1f m/s", s[0], s[1], s[2]));
+        Inventar inv = new Inventar();
+        for (Path p : dateien) inv.quelle("antrieb", daten, p, rezept);
+        StringBuilder k = new StringBuilder();
+        k.append("# Aufbereitung ").append(VERSION).append(", ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))).append(", Rezept ").append(rezept.datei.getFileName()).append('\n');
+        k.append("# Quelle: Gruppe, Pfad (zu daten), Byte, SHA-256, Stand, Lizenz\n");
+        for (Inventar.Quelle x : inv.quellen) k.append(x.zeile()).append('\n');
+        List<float[]> z = new ArrayList<>(d.felder.values());
+        Wetterfeld.schreibeIn(ziel.toFile(), zeitraumOrdner(), Wetterfeld.BOEE, d.raster, d.start(), d.schritt(), z.size(), Era5Boee.GROESSEN, (t, q) -> z.get(t), k.toString());
+        Path oz = ziel.resolve(Wetterfeld.ordner(zeitraumOrdner()));
+        ablagen(oz.resolve(Wetterfeld.BOEE + ".txt"), oz.resolve(Wetterfeld.BOEE + ".f32"));
+        log(f("  %s geschrieben (%.2f MB); Schritt boee in %.1f s.", oz.resolve(Wetterfeld.BOEE + ".f32"), Files.size(oz.resolve(Wetterfeld.BOEE + ".f32")) / 1e6, (System.nanoTime() - t0) / 1e9));
     }
 
     /** Alle Quellen des Gebiets ins Inventar. */

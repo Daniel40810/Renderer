@@ -1,0 +1,34 @@
+// see_gischt.comp — Seegang Werkbuch, S5b-2 (SF50 A): Orte für die Gischt aus den Walzen. Je Stufe L der Clipmap jede
+// s-te Stelle (Abstand rund 2 m), ohne das Innere, das die feinere Stufe deckt: liegt dort eine Walze am Kamm
+// (Weißwasser w ≥ 0,5 und Dicke t ≥ 0,35 H, H = 2 |Z'| ≥ hMin), kommt der Ort (x + ξ relativ zu B, η, H) in die Liste.
+// Den Puffer liest der Prozessor einige Bilder später (render.seegang.Gischtsuche, core.szene.Kammgischt).
+#version 460
+layout(local_size_x = 8, local_size_y = 8) in;
+#include "see_gemein.glsl"
+
+layout(std430, binding = 15) readonly buffer Versatz { vec4 versatz[]; };
+layout(std430, binding = 19) readonly buffer Kamm { vec4 kamm[]; };   // λ, k_p h, w, t
+layout(std430, binding = 22) buffer Gischt { uint zahl; uint r1; uint r2; uint r3; vec4 ort[]; };
+
+layout(push_constant) uniform Suche { int stufen; int maxOrte; float hMin; float abstand; } P;
+
+void main() {
+    int n = W.I[I_N];
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y), L = int(gl_GlobalInvocationID.z);
+    if (i >= n || j >= n || L >= P.stufen) return;
+    float dl = W.F[F_D0] * exp2(float(L));
+    int s = max(1, int(round(P.abstand / dl)));
+    if (i % s != 0 || j % s != 0) return;
+    if (L > 0) {
+        int q = n / 4 + 2;                                                   // das Innere deckt die feinere Stufe
+        if (i >= q && i < n - q && j >= q && j < n - q) return;
+    }
+    int ix = (L * n + j) * n + i;
+    vec4 km = kamm[ix], v = versatz[ix];
+    float hoehe = 2.0 * v.w;
+    if (km.z < 0.5 || hoehe < P.hMin || km.w < 0.35 * hoehe) return;
+    uint k = atomicAdd(zahl, 1u);
+    if (k >= uint(P.maxOrte)) return;
+    vec2 p = vec2(W.F[F_MITTE + 2 * L], W.F[F_MITTE + 2 * L + 1]) + vec2(float(i - n / 2), float(j - n / 2)) * dl;
+    ort[k] = vec4(p + v.xy, v.z, hoehe);
+}

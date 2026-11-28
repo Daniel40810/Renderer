@@ -11,7 +11,8 @@
 
 # Arbeitsstaende, Vorlagen, Absturzprotokolle
 /_p5/
-/_to_delete/
+# _to_delete in jedem Ordner, nicht nur oben (Seegang Werkbuch 113, Daniel 28.11.)
+_to_delete/
 /templates/
 /.claude/
 hs_err_pid*.log

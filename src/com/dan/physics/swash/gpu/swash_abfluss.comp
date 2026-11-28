@@ -1,0 +1,19 @@
+// swash_abfluss.comp — Kürzung des Abflusses je Zelle (Swash.abfluss, Bollermann u. a. 2013): gibt eine Zelle über ihre
+// vier Kanten in dt mehr Wasser ab, als sie hat, θ = h / Abfluss, sonst 1. Die Kanten kürzt swash_schritt nach dem Geber.
+#version 460
+layout(local_size_x = 16, local_size_y = 16) in;
+#include "swash_gemein.glsl"
+
+layout(push_constant) uniform Schritt { float dt; float t; float w; int stufe; int slotA; int slotB; int pad0; int pad1; } P;
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y);
+    if (i >= nx() || j >= ny()) return;
+    int c = id(i, j);
+    if (fels(c)) { theta[c] = 1.0; return; }
+    int fl = j * (nx() + 1) + i, fd = j * nx() + i;
+    float k = P.dt / W.F[F_DX];
+    float aus = k * (max(0.0, fx[fl + 1].x) + max(0.0, -fx[fl].x) + max(0.0, fy[fd + nx()].x) + max(0.0, -fy[fd].x));
+    float h = u[c].x;
+    theta[c] = aus > h ? h / aus : 1.0;
+}

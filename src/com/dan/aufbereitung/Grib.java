@@ -55,6 +55,7 @@ public final class Grib {
                     case 147: return "slhf";
                     case 164: return "tcc";
                     case 228: return "tp";
+                    case 49: return "fg10";                                         // Böe in 10 m (Seegang S8b, SF156 A)
                     default: break;
                 }
             }
@@ -80,6 +81,7 @@ public final class Grib {
                 if (kategorie == 2 && parameter == 3 && flaeche == 103 && hoehe == 10) return "v10";
                 if (kategorie == 3 && parameter == 0 && flaeche == 101) return "msl";
                 if (kategorie == 3 && parameter == 1) return "msl";
+                if (kategorie == 2 && parameter == 22 && flaeche == 103 && hoehe == 10) return "fg10";   // Böe (S8b)
             }
             return edition == 1 ? "t" + tabelle + "p" + parameter : "d" + disziplin + "c" + kategorie + "p" + parameter + "f" + flaeche;
         }

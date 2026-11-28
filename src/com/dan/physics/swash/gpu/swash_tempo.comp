@@ -1,0 +1,26 @@
+// swash_tempo.comp — größte Wellengeschwindigkeit max(|u|, |v|) + √(g h) je Zeile (Swash.hoechstesTempo), für den
+// Zeitschritt nach Courant. Eine Gruppe je Zeile.
+#version 460
+layout(local_size_x = 64) in;
+#include "swash_gemein.glsl"
+
+shared float teil[64];
+
+void main() {
+    int j = int(gl_WorkGroupID.x), l = int(gl_LocalInvocationID.x);
+    float m = 0.0;
+    if (j < ny()) {
+        for (int i = l; i < nx(); i += 64) {
+            vec4 uc = u[id(i, j)];
+            if (uc.x <= W.F[F_HTR]) continue;
+            m = max(m, max(abs(vel(uc.y, uc.x)), abs(vel(uc.z, uc.x))) + sqrt(W.F[F_G] * uc.x));
+        }
+    }
+    teil[l] = m;
+    barrier();
+    for (int s = 32; s > 0; s >>= 1) {
+        if (l < s) teil[l] = max(teil[l], teil[l + s]);
+        barrier();
+    }
+    if (l == 0 && j < ny()) tempo[j] = teil[0];
+}

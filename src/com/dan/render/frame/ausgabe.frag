@@ -15,6 +15,7 @@ layout(location = 0) out vec4 aus;
 const float STAEBCHEN_K = 0.04;
 const vec3 NACHTFARBE = vec3(1.05, 0.97, 1.27);
 const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
+const float FARBTREU = 1.0;                                                     // wie Belichtung.FARBTREU
 
 float knie(float x) { return x <= 0.8 ? x : 0.8 + 0.2 * (1.0 - exp(-(x - 0.8) / 0.2)); }
 
@@ -25,6 +26,11 @@ void main() {
         float y = max(0.0, dot(roh, LUM) * q.ohneVorbelichtung);
         float s = STAEBCHEN_K / (STAEBCHEN_K + y);
         c = c * (1.0 - s) + NACHTFARBE * (dot(c, LUM) * s);
+        // seit L5e1 (Seegang Werkbuch 100, Befund 1): Überstrahltes bei Nacht farbtreu gestaucht (Belichtung.farbtreu), sonst
+        // sättigt die Kurve jede Schicht für sich, und ein grünes Feuer wird weiß; ganz ab Vorbelichtung 1, weich ab 0,01 [G]
+        float wf = smoothstep(-2.0, 0.0, -log(q.ohneVorbelichtung) / log(10.0));
+        float mf = max(c.r, max(c.g, c.b));
+        if (wf > 0.0 && mf > 0.0) c *= 1.0 - wf + wf * pow(1.0 + pow(mf / FARBTREU, 4.0), -0.25);
     }
     if (q.kurve == 0) { aus = vec4(c, 1.0); return; }
     mat3 m = mat3(p[0], p[3], p[6], p[1], p[4], p[7], p[2], p[5], p[8]);       // Zeilen von Film.negative.matrix()

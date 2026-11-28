@@ -1,0 +1,21 @@
+// nah_einsetzen.comp — Zellen, die beim Verschieben neu ins Gitter kamen, bekommen das Ziel (Nahfeld.nachVerschieben):
+// Neue = je Zelle (Index als float, dann nb · nd Varianzen); Wirkung = Varianz / σ (ohne σ: 0). pass = Zahl der Zellen.
+// Ein Faden je Stützstelle der Liste.
+#version 460
+layout(local_size_x = 64) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) readonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 9) buffer Neu { float n[]; };
+layout(std430, binding = 13) readonly buffer Neue { float neue[]; };
+
+void main() {
+    int t = int(gl_GlobalInvocationID.x);
+    int m = W.nb * W.nd;
+    if (t >= P.pass * m) return;
+    int k = t / m, x = t - k * m;
+    int c = int(neue[k * (m + 1)]);
+    if (!nass(c)) return;
+    float sg = bin[c * m + x].y;
+    n[c * m + x] = sg > 0.0 ? neue[k * (m + 1) + 1 + x] / sg : 0.0;
+}

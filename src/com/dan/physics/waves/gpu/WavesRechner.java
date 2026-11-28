@@ -37,6 +37,8 @@ public final class WavesRechner implements WavesModul.Rechner {
 
     @Override public void schritt(Waves w, double dt) { k(w).schritt(dt); }
 
+    @Override public void hoch(Waves w) { k(w).hoch(); }
+
     @Override public void herunter(Waves w) {
         WavesKarte k = k(w);
         k.runter();

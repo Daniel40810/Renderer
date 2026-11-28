@@ -20,6 +20,11 @@ public final class Blick {
     public double ost, nord, hoehe;
     /** Blickrichtung als Azimut (Grad von Nord über Ost) und Neigung (Grad, über dem Horizont positiv). */
     public double richtung, neigung;
+    /**
+     * Seit S7c (Seegang Werkbuch 89): Rollen der Kamera um die Blickachse (Grad; positiv: die rechte Seite des Bilds sinkt,
+     * wie ein Schiff, das nach Steuerbord krängt). 0: wie bisher (Zeichen für Zeichen dieselben Matrizen).
+     */
+    public double rollen;
     /** Senkrechter Bildwinkel (Grad) und vordere Ebene (m). */
     public double bildwinkel = 50, nah = 0.1;
     /** Bildgröße in Bildpunkten. */
@@ -38,6 +43,7 @@ public final class Blick {
 
     public Blick kopie() {
         Blick b = new Blick(ost, nord, hoehe, richtung, neigung, bildwinkel);
+        b.rollen = rollen;
         b.nah = nah;
         b.breite = breite;
         b.hoehe_px = hoehe_px;
@@ -69,6 +75,13 @@ public final class Blick {
             r[2] /= n;
         }
         double[] u = {r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]};
+        if (rollen != 0) {                                                // seit S7c: um die Blickachse gedreht
+            double c = Math.cos(Math.toRadians(rollen)), s = Math.sin(Math.toRadians(rollen));
+            double[] r2 = new double[3], u2 = new double[3];
+            for (int i = 0; i < 3; i++) { r2[i] = c * r[i] - s * u[i]; u2[i] = c * u[i] + s * r[i]; }
+            r = r2;
+            u = u2;
+        }
         return new double[][] {r, u, f};
     }
 

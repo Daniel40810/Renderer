@@ -1,0 +1,12 @@
+// see_koerper16.comp — Seegang Werkbuch, S7d2 (Datei 90): see_koerper_rumpf.glsl mit 16 Fäden je Punkt (ZV_PARALLEL):
+// Sie teilen sich Stützstellen, Fernfeld und die Summen je Band (Befund L5d 1); Faden 0 schreibt.
+#version 460
+layout(local_size_x = 16) in;
+#define BAENDER
+#define KOERPERFLAECHE                                                   // seit S7d4 (Seegang Werkbuch 92): die Körperfläche
+#define ZV_PARALLEL
+#define ZV_LANES 16
+#include "see_gemein.glsl"
+#define KIEL_QUELLEN 24                                                 // seit S7d6 (SF133 A): die Quellen, nicht die Kacheln
+#include "see_kiel_spur.glsl"
+#include "see_koerper_rumpf.glsl"

@@ -1,0 +1,76 @@
+#version 460
+// netz.comp – render.water, seit S3c (Seegang Werkbuch): die Scheiteln des Netzes aus der Clipmap des Seegangs. Je
+// Stufe L und Stelle (i, j): ruhende Stelle x₀, Verschiebung ξ und η der Welle, dazu η_Bild an x₀ (wasser.glsl; wo kein
+// Wasser ist, seit S3c-5 (B47, Seegang Werkbuch 19/20) der Spiegel des nächsten nassen Nachbarn im Abstand s = max(Zelle,
+// d_L): erst die vier Seitennachbarn, dann die vier über Eck, von mehreren der höchste; ohne nassen Nachbarn der Pegel des
+// Kopfs. Den Bildpunkt prüft netz.frag noch einmal und setzt ihn auf η_Bild am Bildpunkt). Im äußeren Band jeder Stufe außer der
+// letzten geht der Scheitel stetig in die gröbere Stufe über (bilinear aus ihren Stellen, auch η_Bild); am Rand liegt er
+// dann auf ihren Kanten, und an den Nähten entsteht keine Lücke. Höhe relativ zum Auge mit der Erdkrümmung wie das Wasser.
+layout(local_size_x = 8, local_size_y = 8) in;
+#define SWASH_BINDUNG 19    // seit S6c-2: das Bild des Auflaufs (wasser.glsl)
+#include "/com/dan/render/water/wasser.glsl"
+#include "/com/dan/render/water/netz.glsl"
+#include "/com/dan/render/water/netz_daten.glsl"
+layout(set = 0, binding = 18, std430) writeonly buffer Scheitel { vec4 scheitel[]; };
+
+const float MORPH = 12.0;   // Breite des Übergangs zur gröberen Stufe (Stellen) [G]
+
+// η_Bild an p; trocken: der Spiegel des nächsten nassen Nachbarn (B47), sonst der Pegel des Kopfs. Wie Wasserbild.etaScheitel.
+// art: 1 nass, 0,5 aus einem Nachbarn (nah am Wasser), 0 der Pegel (weit vom Wasser) – netz.frag sucht nur nah am Wasser.
+float etaOder(vec2 p, float dL, out float art) {
+    // seit S6c-2b: im Rechteck des Auflaufs die stetige Fläche des Lösers (unter dem Gelände, wo er trocken ist), ohne Nachbarn
+    bool zeigen;
+    float fs = swNetz(p, zeigen);
+    if (fs != KEIN) { art = zeigen ? 1.0 : 0.5; return fs; }
+    int g;
+    float e = etaBild(p, g);
+    art = 1.0;
+    if (e != KEIN) return e;
+    float s = g >= 0 ? max(dL, netz[g].f.z) : dL;
+    int h;
+    float m = max(max(etaBild(p + vec2(s, 0.0), h), etaBild(p - vec2(s, 0.0), h)), max(etaBild(p + vec2(0.0, s), h), etaBild(p - vec2(0.0, s), h)));
+    if (m == KEIN) m = max(max(etaBild(p + vec2(s, s), h), etaBild(p + vec2(s, -s), h)), max(etaBild(p + vec2(-s, s), h), etaBild(p - vec2(s, s), h)));
+    art = m == KEIN ? 0.0 : 0.5;
+    return m == KEIN ? auge.w : m;
+}
+
+void main() {
+    int n = snN.y, st = snN.x;
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y), L = int(gl_GlobalInvocationID.z);
+    if (i >= n || j >= n || L >= st) return;
+    vec4 la = snLage[L];
+    vec2 x0 = vec2(la.x + float(i) * la.z, la.y - float(j) * la.z);
+    vec3 w = snVersatz[(L * n + j) * n + i].xyz;
+    float art, artC;
+    float eb = etaOder(x0, la.z, art);
+    if (L < st - 1) {
+        int m = n - 2;                                                     // das Netz der Stufe reicht über die Stellen 0 … n − 2
+        float e = float(min(min(i, j), min(m - i, m - j)));
+        float a = clamp((MORPH - e) / MORPH, 0.0, 1.0);
+        if (a > 0.0) {
+            vec4 lc = snLage[L + 1];
+            vec2 u = vec2((x0.x - lc.x) / lc.z, (lc.y - x0.y) / lc.z);
+            ivec2 c0 = ivec2(floor(u + 1e-3));
+            vec2 f = clamp(u - vec2(c0), 0.0, 1.0);
+            vec3 wc = vec3(0.0);
+            float ec = 0.0;
+            for (int k = 0; k < 4; k++) {
+                ivec2 c = clamp(c0 + ivec2(k & 1, k >> 1), ivec2(0), ivec2(n - 1));
+                float g = ((k & 1) == 0 ? 1.0 - f.x : f.x) * ((k >> 1) == 0 ? 1.0 - f.y : f.y);
+                if (g <= 0.0) continue;
+                wc += g * snVersatz[((L + 1) * n + c.y) * n + c.x].xyz;
+                ec += g * etaOder(vec2(lc.x + float(c.x) * lc.z, lc.y - float(c.y) * lc.z), lc.z, artC);
+            }
+            w = mix(w, wc, a);
+            eb = mix(eb, ec, a);
+        }
+    }
+    // seit S6c-2 (Seegang Werkbuch 82): im Rechteck des Auflaufs trägt der Stand des Lösers die Welle (η_Bild ist dort sein
+    // Stand); die Verschiebung der Clipmap geht über das Band am Rand auf 0
+    w *= 1.0 - swGewicht(x0);
+    vec3 Q = vec3(x0.x + w.x, 0.0, x0.y - w.y);
+    Q.y = eb + w.z - auge.x - auge.y * dot(Q.xz, Q.xz);
+    int o = 2 * ((L * n + j) * n + i);
+    scheitel[o] = vec4(Q, eb);
+    scheitel[o + 1] = vec4(x0, w.z, art);
+}

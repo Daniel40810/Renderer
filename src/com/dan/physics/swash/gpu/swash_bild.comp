@@ -1,0 +1,69 @@
+// swash_bild.comp — das Bild des Rechtecks für Gelände und Wasser (seit S6c-2, Seegang Werkbuch 82, SF93 A): je Zelle aus
+// dem Stand nach den Schritten eines Bilds und den Spuren (h, Stand relativ zum Ruhewasser, zuletzt nass, versickertes
+// Wasser oberhalb der Front), dazu je Zeile der Spülsaum (die Auflaufgrenze, unten). Eine Gruppe je Zeile. Dieselbe Regel
+// rechnet SwashKarte.bildReferenz auf dem Prozessor.
+//
+// 14 Bild   vec4 je Zelle (Index j · nx + i, ohne Randzellen): h, η relativ (≥ 1e29: Fels), zuletzt nass (s, Zeit der
+//           Karte; −1e30: nie), versickert oberhalb der Front F (m); danach je Zeile vec4: Spülsaum, 0, 0, 0
+//
+// Seit S6c-2b (Seegang Werkbuch 83): ganz nur nach dem Setzen; danach schreibt swash_stufe (Stufe 2) jede Zelle, die sich
+// ändert; dieser Kernel schiebt dann je Bild nur den Spülsaum jeder Zeile weiter: Der höchste Stand steigt nur, also wandert
+// die Auflaufgrenze nur landwärts, und die Suche beginnt hinter der vorigen (meist ein oder zwei Zellen). Darum die Zeit
+// absolut (vorher Sekunden seit nass, die jedes Bild alle Zellen neu brauchten; Gelände und Wasser ziehen sie von der Zeit
+// im Kopf ab) und der Spülsaum als Index der Zelle + 1 in den Bits von x (0: keine).
+#version 460
+layout(local_size_x = 64) in;
+#include "swash_gemein.glsl"
+layout(std430, binding = 14) buffer Bild { uint bildW[]; };   // Worte (seit S6c-2b; vorher vec4)
+
+// P.stufe: 0 ganz (Zellen und Spülsaum; eine Gruppe je Zeile), 1 nur den Spülsaum weiterschieben (ein Faden je Zeile)
+layout(push_constant) uniform Schritt { float kontur; float t; float w; int stufe; int slotA; int slotB; int pad0; int pad1; } P;
+
+shared int erst[64];
+
+void schreibe(int o, vec4 v) { bildW[4 * o] = floatBitsToUint(v.x); bildW[4 * o + 1] = floatBitsToUint(v.y); bildW[4 * o + 2] = floatBitsToUint(v.z); bildW[4 * o + 3] = floatBitsToUint(v.w); }
+
+// erreicht: der höchste Stand der Zelle lag mindestens die Kontur über ihrem Grund (Fels nie)
+bool erreicht(int i, int j) {
+    int c = id(i, j);
+    float b = zelle[c].x, em = spur[c].y;
+    return !(b >= FELS) && em > -1e29 && em - b >= P.kontur;
+}
+
+// Spülsaum seit S6c-2b (Befund L4o): die Auflaufgrenze von der See her – die erste Zelle der Zeile (von i = 0), deren
+// höchster Stand die Kontur nie erreichte oder die Fels ist, minus eins. Bis S6c-2b die landwärtigste Zelle überhaupt;
+// dann lag der Saum in Zeilen, in die von der Seite Wasser hinter die Krone lief, hinter der Krone.
+void main() {
+    if (P.stufe == 1) {
+        int j = int(gl_GlobalInvocationID.x);
+        if (j >= ny()) return;
+        int o = 4 * (nx() * ny() + j), i = int(bildW[o]);                  // Index + 1 der vorigen Grenze = erste noch offene Zelle
+        while (i < nx() && erreicht(i, j)) i++;
+        bildW[o] = uint(i);                                                  // Index der letzten erreichten + 1 (0: keine)
+        return;
+    }
+    int j = int(gl_WorkGroupID.x), l = int(gl_LocalInvocationID.x);
+    int zuerst = 1 << 30, je = (nx() + 63) / 64;                          // je Faden je zusammenhängende Zellen
+    if (j < ny()) {
+        for (int k = 0; k < je; k++) {
+            int i = l * je + k;
+            if (i >= nx()) break;
+            int c = id(i, j);
+            vec4 z = zelle[c], sp = spur[c];
+            bool fe = z.x >= FELS;
+            float h = fe ? 0.0 : u[c].x;
+            schreibe(j * nx() + i, vec4(h, fe ? FELS : h + z.x, sp.z <= -1e29 ? -1e30 : sp.z, sp.x));
+            if (!erreicht(i, j) && zuerst > i) zuerst = i;
+        }
+    }
+    erst[l] = zuerst;
+    barrier();
+    for (int s = 32; s > 0; s >>= 1) {
+        if (l < s) erst[l] = min(erst[l], erst[l + s]);
+        barrier();
+    }
+    if (l == 0 && j < ny()) {
+        int weit = min(erst[0], nx()) - 1;                                 // −1: schon die erste Zelle nie erreicht
+        schreibe(nx() * ny() + j, vec4(uintBitsToFloat(uint(weit + 1)), 0.0, 0.0, 0.0));
+    }
+}

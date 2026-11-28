@@ -245,9 +245,10 @@ public final class CoreCheck {
 
     private static void felder() {
         Katalog k = Katalog.grundstufe();
-        A.pruefe(k.namen().size() == 48 && k.gruppen().size() == 11 && k.kennt("air.rain") && k.kennt("aeol.q") && k.kennt("tide.eq") && k.kennt("air.taux") && k.kennt("air.tauy") && k.kennt("air.sw") && k.kennt("water.sst"),
-                "Katalog der Grundstufe (Werkbuch 5.3, mit den vier Beiträgen aus F18, tide.eq aus P5c, air.taux, air.tauy aus P5e, bed.fluff aus P9c, air.sw, air.lw, water.sst aus P10b)",
-                k.namen().size() + " Felder in " + k.gruppen().size() + " Gruppen " + k.gruppen(), "48 Felder, 11 Gruppen");
+        A.pruefe(k.namen().size() == 53 && k.gruppen().size() == 11 && k.kennt("air.rain") && k.kennt("aeol.q") && k.kennt("tide.eq") && k.kennt("air.taux") && k.kennt("air.tauy") && k.kennt("air.sw") && k.kennt("water.sst")
+                        && k.kennt("waves.sea") && k.kennt("waves.swell") && k.kennt("waves.dwc") && k.kennt("waves.dbr") && k.kennt("waves.dbf"),
+                "Katalog der Grundstufe (Werkbuch 5.3, mit den vier Beiträgen aus F18, tide.eq aus P5c, air.taux, air.tauy aus P5e, bed.fluff aus P9c, air.sw, air.lw, water.sst aus P10b; waves.sea, .swell, .dwc, .dbr, .dbf aus Seegang S1)",
+                k.namen().size() + " Felder in " + k.gruppen().size() + " Gruppen " + k.gruppen(), "53 Felder, 11 Gruppen");
         Gitter g = Gitter.utm("T", 32, 0, 0, 20, 7, 5);
         Feld eta = new Feld(k.verlange("water.eta"), g, Feld.Zahl.DOUBLE), q = new Feld(k.verlange("water.q"), g, Feld.Zahl.FLOAT),
                 bc = new Feld(k.verlange("tide.bc"), g, Feld.Zahl.DOUBLE), n = new Feld(k.verlange("air.n"), g, Feld.Zahl.FLOAT),

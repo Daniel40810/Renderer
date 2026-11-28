@@ -39,7 +39,7 @@ import java.util.stream.IntStream;
  * ({@code gpu.WavesRechner}). Kennt den Kern und kein anderes Modul.
  */
 public final class WavesModul implements Modul {
-    public static final String VERSION = "0.1";
+    public static final String VERSION = "0.2";
     private static final String[] AUS = {"waves.hs", "waves.tp", "waves.dir", "waves.ubot", "waves.mss", "waves.diss"};
     private static final String[] EINHEIT = {"m", "s", "°", "m/s", "–", "W/m²"};
     /** Dichte der Luft für u* aus dem Schub (kg/m³), wie in hydro und antrieb. */
@@ -57,6 +57,12 @@ public final class WavesModul implements Modul {
         void schritt(Waves w, double dt);
         /** Spektrum und {@link Waves#diss} nach {@code w}. */
         void herunter(Waves w);
+        /**
+         * Seit 0.2 (Seegang Werkbuch S1): das Spektrum aus {@code w} auf den Rechner, nachdem es auf dem Prozessor gesetzt
+         * wurde (etwa der Anfang eines Nachlaufs aus einem Stand des Archivs, {@link Waves#jonswap}). Der Prozessor hält
+         * es ohnehin.
+         */
+        default void hoch(Waves w) { }
         String geraet();
         /** Stoppuhr des Rechners je Gitter (P13d): {Ausbreitung s, Quellen s, Teilschritte, Schritte}; null: keine. */
         default double[] stoppuhr(Waves w) { return null; }
@@ -80,8 +86,11 @@ public final class WavesModul implements Modul {
     private final Instant start;
     /** Kopplungsintervall (s) [G, 5.6]. */
     public final double kopplung;
-    /** Längster Schritt der Quellen (s) [G]. */
-    public double dtQuellen = 60;
+    /**
+     * Längster Schritt der Quellen (s) [G]. Seit S3c-5 (Seegang Werkbuch 19/20, SF14 A und SF30 A) 10 s statt 60 s: Mit
+     * 60 s lag Hs auf G3w im Mittel um 9,4 % neben 10 s (QuellenMessung, Lauf L2b), über der Grenze von 5 %.
+     */
+    public double dtQuellen = 10;
     /** Liest den Windschub für u* (W1). */
     public final boolean schub;
     /** Ab dieser Modellzeit (s) rechnet der Seegang; davor legt er null ab. */

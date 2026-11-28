@@ -101,32 +101,42 @@ public final class Seegangsoptik {
     /**
      * Die sechs Werte am Ort (UTM, m) im feinsten Netz, das ihn hat, bilinear zwischen den Zellmitten (am Rand der
      * Randwert), linear in der Zeit – dieselbe Regel wie {@code seeWerte} im Shader; die Netze fein zuerst. null ohne Netz.
+     * Seit S3c-6 (SF31 A) mit dem Übergang am Rand eines feineren Netzes, seit S3c-7 nach
+     * {@link Seegangsnetz#RAND_ART} ({@link Seegangsnetz#gemischt}).
      */
     public static double[] werte(java.util.List<Seegangsnetz> netze, double zeit, double ost, double nord) {
-        for (Seegangsnetz s : netze) {
-            if (!s.gesetzt()) continue;
-            var gi = s.gitter;
-            double ux = (ost - gi.x0) / gi.dx, uy = (nord - gi.y0) / gi.dy;
-            if (ux < 0 || uy < 0 || ux >= gi.nx || uy >= gi.ny) continue;
-            double bx = Math.max(0, Math.min(gi.nx - 1, ux - 0.5)), by = Math.max(0, Math.min(gi.ny - 1, uy - 0.5));
-            int i0 = Math.max(0, Math.min((int) bx, gi.nx - 2)), j0 = Math.max(0, Math.min((int) by, gi.ny - 2));
-            int i1 = Math.min(i0 + 1, gi.nx - 1), j1 = Math.min(j0 + 1, gi.ny - 1);
-            double fx = bx - i0, fy = by - j0;
-            double[] gw = s.gewicht(zeit);
-            int pa = (int) gw[1], pb = 1 - pa, nz = s.zellen;
-            double[] r = new double[6];
-            int[] zz = {i0 + gi.nx * j0, i1 + gi.nx * j0, i0 + gi.nx * j1, i1 + gi.nx * j1};
-            for (int f = 0; f < 6; f++) {
-                double[] c = new double[4];
-                for (int q = 0; q < 4; q++) {
-                    double a = s.werte[pa][f * nz + zz[q]], b = s.werte[pb][f * nz + zz[q]];
-                    c[q] = a + gw[0] * (b - a);
-                }
-                r[f] = (c[0] + (c[1] - c[0]) * fx) * (1 - fy) + (c[2] + (c[3] - c[2]) * fx) * fy;
+        return Seegangsnetz.gemischt(netze, ost, nord, (s, o, n, rand) -> werteNetz(s, zeit, o, n, rand));
+    }
+
+    /** Die sechs Werte eines Netzes am Ort (bilinear, linear in der Zeit); null, wenn es den Ort nicht hat oder nicht gesetzt ist. */
+    static double[] werteNetz(Seegangsnetz s, double zeit, double ost, double nord) { return werteNetz(s, zeit, ost, nord, false); }
+
+    /** Wie oben; mit {@code rand} außerhalb des Netzes die Randwerte (seit S3c-7, SF33 A). */
+    static double[] werteNetz(Seegangsnetz s, double zeit, double ost, double nord, boolean rand) {
+        if (!s.gesetzt()) return null;
+        var gi = s.gitter;
+        double ux = (ost - gi.x0) / gi.dx, uy = (nord - gi.y0) / gi.dy;
+        if (rand) {
+            ux = Math.max(0, Math.min(gi.nx, ux));
+            uy = Math.max(0, Math.min(gi.ny, uy));
+        } else if (ux < 0 || uy < 0 || ux >= gi.nx || uy >= gi.ny) return null;
+        double bx = Math.max(0, Math.min(gi.nx - 1, ux - 0.5)), by = Math.max(0, Math.min(gi.ny - 1, uy - 0.5));
+        int i0 = Math.max(0, Math.min((int) bx, gi.nx - 2)), j0 = Math.max(0, Math.min((int) by, gi.ny - 2));
+        int i1 = Math.min(i0 + 1, gi.nx - 1), j1 = Math.min(j0 + 1, gi.ny - 1);
+        double fx = bx - i0, fy = by - j0;
+        double[] gw = s.gewicht(zeit);
+        int pa = (int) gw[1], pb = 1 - pa, nz = s.zellen;
+        double[] r = new double[6];
+        int[] zz = {i0 + gi.nx * j0, i1 + gi.nx * j0, i0 + gi.nx * j1, i1 + gi.nx * j1};
+        for (int f = 0; f < 6; f++) {
+            double[] c = new double[4];
+            for (int q = 0; q < 4; q++) {
+                double a = s.werte[pa][f * nz + zz[q]], b = s.werte[pb][f * nz + zz[q]];
+                c[q] = a + gw[0] * (b - a);
             }
-            return r;
+            r[f] = (c[0] + (c[1] - c[0]) * fx) * (1 - fy) + (c[2] + (c[3] - c[2]) * fx) * fy;
         }
-        return null;
+        return r;
     }
 
     /**

@@ -1,0 +1,35 @@
+// see_stufe.comp — eine Stufe der Clipmap (Seegang Werkbuch, S3b): je Stelle (i, j) der ruhenden Fläche der Stufe L
+// die Verschiebung (ξx, ξy, η) und |Z'|, dazu die aufgelöste Neigungsvarianz (S3c). Die Stelle liegt bei Mitte_L + (i − n/2, j − n/2) · d_L, d_L = d₀ 2^L, relativ
+// zu B; die Stufe zeichnet nur, was sie auflöst (Oberflaeche.aufgeloest mit d_L). P.stufe < 0: alle Stufen in einer
+// Abgabe, die Stufe ist gl_GlobalInvocationID.z (Befund B38). Seit S4a (Seegang Werkbuch 35) dazu je Stelle der Kamm: λ der
+// Verschiebung und k_p h, für die Quelle des Schaumfelds (see_schaum.comp: am Kamm ist (1 − J) / λ die lineare Steilheit).
+// Seit S5a dazu Weißwasser w und Dicke t der Walze (core.szene.Walze).
+#version 460
+layout(local_size_x = 8, local_size_y = 8) in;
+#include "see_gemein.glsl"
+
+layout(std430, binding = 15) writeonly buffer Versatz { vec4 versatz[]; };
+layout(std430, binding = 18) writeonly buffer Aufgeloest { vec2 aufg[]; };   // Σ k² E g², Σ E g² je Stelle (S3c)
+layout(std430, binding = 19) writeonly buffer Kamm { vec4 kamm[]; };         // λ, k_p h (S4a), w, t der Walze (S5a) je Stelle
+
+layout(push_constant) uniform Schritt { float d; int stufe; int erste; int pad1; } P;   // stufe < 0: Stufen erste + z
+
+void main() {
+    int n = W.I[I_N];
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y);
+    if (i >= n || j >= n) return;
+    int L = P.stufe >= 0 ? P.stufe : P.erste + int(gl_GlobalInvocationID.z);
+    float dl = W.F[F_D0] * exp2(float(L));
+    vec2 p = vec2(W.F[F_MITTE + 2 * L], W.F[F_MITTE + 2 * L + 1]) + vec2(float(i - n / 2), float(j - n / 2)) * dl;
+    // am Rand der äußersten Stufe geht die Synthese ins Fernfeld über (SeegangKarte.nah, S3c)
+    float nah = 1.0;
+    if (L == W.I[I_STUFEN] - 1 && W.I[I_RAND] > 0) nah = clamp(float(min(min(i, j), min(n - 1 - i, n - 1 - j))) / float(W.I[I_RAND]), 0.0, 1.0);
+    vec4 a, b;
+    vec2 auf;
+    float khp;
+    vec2 wl;
+    punktK(p, dl, nah, a, b, auf, khp, wl);
+    versatz[(L * n + j) * n + i] = vec4(a.y, a.z, a.x, a.w);
+    aufg[(L * n + j) * n + i] = auf;
+    kamm[(L * n + j) * n + i] = vec4(b.z, khp, wl.x, wl.y);
+}

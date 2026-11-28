@@ -55,6 +55,13 @@ public final class Katalog {
         k.zu("waves.force", "N/m²", Ort.ZELLE, Raster.ZELLE, 2, 1, "waves", "", "hydro");
         k.zu("waves.diss", "W/m²", Ort.ZELLE, Raster.ZELLE, 1, 1, "waves", "", "render.water, archiv");
         k.zu("waves.mss", "–", Ort.ZELLE, Raster.ZELLE, 1, 1, "waves", "", "render.water, archiv");
+        // seit S1 (Seegang Werkbuch, SF6 A): Windsee und Dünung getrennt (Hs, Tp, woher von Gitternord, Richtungsbreite), die
+        // Dissipation nach Quellen getrennt; geschrieben vom Nachlauf des Seegangs (lauf.SeegangNachlauf), gelesen vom Nahfeld
+        k.zu("waves.sea", "m, s, °, °", Ort.ZELLE, Raster.ZELLE, 4, 1, "waves", "", "render, archiv");
+        k.zu("waves.swell", "m, s, °, °", Ort.ZELLE, Raster.ZELLE, 4, 1, "waves", "", "render, archiv");
+        k.zu("waves.dwc", "W/m²", Ort.ZELLE, Raster.ZELLE, 1, 1, "waves", "", "render, archiv");     // Schaumkronen
+        k.zu("waves.dbr", "W/m²", Ort.ZELLE, Raster.ZELLE, 1, 1, "waves", "", "render, archiv");     // Brechen an der Tiefe
+        k.zu("waves.dbf", "W/m²", Ort.ZELLE, Raster.ZELLE, 1, 1, "waves", "", "render, archiv");     // Bodenreibung
         k.zu("bed.d50", "m", Ort.ZELLE, Raster.ZELLE, 1, 1, "sediment", "Aufbereitung", "sediment, render");
         k.zu("bed.mud", "–", Ort.ZELLE, Raster.ZELLE, 1, 1, "sediment", "", "hydro, render.terrain, render, archiv");           // archiv seit P9b, render (live) seit P9c
         k.zu("bed.ripple", "m, m, °", Ort.ZELLE, Raster.ZELLE, 3, 1, "sediment", "", "hydro, render.terrain, render, archiv");  // Höhe, Länge, Richtung (wohin der formende Strom lief, von Gitternord im Uhrzeigersinn)

@@ -1,0 +1,57 @@
+// nah_tempo.comp — je Stützstelle die Geschwindigkeiten C_x, C_y, C_θ mit der Beugung (Nahfeld.tempo in float) und
+// die Summe der Courant-Raten; das Größte über alles atomar in Rate[0]. Im Anlauf (schalter Bit 0) dazu der Schritt
+// der Stützstelle, Δt = min(dtMax, courant / Rate), in Tempo.w. Ein Faden je Stützstelle (B39); das Größte erst in
+// der Gruppe, dann atomar.
+#version 460
+layout(local_size_x = 256) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) readonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 5) writeonly buffer Tempo { vec4 tempo[]; };
+layout(std430, binding = 6) readonly buffer Beug { vec4 beug[]; };
+layout(std430, binding = 12) buffer Rate { uint rate[]; };
+
+shared float sMax[256];
+
+void main() {
+    int id = fadenNummer();
+    uint li = gl_LocalInvocationIndex;
+    int nc = W.nx * W.ny;
+    float r = 0.0;
+    if (id < nc * W.nb * W.nd) {
+        int q = id % W.nd, o = id / W.nd, c = o / W.nb, b = o - c * W.nb;
+        bool lokal = (P.schalter & 1) != 0;
+        vec4 bi = bin[id];
+        if (!nass(c) || bi.x <= 0.0) tempo[id] = vec4(0.0, 0.0, 0.0, P.dtMax);
+        else {
+            int i = c % W.nx;
+            // Gefälle von s (Nahfeld.sGefaelle): zentral über die nassen Nachbarn, sonst einseitig
+            vec2 gs = vec2(0.0);
+            float sb = 1.0;
+            if (W.mitBeugung != 0) {
+                sb = beug[o].w;
+                int w = i > 0 && nass(c - 1) ? c - 1 : c, e = i < W.nx - 1 && nass(c + 1) ? c + 1 : c;
+                int sd = nachbarS(c), nd2 = nachbarN(c);
+                int su = sd >= 0 && nass(sd) ? sd : c, no = nd2 >= 0 && nass(nd2) ? nd2 : c;
+                float lx = (e == c ? 0.0 : 1.0) + (w == c ? 0.0 : 1.0), ly = (no == c ? 0.0 : 1.0) + (su == c ? 0.0 : 1.0);
+                gs.x = lx > 0.0 ? (beug[e * W.nb + b].w - beug[w * W.nb + b].w) / (lx * W.dx) : 0.0;
+                gs.y = ly > 0.0 ? (beug[no * W.nb + b].w - beug[su * W.nb + b].w) / (ly * W.dx) : 0.0;
+            }
+            vec4 z1 = zelle[5 * c + 1];
+            float co = winkel[q].x, si = winkel[q].y;
+            float cx = sb * bi.z * co + z1.x, cy = sb * bi.z * si + z1.y;
+            float ct = sb * bi.w + (W.mitBeugung != 0 ? bi.z * (-si * gs.x + co * gs.y) : 0.0);
+            float grenze = W.drehGrenze * W.dTheta * (abs(cx) / W.dx + abs(cy) / W.dx);
+            ct = clamp(ct, -grenze, grenze);
+            r = abs(cx) / W.dx + (W.ny > 1 ? abs(cy) / W.dx : 0.0) + abs(ct) / W.dTheta;
+            tempo[id] = vec4(cx, cy, ct, lokal ? (r > 0.0 ? min(P.dtMax, W.courant / r) : P.dtMax) : 0.0);
+        }
+    }
+    sMax[li] = r;
+    barrier();
+    for (uint s = 128u; s > 0u; s >>= 1) {
+        if (li < s) sMax[li] = max(sMax[li], sMax[li + s]);
+        barrier();
+    }
+    if (li == 0u && sMax[0] > 0.0) atomicMax(rate[0], floatBitsToUint(sMax[0]));
+}

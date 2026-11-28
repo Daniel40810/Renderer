@@ -37,7 +37,7 @@ import java.util.stream.IntStream;
  * float auf der Karte: {@code gpu.WavesKarte} (Version 0.2).
  */
 public final class Waves {
-    public static final String VERSION = "0.2";
+    public static final String VERSION = "0.3";
     public static final double G = 9.81, RHO_W = 1025, RHO_A = 1.28;
 
     public final int nx, ny, nf, nd, nc;
@@ -663,6 +663,154 @@ public final class Waves {
         }
         return k2;
     }
+
+    // ---------------------------------------------------------------- Diagnose (seit 0.3, Seegang Werkbuch S1, SF6 A)
+    // Nur lesend: Ausbreitung und Quellen bleiben, wie sie sind (die Rechnung ist bitgleich mit 0.2).
+
+    /** Faktor β der Trennung von Windsee und Dünung nach dem Wellenalter, wie in WAM (ECMWF, Bidlot): Windsee, wo β · 28 u* / c · cos(θ − θ_w) > 1. */
+    public static final double BETA_WINDSEE = 1.2;
+
+    /**
+     * Windsee und Dünung der Zelle c: Ein Anteil E(f, θ) gehört zur Windsee, wo {@link #BETA_WINDSEE} · 28 u* / c ·
+     * cos(θ − θ_w) > 1 (c = σ/k die Phasengeschwindigkeit in der Tiefe der Zelle, θ_w die Richtung, in die der Wind weht,
+     * u* aus {@link #uStern} oder nach Wu); der Rest ist Dünung. Ohne Wind ist alles Dünung.
+     * <p>
+     * Rückgabe {Hs, Tp, Richtung, Breite} der Windsee, danach dieselben vier der Dünung: Hs = 4 √m₀ (m), Tp aus der Parabel
+     * um den Gipfel wie {@link #tp} (s, NaN ohne Energie), Richtung wie {@link #richtung} (Grad, wohin, 0 = +x, gegen den
+     * Uhrzeigersinn; NaN ohne Energie), Richtungsbreite σ_θ = √(2 (1 − r)) in Grad, r die Länge des mittleren
+     * Richtungsvektors (Kuik, van Vledder, Holthuijsen 1988). Die Summe der beiden m₀ ist m₀ der Zelle.
+     */
+    public double[] partitionen(int c) {
+        double[] aus = new double[8];
+        double uw = Math.hypot(windU[c], windV[c]);
+        double us = uw > 0 ? (uStern != null && uStern[c] > 0 ? uStern[c] : ustern(uw)) : 0, tw = Math.atan2(windV[c], windU[c]);
+        double[][] s1 = new double[2][nf];
+        double[] m0 = new double[2], ex = new double[2], ey = new double[2];
+        int basis = c * nf * nd;
+        for (int m = 0; m < nf; m++) {
+            double kk = k[c * nf + m], ph = nass[c] && kk > 0 ? sig[m] / kk : Double.POSITIVE_INFINITY;
+            for (int q = 0; q < nd; q++) {
+                double z = e[basis + m * nd + q];
+                if (!(z > 0)) continue;
+                int p = us > 0 && BETA_WINDSEE * 28 * us / ph * Math.cos(theta[q] - tw) > 1 ? 0 : 1;
+                s1[p][m] += z * dTheta;
+                double w = z * df[m] * dTheta;
+                m0[p] += w;
+                ex[p] += w * cosT[q];
+                ey[p] += w * sinT[q];
+            }
+        }
+        for (int p = 0; p < 2; p++) {
+            aus[4 * p] = 4 * Math.sqrt(m0[p]);
+            aus[4 * p + 1] = gipfel(s1[p]);
+            if (m0[p] > 0) {
+                aus[4 * p + 2] = Math.toDegrees(Math.atan2(ey[p], ex[p]));
+                double r = Math.min(1, Math.hypot(ex[p], ey[p]) / m0[p]);
+                aus[4 * p + 3] = Math.toDegrees(Math.sqrt(2 * (1 - r)));
+            } else {
+                aus[4 * p + 2] = Double.NaN;
+                aus[4 * p + 3] = Double.NaN;
+            }
+        }
+        return aus;
+    }
+
+    /** Periode am Gipfel (s) eines Spektrums über der Frequenz, wie {@link #tp}; NaN ohne Energie. */
+    private double gipfel(double[] s) {
+        int g = 0;
+        for (int m = 1; m < nf; m++) if (s[m] > s[g]) g = m;
+        if (!(s[g] > 0)) return Double.NaN;
+        double versatz = 0;
+        if (g > 0 && g < nf - 1) {
+            double n = s[g - 1] - 2 * s[g] + s[g + 1];
+            if (n < 0) versatz = 0.5 * (s[g - 1] - s[g + 1]) / n;
+        }
+        return 1 / (f[g] * Math.pow(stufe, versatz));
+    }
+
+    /**
+     * Die Leistung der drei Senken in Zelle c, wie sie aus dem jetzigen Spektrum folgt (W/m²): {Schaumkronen, Brechen an
+     * der Tiefe, Bodenreibung}. Dieselben Formeln wie im Schritt der Quellen ({@link #schritt}), aber als Rate ohne den
+     * halb impliziten Nenner und ohne die Kappung: Für kleine Schritte ist sie gleich dem, was ein Schritt verliert. Die
+     * Schalter ({@link #mitSchaum} …) gelten.
+     */
+    public double[] dissipation(int c) {
+        double[] aus = new double[3];
+        if (!nass[c]) return aus;
+        double d = tiefe[c];
+        int basis = c * nf * nd;
+        double et = 0, eSig = 0, eK = 0, eS1 = 0;
+        double[] s = new double[nf];
+        for (int m = 0; m < nf; m++) {
+            double z = 0;
+            for (int q = 0; q < nd; q++) z += e[basis + m * nd + q];
+            s[m] = z * df[m] * dTheta;
+            et += s[m]; eSig += s[m] / sig[m]; eK += s[m] / Math.sqrt(k[c * nf + m]); eS1 += s[m] * sig[m];
+        }
+        double mBins = et;
+        if (nf > 1) {                                                           // Schweif wie in den Quellen
+            double z = 0;
+            for (int q = 0; q < nd; q++) z += e[basis + (nf - 1) * nd + q];
+            z *= dTheta * f[nf - 1] * Math.sqrt(stufe);
+            z *= Math.pow(stufe, -0.5 * schweif);
+            et += z / (schweif - 1); eSig += z / (schweif * sig[nf - 1]); eK += z / (schweif * Math.sqrt(k[c * nf + nf - 1])); eS1 += z * sig[nf - 1] / (schweif - 2);
+        }
+        if (!(et > 0)) return aus;
+        double sigMittel = et / eSig, kMittel = (et / eK) * (et / eK);
+        double wc = 0, br = 0, bf = 0;
+        if (mitSchaum) {
+            double st = kMittel * Math.sqrt(et), gam = cds * Math.pow(st / steilheitPM, 4);
+            for (int m = 0; m < nf; m++) wc += gam * sigMittel * k[c * nf + m] / kMittel * s[m];
+        }
+        if (mitReibung) for (int m = 0; m < nf; m++) {
+            double kd = k[c * nf + m] * d;
+            if (kd < 20) { double sh = Math.sinh(kd); bf += cReibung * sig[m] * sig[m] / (G * G * sh * sh) * s[m]; }
+        }
+        if (mitBrechen) {
+            double hm = gammaBJ * d, qb = brecheranteil(Math.sqrt(8 * et) / hm);
+            if (qb > 0) br = 0.25 * alphaBJ * qb * (eS1 / et) / (2 * Math.PI) * hm * hm / et * mBins;
+        }
+        double r = RHO_W * G;
+        aus[0] = r * wc;
+        aus[1] = r * br;
+        aus[2] = r * bf;
+        return aus;
+    }
+
+    /**
+     * Setzt das Spektrum der Zelle c auf einen JONSWAP (γ 3,3; σ 0,07 unter, 0,09 über dem Gipfel) mit der Höhe hs (m) und
+     * der Periode tp (s), in der Richtung verteilt nach cos^(2s)((θ − θ_m)/2) um {@code wohin} (Grad wie {@link #richtung}),
+     * so normiert, dass die Summe über die Stützstellen genau hs²/16 ist. Für den Anfang eines Nachlaufs aus einem Stand
+     * des Archivs (seit 0.3). Ohne Höhe, Periode oder Richtung bleibt die Zelle leer. Auf einer Karte danach
+     * {@code WavesModul.Rechner#hoch}.
+     */
+    public void jonswap(int c, double hs, double tp, double wohin, double s) {
+        int basis = c * nf * nd;
+        Arrays.fill(e, basis, basis + nf * nd, 0);
+        if (!(hs > 0) || !(tp > 0) || !Double.isFinite(wohin)) return;
+        double fp = 1 / tp, tm = Math.toRadians(wohin), sumF = 0, sumD = 0;
+        double[] ef = new double[nf], dq = new double[nd];
+        for (int m = 0; m < nf; m++) {
+            double x = f[m] / fp, sg = f[m] <= fp ? 0.07 : 0.09;
+            double r = Math.exp(-(f[m] - fp) * (f[m] - fp) / (2 * sg * sg * fp * fp));
+            ef[m] = Math.pow(f[m], -5) * Math.exp(-1.25 * Math.pow(x, -4)) * Math.pow(3.3, r);
+            sumF += ef[m] * df[m];
+        }
+        for (int q = 0; q < nd; q++) {
+            double dl = Math.IEEEremainder(theta[q] - tm, 2 * Math.PI);
+            dq[q] = Math.pow(Math.cos(0.5 * dl), 2 * s);
+            sumD += dq[q] * dTheta;
+        }
+        if (!(sumF > 0) || !(sumD > 0)) return;
+        double m0 = hs * hs / 16;
+        for (int m = 0; m < nf; m++) for (int q = 0; q < nd; q++) e[basis + m * nd + q] = m0 * ef[m] / sumF * dq[q] / sumD;
+    }
+
+    /** Richtung wie {@link #richtung} (Grad, wohin, 0 = +x, gegen den Uhrzeigersinn) als woher, von Gitternord im Uhrzeigersinn (wie {@code waves.dir}). */
+    public static double woher(double wohin) { return ((270 - wohin) % 360 + 360) % 360; }
+
+    /** Umkehrung von {@link #woher}: aus woher (von Gitternord im Uhrzeigersinn) die Richtung wohin (0 = +x, gegen den Uhrzeigersinn), in [0, 360). */
+    public static double wohin(double woher) { return ((270 - woher) % 360 + 360) % 360; }
 
     public double wellenzahl(int c, int m) { return k[c * nf + m]; }
     /** σ/sinh(2kd): der Faktor der Refraktion an der Tiefe (1/s je Gefälle). */

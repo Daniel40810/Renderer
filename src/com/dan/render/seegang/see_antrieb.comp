@@ -1,0 +1,34 @@
+// see_antrieb.comp — Seegang Werkbuch, S6b-2 (Datei 67, SF61 A, SF62 A): der Antrieb des Auflaufs an Punkten längs des
+// seeseitigen Rands. Je Gruppe ein Punkt und eine Zeit (y: 0 oder 1, Versatz gegen die Zeit der Karte zv0, zv1); die
+// Synthese ohne Glättung der Auflösung (d = 0), mit dem Fluss je Welle (TIEFENMITTEL) und der gebundenen langen Welle,
+// wie core.szene.Oberflaeche.Punkt.etaAntrieb, .qx, .qy. Die 32 Fäden teilen sich Stützstellen und Fernfeld
+// (ZV_PARALLEL), Faden 0 schreibt. Seit S6c-1b (Seegang Werkbuch 78, SF85 A) mit RANDRICHTUNG: Phase und Laufzeit längs der
+// Punkte um den Bezugspunkt (bx, by relativ zu B) gestreckt, damit der Löser jede Welle in ihrer Richtung aufnimmt; tiefe ≤ 0:
+// wie bis S6c-1 (see_gemein.glsl, Oberflaeche.punktRand).
+#version 460
+layout(local_size_x = 32) in;
+#define ZEITVERSATZ
+#define ZV_PARALLEL
+#define ZV_LANES 32
+#define TIEFENMITTEL
+#define RANDRICHTUNG
+#include "see_gemein.glsl"
+
+// rw[i], i < maxPunkte: Eingabe (x, y relativ zu B, –, –). Ausgabe ab maxPunkte je Punkt und Zeit: (η des Antriebs über dem
+// Spiegel, q_x, q_y, m0), Index maxPunkte + 2 i + Zeit.
+layout(std430, binding = 22) buffer Randwelle { vec4 rw[]; };
+
+layout(push_constant) uniform Antrieb { int zahl; int maxPunkte; float zv0; float zv1; float bx; float by; float tiefe; float pad; } P;
+
+void main() {
+    int i = int(gl_WorkGroupID.x), z = int(gl_WorkGroupID.y);
+    if (i >= P.zahl) return;                                                  // für die ganze Gruppe gleich
+    zeitVersatz = z == 0 ? P.zv0 : P.zv1;
+    randBezug = vec2(P.bx, P.by);
+    randTiefe = P.tiefe;
+    vec4 a, b;
+    vec2 auf, wl;
+    float khp;
+    punktK(rw[i].xy, 0.0, 1.0, a, b, auf, khp, wl);
+    if (gl_LocalInvocationID.x == 0) rw[P.maxPunkte + 2 * i + z] = vec4(antriebEta, antriebQ, fussM0);
+}

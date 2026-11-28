@@ -1,0 +1,50 @@
+#version 460
+// tiefe_grob.comp – render.water, seit S9b-1 (Seegang Werkbuch 107, SF171 A): die grobe Tiefe für die Spiegelung des
+// Geländes (wasser_optik.glsl). Je Kachel von 16 × 16 Bildpunkten aus dem Tiefenbild darunter:
+//   x  die nächste Tiefe des Geländes längs der Blickachse (vorn.w / Tiefe, wie die Spiegelung sie rechnet), 1e30 ohne;
+//   y  die höchste Höhe über dem Auge, die ein Bildpunkt dort zeigt: Tiefe mal größte Steigung seiner Richtung (an seinen
+//      Ecken; die Richtung ist vorn + n.x rechts − n.y oben, linear in n), −1e30 ohne Gelände;
+//   z  die größte Steigung dieser Richtungen, nicht unter 0.
+// Dazu y und z für das ganze Bild in sgAlle (als geordnete uint, atomicMax; der Kopf ist vorher gelöscht).
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 0, binding = 0, std430) readonly buffer Kopf { vec4 auge; vec4 rechts; vec4 oben; vec4 vorn; vec4 bild; };
+layout(set = 0, binding = 1) uniform sampler2D tiefeUnten;
+layout(set = 0, binding = 2, std430) buffer SpiegelGrob { ivec4 sgKopf; uvec4 sgAlle; vec4 sg[]; };
+shared float mz[256], mh[256], mg[256];
+
+uint ordne(float f) { uint u = floatBitsToUint(f); return (u & 0x80000000u) != 0u ? ~u : (u | 0x80000000u); }
+
+void main() {
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    float z = 1e30, h = -1e30, gm = 0.0;
+    if (px.x < int(bild.x) && px.y < int(bild.y)) {
+        float tg = texelFetch(tiefeUnten, px, 0).r;
+        if (tg > 0.0) {
+            z = vorn.w / tg;
+            vec2 n0 = 2.0 * vec2(px) / bild.xy - 1.0, n1 = 2.0 * vec2(px + 1) / bild.xy - 1.0;
+            float dy = vorn.y + max(n0.x * rechts.y, n1.x * rechts.y) + max(-n0.y * oben.y, -n1.y * oben.y);
+            h = z * dy;
+            gm = max(dy, 0.0);
+        }
+    }
+    uint i = gl_LocalInvocationIndex;
+    mz[i] = z;
+    mh[i] = h;
+    mg[i] = gm;
+    barrier();
+    for (uint w = 128u; w > 0u; w >>= 1) {
+        if (i < w) {
+            mz[i] = min(mz[i], mz[i + w]);
+            mh[i] = max(mh[i], mh[i + w]);
+            mg[i] = max(mg[i], mg[i + w]);
+        }
+        barrier();
+    }
+    if (i == 0u) {
+        ivec2 t = ivec2(gl_WorkGroupID.xy);
+        sg[t.y * int(gl_NumWorkGroups.x) + t.x] = vec4(mz[0], mh[0], mg[0], 0.0);
+        atomicMax(sgAlle.x, ordne(mh[0]));
+        atomicMax(sgAlle.y, ordne(mg[0]));
+        if (t.x == 0 && t.y == 0) sgKopf = ivec4(16, int(gl_NumWorkGroups.x), int(gl_NumWorkGroups.y), 1);
+    }
+}

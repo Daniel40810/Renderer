@@ -1,0 +1,26 @@
+// swash_schritt.comp — eine Stufe nach Heun je Zelle (Swash.raten, Swash.anwenden): Flüsse, nach dem Geber gekürzt (θ),
+// dann stufeZelle (Quellterm, Stufe, in Stufe 2 Reibung, Versickern, Spuren, Bilanz). Der einzelne Weg
+// (SwashKarte.verschmolzen = false), zum Vergleich mit swash_stufe.
+#version 460
+layout(local_size_x = 16, local_size_y = 16) in;
+#include "swash_gemein.glsl"
+
+layout(push_constant) uniform Schritt { float dt; float t; float w; int stufe; int slotA; int slotB; int paritaet; int pad1; } P;
+
+/** θ des Gebers einer Kante in x (Fläche a, Zellen a − 1 | a) bzw. in y; Randzellen geben ungekürzt. */
+float thetaX(int a, int j, float m) { int geber = m > 0.0 ? a - 1 : a; return geber < 0 || geber >= nx() ? 1.0 : theta[id(geber, j)]; }
+float thetaY(int i, int b, float m) { int geber = m > 0.0 ? b - 1 : b; return geber < 0 || geber >= ny() ? 1.0 : theta[id(i, geber)]; }
+
+void main() {
+    int i = int(gl_GlobalInvocationID.x), j = int(gl_GlobalInvocationID.y);
+    if (i >= nx() || j >= ny()) return;
+    int c = id(i, j);
+    if (fels(c)) return;
+    int fl = j * (nx() + 1) + i, fr = fl + 1, fd = j * nx() + i, fu = fd + nx();
+    vec4 xl = fx[fl], xr = fx[fr], yd = fy[fd], yu = fy[fu];
+    xl.xy *= thetaX(i, j, xl.x);
+    xr.xy *= thetaX(i + 1, j, xr.x);
+    yd.xy *= thetaY(i, j, yd.x);
+    yu.xy *= thetaY(i, j + 1, yu.x);
+    stufeZelle(i, j, c, xl, xr, yd, yu, steig[3 * c], steig[3 * c + 1], u[c], P.dt, P.t, P.stufe);
+}

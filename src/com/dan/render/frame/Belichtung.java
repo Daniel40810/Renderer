@@ -97,6 +97,31 @@ public final class Belichtung {
     }
 
     /**
+     * Seit L5e1 (Seegang Werkbuch 100, Befund 1): Größter Kanal, auf den {@link #farbtreu} Überstrahltes staucht (vor der
+     * Kurve, linear) [G]. Ein grünes Tonnenfeuer ist bei Nacht hundertfach über der Belichtung; die Filmkurve sättigt jede
+     * Schicht für sich, und es kam weiß heraus. Das Auge sieht es grün.
+     */
+    public static final double FARBTREU = 1.0;
+
+    /** Anteil von {@link #farbtreu}: 0 bei Tag, ganz ab Vorbelichtung 1 (Nacht), weich ab 0,01 (Dämmerung) [G]. */
+    public static double farbtreuAnteil(double vorbelichtung) {
+        double t = Math.min(1, Math.max(0, (Math.log10(Math.max(vorbelichtung, 1e-30)) + 2) / 2));
+        return t * t * (3 - 2 * t);
+    }
+
+    /**
+     * Wie {@code ausgabe.frag} nach den Stäbchen (nur mit {@link #nachtsehen}): Überstrahltes bei Nacht farbtreu gestaucht,
+     * c · (1 + (m / {@link #FARBTREU})⁴)^−¼ mit m dem größten Kanal, gemischt mit {@link #farbtreuAnteil}; das Verhältnis der
+     * Kanäle bleibt. Unter der Grenze fast unverändert (Knie vierter Ordnung).
+     */
+    public static double[] farbtreu(double[] c, double vorbelichtung) {
+        double w = farbtreuAnteil(vorbelichtung), m = Math.max(c[0], Math.max(c[1], c[2]));
+        if (w <= 0 || m <= 0) return c;
+        double f = 1 - w + w * Math.pow(1 + Math.pow(m / FARBTREU, 4), -0.25);
+        return new double[] {c[0] * f, c[1] * f, c[2] * f};
+    }
+
+    /**
      * Wählt aus dem Puffer des Histogramms ({@link #PUFFER} Werte) die Fächer, die gelten (F49 A): die über die
      * Bildpunkte mit Tiefe, wenn {@link #nurBoden} und diese mindestens {@link #anteilBoden} der gezählten tragen, sonst
      * die über alle.

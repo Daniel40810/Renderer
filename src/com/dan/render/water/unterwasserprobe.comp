@@ -1,0 +1,20 @@
+#version 460
+// unterwasserprobe.comp – render.water (S8d, Prüfstein 39): je Bildpunkt (uv) die Tiefe der Linse unter der Fläche,
+// ob der Strahl im Snellschen Fenster liegt, die Durchlässigkeit des Wegs und seine Richtung, für Unterwasser.probe.
+// Je Probe 8 Werte: Tiefe, frei, t, d.x, d.y, d.z, 0, 0. Push: x Zahl, y Tiefe für die Strahlen (m, float-Bits; ≤ 0: die der Linse).
+#include "/com/dan/render/water/unterwasser.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 5, std430) readonly buffer Proben { vec2 pr[]; };
+layout(set = 0, binding = 6, std430) writeonly buffer Aus { float aus[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.x) return;
+    vec2 uv = pr[i];
+    float D = uwTiefe(uv), Dp = intBitsToFloat(p.y);
+    vec3 d = uwStrahl(uv);
+    float frei, t;
+    uwLeuchtdichte(d, Dp > 0.0 ? Dp : max(D, 0.005), frei, t);
+    aus[8 * i] = D; aus[8 * i + 1] = frei; aus[8 * i + 2] = t;
+    aus[8 * i + 3] = d.x; aus[8 * i + 4] = d.y; aus[8 * i + 5] = d.z; aus[8 * i + 6] = 0.0; aus[8 * i + 7] = 0.0;
+}

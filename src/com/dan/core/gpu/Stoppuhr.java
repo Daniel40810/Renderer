@@ -42,7 +42,7 @@ public final class Stoppuhr implements AutoCloseable {
     private final List<List<Abschnitt>> runden = new ArrayList<>();
     private final int[] benutzt = new int[RUNDEN];
     private final Map<String, Integer> offen = new LinkedHashMap<>();
-    private final Map<String, Double> mittel = new LinkedHashMap<>(), zuletzt = new LinkedHashMap<>();
+    private final Map<String, Double> mittel = new LinkedHashMap<>(), zuletzt = new LinkedHashMap<>(), summe = new LinkedHashMap<>();
     private int runde = -1;
     private long verloren, gelesen;
 
@@ -122,6 +122,7 @@ public final class Stoppuhr implements AutoCloseable {
                 }
                 for (Map.Entry<String, Double> e : summe.entrySet()) {
                     zuletzt.put(e.getKey(), e.getValue());
+                    this.summe.merge(e.getKey(), e.getValue(), Double::sum);
                     mittel.merge(e.getKey(), e.getValue(), (alt, neu) -> alt + gewicht * (neu - alt));
                 }
                 runden.get(r).clear();
@@ -133,6 +134,12 @@ public final class Stoppuhr implements AutoCloseable {
         }
         return n;
     }
+
+    /** Summe aller gelesenen Zeiten je Abschnitt in ms, seit dem Anfang oder {@link #summenLeeren}. */
+    public Map<String, Double> summen() { return new LinkedHashMap<>(summe); }
+
+    /** Leert die Summen. */
+    public void summenLeeren() { summe.clear(); }
 
     /** Gleitendes Mittel eines Abschnitts in ms (0, solange nichts gelesen ist). */
     public double ms(String name) { return mittel.getOrDefault(name, 0.0); }

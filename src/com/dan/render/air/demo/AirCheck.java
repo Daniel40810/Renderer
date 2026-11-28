@@ -282,6 +282,23 @@ public final class AirCheck {
             h.verteilt = true;
             A.pruefe(z.geteilt.keySet().containsAll(List.of(Himmel.DURCH, Himmel.MEHR, Himmel.ANSICHT)) && z.puffer.containsKey(Himmel.WERTE)
                     && z.werte.containsKey(Himmel.SONNE) && z.werte.containsKey(Himmel.MOND), "Abgelegt im Bildziel", z.geteilt.keySet() + ", " + z.puffer.keySet() + ", " + z.werte.keySet(), "alle sechs");
+            // seit S9d-1 (Seegang Werkbuch 109, SF185 A): Höhe des Auges erst ab Himmel.HOEHE_MIN, Sprung erst ab HOEHE_SPRUNG
+            double h0 = z.blick.hoehe;
+            int b0 = h.ansichtGerechnet;
+            z.blick.hoehe = h0 + 0.9 * Himmel.HOEHE_MIN;
+            for (int i = 0; i < Himmel.GRUPPEN; i++) bild(g, h, z);
+            int b1 = h.ansichtGerechnet;
+            z.blick.hoehe = h0 + 1.1 * Himmel.HOEHE_MIN;
+            bild(g, h, z);
+            int b2 = h.ansichtGerechnet;
+            for (int i = 1; i < Himmel.GRUPPEN; i++) bild(g, h, z);
+            int b3 = h.ansichtGerechnet;
+            z.blick.hoehe = h0;
+            for (int i = 0; i < Himmel.GRUPPEN; i++) bild(g, h, z);
+            A.pruefe(b1 == b0 && b2 == b0 && b3 == b0 + 1,
+                    f("Höhe des Auges (seit S9d-1): %.0f m → +%.0f m keine neue Ansicht; +%.0f m neu, verteilt über fünf Bilder (kein Sprung unter %.0f m)",
+                            h0, 0.9 * Himmel.HOEHE_MIN, 1.1 * Himmel.HOEHE_MIN, Himmel.HOEHE_SPRUNG),
+                    (b1 - b0) + " / " + (b2 - b0) + " / " + (b3 - b0), "0 / 0 / 1");
 
             // ---- 4 Sonnenscheibe: Blick auf die Sonne, 2° Bildwinkel
             A.teil("4 Sonnenscheibe");

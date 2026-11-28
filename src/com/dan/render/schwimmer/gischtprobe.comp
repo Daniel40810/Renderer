@@ -1,0 +1,20 @@
+#version 460
+// gischtprobe.comp – render.schwimmer (Seegang S8a, Prüfstein 35): rechnet Tropfen aus gischt.glsl für Gischtbild.probe.
+// Je Probe (Bündel, Tropfen) 8 Werte: Lage x, y, z (relativ zum Auge), Größe, lebt (1/0), Geschwindigkeit x, y, z.
+// Push: x Zahl der Proben.
+#define GISCHT_OHNE_LICHT
+#include "/com/dan/render/schwimmer/gischt.glsl"
+layout(local_size_x = 64) in;
+layout(set = 0, binding = 2, std430) readonly buffer Proben { ivec2 pr[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer Aus { float aus[]; };
+layout(push_constant) uniform Push { ivec4 p; };
+void main() {
+    int i = int(gl_GlobalInvocationID.x);
+    if (i >= p.x) return;
+    vec3 pos, vel;
+    float size;
+    bool alive;
+    gTropfen(bu[pr[i].x], pr[i].y, pos, vel, size, alive);
+    aus[8 * i] = pos.x; aus[8 * i + 1] = pos.y; aus[8 * i + 2] = pos.z; aus[8 * i + 3] = size;
+    aus[8 * i + 4] = alive ? 1.0 : 0.0; aus[8 * i + 5] = vel.x; aus[8 * i + 6] = vel.y; aus[8 * i + 7] = vel.z;
+}

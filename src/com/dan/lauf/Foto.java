@@ -319,7 +319,7 @@ public final class Foto {
         double[] c = {r * faktor, g * faktor, b * faktor};
         if (nacht) {
             double y = Math.max(0, 0.2126 * r + 0.7152 * g + 0.0722 * b);
-            c = Belichtung.staebchen(c[0], c[1], c[2], y);
+            c = Belichtung.farbtreu(Belichtung.staebchen(c[0], c[1], c[2], y), faktor);       // seit L5e1
         }
         double[] o = kurve ? fk.anwenden(c[0], c[1], c[2]) : c;
         int v = 0;

@@ -1,0 +1,34 @@
+#version 460
+// spiegel_halb.comp – render.water, seit S9c-1 (Seegang Werkbuch 108, SF175 A): die Spiegelung des Geländes in halber
+// Auflösung. Je 2 × 2 Bildpunkte der erste, auf dem das Netz gezeichnet hat (spB.w = Abstand t > 0); von ihm aus der
+// Strahl wie in netz.frag: P = t · Richtung des Bildpunkts (Mitte), r aus spB. Ergebnis je Block {L des Geländes, Gewicht}
+// (spiegelung() wie im vollen Weg); spiegel_misch.frag mischt es in die vier Bildpunkte.
+// Bindungen: 0–5 wie wasser.glsl (nur der Kopf wird gelesen), 6 Bild darunter, 7 Tiefe darunter, 8 grobe Tiefe,
+// 9 spB aus netz_halb.frag, 10 Ergebnis.
+#define SPIEGEL_GROB_BINDUNG 8
+#include "/com/dan/render/water/wasser.glsl"
+#include "/com/dan/render/water/spiegelung.glsl"
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 9) uniform sampler2D spB;
+layout(set = 0, binding = 10, std430) writeonly buffer SpiegelHalb { vec4 sh[]; };
+void main() {
+    ivec2 h = ivec2(gl_GlobalInvocationID.xy), bi = ivec2(bild.xy), nh = (bi + 1) / 2;
+    if (h.x >= nh.x || h.y >= nh.y) return;
+    vec4 e = vec4(0.0);
+    ivec2 px = ivec2(-1);
+    for (int k = 0; k < 4; k++) {
+        ivec2 q = 2 * h + ivec2(k & 1, k >> 1);
+        if (q.x >= bi.x || q.y >= bi.y) continue;
+        vec4 v = texelFetch(spB, q, 0);
+        if (v.w > 0.0) { e = v; px = q; break; }
+    }
+    vec4 o = vec4(0.0);
+    if (px.x >= 0) {
+        float nx = (float(px.x) + 0.5) / bild.x * 2.0 - 1.0, ny = (float(px.y) + 0.5) / bild.y * 2.0 - 1.0;
+        vec3 d = normalize(vorn.xyz + rechts.xyz * nx - oben.xyz * ny);
+        float ws;
+        vec3 Lg = spiegelung(d * e.w, normalize(e.xyz), ws);
+        o = vec4(Lg, ws);
+    }
+    sh[h.y * nh.x + h.x] = o;
+}

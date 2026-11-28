@@ -10,7 +10,7 @@
 #include "/com/dan/render/terrain/gelaende.glsl"
 layout(set = 0, binding = 5, std430) readonly buffer Licht { vec4 himmel; vec4 boden; };
 layout(set = 0, binding = 6) uniform sampler2D naesse;
-layout(set = 0, binding = 7) uniform sampler2D bodenT;   // je Zelle: Rippelhöhe (m), Rippellänge (m), Richtung (rad; 0 = Ost, gegen den Uhrzeigersinn), Schlickanteil
+layout(set = 0, binding = 7) uniform sampler2D bodenT;   // je Zelle: Rippelhöhe (m), Rippellänge (m), Richtung (rad; 0 = Ost, gegen den Uhrzeigersinn), Schlickanteil; seit S6d-1 2 · ny Zeilen, oben die Wellenrippel (Höhe, Länge, Richtung, 0)
 layout(set = 0, binding = 9) uniform sampler2D flugT;    // seit P10c: je Zelle der Fluss des Flugsands nach Ost und nach Nord (kg/(m s)); 1 × 1: keiner
 // seit P12a: der Schatten der Häuser (render.bau legt ihn ab; ohne Häuser ist der Faktor genau 1)
 #define BAU_SCHATTEN_BILD 10
@@ -27,6 +27,9 @@ layout(set = 0, binding = 13, std430) readonly buffer GestaltKopf {
     int gSlot[];    // je Kachel des Gitters ihr Platz im Atlas, −1: keine
 };
 layout(set = 0, binding = 14) uniform sampler2D gestaltAnsicht;
+// seit S6c-2 (Seegang Werkbuch 82, SF93 A): das Bild des Auflaufs (physics.swash, swash_bild.comp) – je Zelle (h, Stand
+// relativ zum Ruhewasser, Sekunden seit nass oder −1, versickert oberhalb der Front), danach je Zeile der Spülsaum (m quer)
+layout(set = 0, binding = 15, std430) readonly buffer SwashBild { vec4 swb[]; };
 layout(push_constant) uniform Push { ivec4 p; };
 layout(location = 0) in vec3 vRel;
 layout(location = 1) in vec3 vN;
@@ -75,6 +78,23 @@ vec2 rippel(float fuss, out float schlick) {
         vec4 t = texelFetch(bodenT, c, 0);
         gew += w;
         sl += w * t.a;
+        // seit S6d-1: wo die Welle die Rippel zuletzt geformt hat (obere Hälfte des Bilds), gelten ihre statt der des Stroms.
+        // Wellenrippel: symmetrisch, lange gerade Kämme mit spitzem Kamm (zweite Harmonische 0,2 [G]): z = η/2 (cos φ + 0,2 cos 2φ).
+        if (bod.w > 0.5) {
+            vec4 wt = texelFetch(bodenT, c + ivec2(0, bodN.y), 0);
+            if (wt.x > 0.0 && wt.y > 0.0) {
+                float aw = clamp(wt.y / (2.0 * fuss) - 1.0, 0.0, 1.0);
+                if (aw <= 0.0) continue;
+                vec2 dw = vec2(cos(wt.z), sin(wt.z)), rw = (u - (vec2(c) + 0.5)) * bodLage.z;
+                float sw = dot(rw, dw), qw = dot(rw, vec2(-dw.y, dw.x));
+                // Kämme leicht gebogen und längs ungleich hoch (L4u: ganz gerade sahen sie wie Kord aus) [G]
+                float pw = 6.2831853 * sw / wt.y + 0.8 * sin(6.2831853 * qw / (11.0 * wt.y)) + 0.45 * sin(6.2831853 * (qw + 0.6 * sw) / (31.0 * wt.y) + 1.3)
+                         + float(c.x * 7 + c.y * 13);
+                float aq = 0.8 + 0.2 * sin(6.2831853 * qw / (17.0 * wt.y) + 0.7);
+                g += dw * (-w * aw * aq * 3.14159265 * wt.x / wt.y * (sin(pw) + 0.4 * sin(2.0 * pw)));
+                continue;
+            }
+        }
         float auf = clamp(t.y / (2.0 * fuss) - 1.0, 0.0, 1.0);
         if (t.x <= 0.0 || t.y <= 0.0 || auf <= 0.0) continue;
         vec2 dir = vec2(cos(t.z), sin(t.z)), r = (u - (vec2(c) + 0.5)) * bodLage.z;
@@ -225,6 +245,84 @@ vec3 rauschGD(vec2 v) {
     float k = a - b - c + d;
     return vec3(a + (b - a) * u.x + (c - a) * u.y + k * u.x * u.y, du.x * ((b - a) + k * u.y), du.y * ((c - a) + k * u.x));
 }
+// ---- Auflauf (S6c-2) -------------------------------------------------------------------------------------------------
+// Im Rechteck des Lösers: Film (Spiegel), nasser Sand (glänzt, solange er eben abgelaufen ist; dunkel, solange er nass ist;
+// trocknet mit der Halbwertszeit der Nässe), Spülsaum an der höchsten Linie. Über SW_NETZ zeichnet das Wasser (netz) den
+// Löser; darunter das Gelände den Film [G]. Konstanten [G]:
+const float SW_FILM_MIN = 0.0005, SW_FILM_VOLL = 0.003, SW_NETZ = 0.03;   // m: Film sichtbar ab, voll ab; Netz ab
+const float SW_GLANZ_TAU = 4.0;       // s: Glanz des eben abgelaufenen Sands
+const float SW_F_DUNKEL = 0.005;      // m: versickertes Wasser oberhalb der Front für volle Abdunklung
+const float SW_SAUM_BREITE = 0.3;     // m: Breite des Spülsaums
+const float SW_GRAS = 0.35;           // Anteil der Abdunklung auf Gras, Klei, Deckwerk (Watt und Sand: 1)
+float swF = 0.0, swGlanz = 0.0, swNass = 0.0, swSaum = 0.0;   // Film (0 … 1), Glanz, Nässe, Saum
+vec2 swNeig = vec2(0.0);                                        // Neigung des Films nach Ost, Nord
+// Werte der Zelle (i, j): (Film, Glanz, Nässe, Stand); außerhalb 0
+vec4 swZelle(int i, int j) {
+    i = clamp(i, 0, swN.x - 1); j = clamp(j, 0, swN.y - 1);
+    vec4 c = swb[j * swN.x + i];
+    if (c.y >= 1e28) return vec4(0.0);
+    float film = smoothstep(SW_FILM_MIN, SW_FILM_VOLL, c.x);
+    float alter = c.z <= -1e29 ? 1e9 : max(0.0, intBitsToFloat(swN.w) - c.z);   // seit S6c-2b: zuletzt nass absolut
+    float glanz = max(film, exp(-alter / SW_GLANZ_TAU));
+    float nass0 = c.z <= -1e29 ? 0.0 : exp2(-alter / max(nass.z, 1.0));
+    float n = max(max(film, glanz), max(clamp(c.w / SW_F_DUNKEL, 0.0, 1.0), nass0));
+    return vec4(film, glanz, n, c.y);
+}
+// Wasser der Zelle (m; Fels 0), seit S6c-2b
+float swH(int i, int j) { vec4 c = swb[clamp(j, 0, swN.y - 1) * swN.x + clamp(i, 0, swN.x - 1)]; return c.y >= 1e28 ? 0.0 : c.x; }
+// Liest das Bild am Ort (relativ zum Auge); false außerhalb des Rechtecks
+bool swashAmOrt() {
+    if (swN.z == 0) return false;
+    vec2 d = vec2(vRel.x, -vRel.z) - swLage.xy;
+    float x = dot(d, swLage.zw), y = dot(d, swAchse.xy), dx = swAchse.z;
+    if (x < 0.0 || y < 0.0 || x >= float(swN.x) * dx || y >= float(swN.y) * dx) return false;
+    vec2 u = vec2(x, y) / dx - 0.5;
+    // seit S6e (Seegang Werkbuch 85, A21): Film, Glanz, Nässe und Wasser als quadratischer B-Spline über die 3 × 3 Zellen um
+    // die nächste Mitte wie das Netz (wasser.glsl, swFlaeche); bilinear zeigten die Ränder an 1-m-Zellen Treppen (L4y)
+    ivec2 mc = ivec2(floor(u + 0.5));
+    vec2 dd = u - vec2(mc);
+    vec3 wx = vec3(0.5 * (0.5 - dd.x) * (0.5 - dd.x), 0.75 - dd.x * dd.x, 0.5 * (0.5 + dd.x) * (0.5 + dd.x));
+    vec3 wy = vec3(0.5 * (0.5 - dd.y) * (0.5 - dd.y), 0.75 - dd.y * dd.y, 0.5 * (0.5 + dd.y) * (0.5 + dd.y));
+    vec3 dwx = vec3(dd.x - 0.5, -2.0 * dd.x, 0.5 + dd.x), dwy = vec3(dd.y - 0.5, -2.0 * dd.y, 0.5 + dd.y);
+    vec4 m = vec4(0.0);
+    float hb = 0.0, hmin = 1e9, gx = 0.0, gy = 0.0;
+    for (int bb = 0; bb < 3; bb++)
+        for (int aa = 0; aa < 3; aa++) {
+            ivec2 cc = mc + ivec2(aa - 1, bb - 1);
+            vec4 z = swZelle(cc.x, cc.y);
+            float hz = swH(cc.x, cc.y), w = wx[aa] * wy[bb];
+            m += w * z;
+            hb += w * hz;
+            hmin = min(hmin, hz);
+            gx += dwx[aa] * wy[bb] * z.w;
+            gy += wx[aa] * dwy[bb] * z.w;
+        }
+    // seit S6c-2b (Befund L4p: helle Flecken unter tiefem Wasser): Film, Glanz und Saum nur, wo das Netz nicht zeichnet; unter
+    // dem Netz spiegelt dessen Fläche, und der Glanz des Grunds ging als Albedo in die Säule (ρ = π L_u / E über 1)
+    float ohneNetz = 1.0 - smoothstep(SW_NETZ - 0.01, SW_NETZ, hb);
+    swF = m.x * ohneNetz;
+    swGlanz = m.y * ohneNetz;
+    swNass = m.z;
+    // Neigung des Spiegels aus dem Stand der Nachbarn (nur wo alle Wasser tragen), in Ost und Nord; seit S6e aus dem B-Spline
+    gx /= dx;
+    gy /= dx;
+    if (hmin <= 0.0) { gx = 0.0; gy = 0.0; }
+    swNeig = clamp(gx, -0.3, 0.3) * swLage.zw + clamp(gy, -0.3, 0.3) * swAchse.xy;
+    // Spülsaum: an der höchsten Linie der Zeile, unregelmäßig (Rauschen längs und quer) [G]; seit S6e zwischen den Mitten
+    // zweier Zeilen linear (je Zeile fest gab an 1-m-Zellen eine Treppe, L4y)
+    int j0 = clamp(int(floor(u.y)), 0, swN.y - 1), j1 = min(j0 + 1, swN.y - 1);
+    float fj = clamp(u.y - float(j0), 0.0, 1.0);
+    int k0 = floatBitsToInt(swb[swN.x * swN.y + j0].x), k1 = floatBitsToInt(swb[swN.x * swN.y + j1].x);   // seit S6c-2b: Index der Zelle + 1 (0: keine)
+    int ks = max(k0, k1);
+    float xs = k0 > 0 && k1 > 0 ? (mix(float(k0), float(k1), fj) - 0.5) * dx : (float(ks) - 0.5) * dx;
+    if (ks > 0) {
+        float wob = 0.12 * (rausch(vec2(y * 0.9, 3.1)) - 0.5) + 0.05 * (rausch(vec2(y * 4.0, 7.7)) - 0.5);
+        float d0 = abs(x - xs - wob);
+        swSaum = (1.0 - smoothstep(0.25 * SW_SAUM_BREITE, 0.5 * SW_SAUM_BREITE, d0)) * (0.55 + 0.45 * rausch(vec2(x * 6.0, y * 6.0))) * ohneNetz;
+    }
+    return true;
+}
+
 // Kräuselung auf kleinem Wasser [G]: Neigung aus zwei ziehenden Rauschfeldern (Ableitung geschlossen), Stärke rund 0,04.
 vec2 kraeusel(vec2 p, float t) {
     vec3 a = rauschGD(p * 1.3 + vec2(t * 0.35, t * 0.2)), b = rauschGD(p * 4.1 - vec2(t * 0.6, -t * 0.4));
@@ -238,7 +336,11 @@ void main() {
     float h = max(0.5, vRel.y + auge.x), schlick, watt = clamp(vWatt, 0.0, 1.0);
     vec2 gr = rippel(fuss, schlick) * watt;
     n = normalize(n + vec3(-gr.x, 0.0, gr.y));
-    vec3 a = vAlb * (1.0 - nass.y * nasse() * watt) * (1.0 - bod.x * clamp(schlick / max(bod.y, 1e-6), 0.0, 1.0) * watt);
+    // seit S6c-2: im Rechteck des Auflaufs die Nässe aus dem Löser (die stärkere von beiden; auf Gras, Klei, Deckwerk schwächer)
+    bool imSwash = swashAmOrt();
+    float nasseAll = nasse() * watt;
+    if (imSwash) nasseAll = max(nasseAll, swNass * mix(SW_GRAS, 1.0, watt));
+    vec3 a = vAlb * (1.0 - nass.y * nasseAll) * (1.0 - bod.x * clamp(schlick / max(bod.y, 1e-6), 0.0, 1.0) * watt);
     // Seit P12a der Schatten der Häuser auf Sonne oder Mond; ohne Häuser (bauInfo.x = 0) genau der Ausdruck wie vorher
     float bs = bauSchatten(vRel, normalize(vN)), bsS = bauInfo.y < 0.5 ? bs : 1.0, bsM = bauInfo.y > 0.5 ? bs : 1.0;
     vec3 E;
@@ -308,6 +410,32 @@ void main() {
             // Flut ist der Grund das Gelände, nicht der Spiegel des Gestaltwassers: Faktor zum Grund im Alpha (sonst 1)
             float yL = dot(L, vec3(0.2126, 0.7152, 0.0722));
             grundFaktor = yL > 0.0 ? clamp(dot(Lgrund, vec3(0.2126, 0.7152, 0.0722)) / yL, 0.0, 1000.0) : 1.0;
+        }
+    }
+    // ---- seit S6c-2: Film, Glanz und Spülsaum im Rechteck des Auflaufs. Film: Spiegel wie das Wasser der Gräben (Fresnel,
+    // n = 1,33, Himmel aus der Ansicht, Glanz der Sonne Beckmann m² 0,006) über dem nassen Grund; eben abgelaufener Sand:
+    // derselbe Spiegel mit rauerer Fläche (m² 0,03) und dem Anteil swGlanz [G]; Saum: Schaum von gestern, Albedo 0,55 [G].
+    if (imSwash && (swF > 0.0 || swGlanz > 0.0 || swSaum > 0.0)) {
+        // seit S6c-2b (Befund L4p: die nasse Böschung als waagerechter Spiegel, hell wie der Himmel, mit Zähnen): der Film folgt
+        // dem Grund – Normale des Geländes, dazu die Kräuselung; vorher waagerecht mit der Neigung des Stands (auf ± 0,3
+        // begrenzt und 0 neben trockenen Zellen), auf einer Böschung 1:2,5 also streifend und fast ganz Himmel
+        vec2 g = kraeusel(vec2(vRel.x, -vRel.z), gInfo.x) * 0.3;
+        vec3 nW = normalize(n + vec3(-g.x, 0.0, g.y));
+        vec3 v = -normalize(vRel), r = reflect(-v, nW);
+        float cv = clamp(dot(nW, v), 1e-3, 1.0), F = 0.02 + 0.98 * pow(1.0 - cv, 5.0);
+        vec3 Lh = ansicht(gestaltAnsicht, normalize(vec3(r.x, max(r.y, 0.005), r.z)), hw.sonne.w);
+        vec3 l = hw.sonne.xyz, hv = normalize(l + v);
+        float nh = clamp(dot(nW, hv), 1e-3, 1.0), t2 = (1.0 - nh * nh) / (nh * nh);
+        float bsG = bauInfo.y < 0.5 ? bs : 1.0;
+        vec3 Es = sonne(l, hw.sonneE.rgb * hw.farbe.rgb, h) * vSicht * bsG;
+        float mF = 0.006, mG = 0.03;
+        float DF = exp(-t2 / mF) / (L_PI * mF * nh * nh * nh * nh), DG = exp(-t2 / mG) / (L_PI * mG * nh * nh * nh * nh);
+        vec3 spiegelF = F * Lh + Es * F * DF / (4.0 * cv), spiegelG = F * Lh + Es * F * DG / (4.0 * cv);
+        // Film: Spiegel über dem Grund, der durch das dünne Wasser scheint; Glanz: auf den Grund dazu
+        L = L * (1.0 - F * swF) + spiegelF * swF + spiegelG * (swGlanz * (1.0 - swF));
+        if (swSaum > 0.0) {
+            vec3 Es0 = sonne(hw.sonne.xyz, hw.sonneE.rgb * hw.farbe.rgb, h) * max(0.0, dot(n, hw.sonne.xyz)) * vSicht + himmel.rgb * (0.5 + 0.5 * n.y);
+            L = mix(L, vec3(0.55, 0.54, 0.50) / L_PI * Es0, swSaum * (1.0 - swF));
         }
     }
     // Sandfegen: Körner in der Luft sind Kugeln im Licht, keine waagerechte Fläche. Eine Lambert-Kugel zeigt im Mittel über

@@ -13,29 +13,87 @@ float seeZelle(int g, int c, int feld) {
     return a + seeZ[g].x * (b - a);
 }
 
-// Die sechs Werte am Ort p (x Ost, z Süd relativ zum Auge): im feinsten Netz, das ihn hat, bilinear zwischen den
-// Zellmitten (am Rand der Randwert), linear in der Zeit. false: kein Netz hat den Ort.
+// Übergang am Rand eines feineren Netzes zum nächsten gröberen (m) [G]; seit S3c-6 (SF31 A, Seegang Werkbuch 21/22),
+// wie core.szene.Seegangsnetz.RAND_MISCHUNG. Seit S3c-7 (SF33 A) nach der Art in seeZ[0].z (Seegangsnetz.RAND_ART):
+// 0 aus, 1 innen (S3c-6), 2 außen (Vorgabe).
+const float SEE_RAND = 500.0;
+
+// Die sechs Werte des Netzes g an der Stelle (ux, uy) in Zellen, bilinear zwischen den Zellmitten (am Rand der
+// Randwert), linear in der Zeit.
+void seeWerteU(int g, float ux, float uy, out float w[6]) {
+    int nx = seeN[g].y, ny = seeN[g].z;
+    float bx = clamp(ux - 0.5, 0.0, float(nx - 1)), by = clamp(uy - 0.5, 0.0, float(ny - 1));
+    int i0 = min(int(bx), nx - 2), j0 = min(int(by), ny - 2);
+    i0 = max(i0, 0);
+    j0 = max(j0, 0);
+    float fx = bx - float(i0), fy = by - float(j0);
+    int i1 = min(i0 + 1, nx - 1), j1 = min(j0 + 1, ny - 1);
+    for (int f = 0; f < 6; f++) {
+        float v00 = seeZelle(g, i0 + nx * j0, f), v10 = seeZelle(g, i1 + nx * j0, f);
+        float v01 = seeZelle(g, i0 + nx * j1, f), v11 = seeZelle(g, i1 + nx * j1, f);
+        w[f] = mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
+    }
+}
+
+// Die sechs Werte des Netzes g am Ort p; rand: Abstand des Orts vom Rand des Netzes (m). false: das Netz hat den Ort nicht.
+bool seeWerteNetz(int g, vec2 p, out float w[6], out float rand) {
+    rand = 0.0;
+    for (int f = 0; f < 6; f++) w[f] = 0.0;
+    if (seeN[g].w == 0) return false;
+    float ux = (p.x - seeF[g].x) * seeF[g].w, uy = (-p.y - seeF[g].y) * seeF[g].w;
+    int nx = seeN[g].y, ny = seeN[g].z;
+    if (ux < 0.0 || uy < 0.0 || ux >= float(nx) || uy >= float(ny)) return false;
+    rand = min(min(ux, float(nx) - ux), min(uy, float(ny) - uy)) * seeF[g].z;
+    seeWerteU(g, ux, uy, w);
+    return true;
+}
+
+// Seit S3c-7 (SF33 A): die Randwerte des Netzes g für einen Ort p außerhalb; d: Abstand vom Netz (m, euklidisch, 0
+// innen). false: das Netz ist nicht gesetzt.
+bool seeWerteRand(int g, vec2 p, out float w[6], out float d) {
+    d = 1e30;
+    for (int f = 0; f < 6; f++) w[f] = 0.0;
+    if (seeN[g].w == 0) return false;
+    float ux = (p.x - seeF[g].x) * seeF[g].w, uy = (-p.y - seeF[g].y) * seeF[g].w;
+    float nx = float(seeN[g].y), ny = float(seeN[g].z);
+    d = length(vec2(max(0.0, max(-ux, ux - nx)), max(0.0, max(-uy, uy - ny)))) * seeF[g].z;
+    seeWerteU(g, clamp(ux, 0.0, nx), clamp(uy, 0.0, ny), w);
+    return true;
+}
+
+// Die sechs Werte am Ort p (x Ost, z Süd relativ zum Auge) im feinsten Netz, das ihn hat (seeWerteNetz), mit dem
+// Übergang am Rand eines feineren Netzes (vorher sprang der Seegang am Rand von G3w, B49b):
+// innen (S3c-6): im Streifen von SEE_RAND am Rand des feineren mit dem nächsten gröberen gemischt, das den Ort hat;
+// außen (S3c-7, SF33 A): im feineren nur das feinere; außerhalb über SEE_RAND von dessen Randwert in das gröbere.
+// false: kein Netz hat den Ort. Wie core.szene.Seegangsnetz.gemischt.
 bool seeWerte(vec2 p, out float w[6]) {
     for (int f = 0; f < 6; f++) w[f] = 0.0;
-    int N = int(see.x);
+    int N = int(see.x), art = int(seeZ[0].z + 0.5);
     for (int g = 0; g < N; g++) {
-        if (seeN[g].w == 0) continue;
-        float ux = (p.x - seeF[g].x) * seeF[g].w, uy = (-p.y - seeF[g].y) * seeF[g].w;
-        int nx = seeN[g].y, ny = seeN[g].z;
-        if (ux < 0.0 || uy < 0.0 || ux >= float(nx) || uy >= float(ny)) continue;
-        float bx = clamp(ux - 0.5, 0.0, float(nx - 1)), by = clamp(uy - 0.5, 0.0, float(ny - 1));
-        int i0 = min(int(bx), nx - 2), j0 = min(int(by), ny - 2);
-        i0 = max(i0, 0);
-        j0 = max(j0, 0);
-        float fx = bx - float(i0), fy = by - float(j0);
-        int i1 = min(i0 + 1, nx - 1), j1 = min(j0 + 1, ny - 1);
-        for (int f = 0; f < 6; f++) {
-            float v00 = seeZelle(g, i0 + nx * j0, f), v10 = seeZelle(g, i1 + nx * j0, f);
-            float v01 = seeZelle(g, i0 + nx * j1, f), v11 = seeZelle(g, i1 + nx * j1, f);
-            w[f] = mix(mix(v00, v10, fx), mix(v01, v11, fx), fy);
+        float r1;
+        if (!seeWerteNetz(g, p, w, r1)) continue;
+        if (art == 1 && r1 < SEE_RAND) {
+            for (int g2 = g + 1; g2 < N; g2++) {
+                float v[6];
+                float r2;
+                if (!seeWerteNetz(g2, p, v, r2)) continue;
+                float a = r1 / SEE_RAND;
+                for (int f = 0; f < 6; f++) w[f] = v[f] + a * (w[f] - v[f]);
+                break;
+            }
+        } else if (art == 2) {
+            for (int h = 0; h < g; h++) {
+                float v[6];
+                float d;
+                if (!seeWerteRand(h, p, v, d) || d >= SEE_RAND) continue;
+                float a = d / SEE_RAND;
+                for (int f = 0; f < 6; f++) w[f] = v[f] + a * (w[f] - v[f]);
+                break;
+            }
         }
         return true;
     }
+    for (int f = 0; f < 6; f++) w[f] = 0.0;
     return false;
 }
 

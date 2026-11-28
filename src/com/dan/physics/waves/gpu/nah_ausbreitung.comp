@@ -1,0 +1,114 @@
+// nah_ausbreitung.comp — ein Teilschritt der Ausbreitung (Nahfeld.ausbreitung in float): Flussform, aufwind in x und y
+// mit den Geschwindigkeiten der Flächen (Mittel der Zellen); am Rand des Gebiets läuft die Varianz aus Rand ein (geteilt
+// durch σ der Nachbarzelle); an einer trockenen Zelle geht K_r² des Abflusses in die gespiegelte Richtung (Battjes 1974,
+// Wand: 1), der Rest ist verloren; in θ zweite Ordnung, begrenzt. Im Anlauf (schalter Bit 0) mit dem Schritt je
+// Stützstelle aus Tempo.w; die Reflexion in eine Richtung geht mit deren Schritt ein. Ein Faden je Stützstelle (B39:
+// benachbarte Fäden lesen benachbarte Richtungen; die Reflexion holt jede Richtung aus ihrer gespiegelten).
+#version 460
+layout(local_size_x = 256) in;
+#include "nah_gemein.glsl"
+
+layout(std430, binding = 4) readonly buffer Bin { vec4 bin[]; };
+layout(std430, binding = 5) readonly buffer Tempo { vec4 tempo[]; };
+layout(std430, binding = 8) readonly buffer Alt { float a[]; };
+layout(std430, binding = 9) writeonly buffer Neu { float n[]; };
+layout(std430, binding = 10) readonly buffer Rand { float rand[]; };
+
+/** Nummer der Geisterzelle (i, j) wie Nahfeld.randNummer. */
+int randNummer(int i, int j) {
+    if (j < 0) return clamp(i, 0, W.nx - 1);
+    if (j >= W.ny) return W.nx + clamp(i, 0, W.nx - 1);
+    if (i < 0) return 2 * W.nx + j;
+    return 2 * W.nx + W.ny + j;
+}
+
+/** Einlaufende Wirkung in der Geisterzelle (i, j): Varianz / σ der benachbarten Zelle (ohne σ: ω). */
+float einlauf(int i, int j, int b, int q) {
+    int r = randNummer(i, j);
+    int c = clamp(i, 0, W.nx - 1) + W.nx * clamp(j, 0, W.ny - 1);
+    float sg = bin[ix(c, b, q)].y;
+    if (!(sg > 0.0)) sg = band[b].x;
+    return rand[(r * W.nb + b) * W.nd + q] / sg;
+}
+
+/** K_r an der Fläche zur trockenen Zelle z in Richtung (ex, ey), für Band b (Nahfeld.reflexion). */
+float reflexion(int c, int z, int b, float ex, float ey) {
+    if (W.mitReflexion == 0) return 0.0;
+    if (zelle[5 * z].w > 0.5) return 1.0;
+    float tana = max(1e-6, (zelle[5 * z].z - zelle[5 * c].z) / W.dx);
+    float m = 0.0;
+    for (int bb = 0; bb < W.nb; bb++)
+        for (int q = 0; q < W.nd; q++)
+            if (winkel[q].x * ex + winkel[q].y * ey > 1e-6) { int i = ix(c, bb, q); m += bin[i].y * a[i]; }
+    float hs = 4.0 * sqrt(m);
+    if (hs <= 1e-9) return 1.0;
+    float f = band[b].y, l0 = G / (ZWEI_PI * f * f);
+    float xi = tana / sqrt(hs / l0);
+    return min(1.0, 0.1 * xi * xi);
+}
+
+/** Fluss in θ über die Fläche zwischen q und q + 1 (wie in Nahfeld.ausbreitung). */
+float flussTheta(int c, int b, int q, bool lokal) {
+    int qp = (q + 1) % W.nd, qm = (q + W.nd - 1) % W.nd, qpp = (q + 2) % W.nd;
+    vec4 t0 = tempo[ix(c, b, q)], t1 = tempo[ix(c, b, qp)];
+    float vq = 0.5 * (t0.z + t1.z);
+    float hf = lokal ? min(t0.w, t1.w) : P.h;
+    return fluss(vq, a[ix(c, b, qm)], a[ix(c, b, q)], a[ix(c, b, qp)], a[ix(c, b, qpp)], hf / W.dTheta);
+}
+
+void main() {
+    int id = fadenNummer();
+    int nc = W.nx * W.ny;
+    if (id >= nc * W.nb * W.nd) return;
+    int q = id % W.nd, cb = id / W.nd, c = cb / W.nb, b = cb - c * W.nb;
+    if (!nass(c) || bin[id].x <= 0.0) { n[id] = 0.0; return; }
+    bool lokal = (P.schalter & 1) != 0;
+    int i = c % W.nx, j = c / W.nx;
+    int nbs[4] = int[4](i > 0 ? c - 1 : -1, i < W.nx - 1 ? c + 1 : -1, nachbarS(c), nachbarN(c));
+    vec4 t = tempo[id];
+    float h = lokal ? t.w : P.h;
+    float e0 = a[id], de = 0.0, refl = 0.0;
+    for (int achse = 0; achse < (W.ny > 1 ? 2 : 1); achse++) {
+        float vo = achse == 0 ? t.x : t.y;
+        for (int sd = 0; sd < 2; sd++) {
+            int s4 = 2 * achse + sd;
+            int z = nbs[s4];
+            float sg = sd == 0 ? -1.0 : 1.0;
+            float aus;
+            if (z >= 0 && nass(z)) {
+                int iz = ix(z, b, q);
+                if (bin[iz].x <= 0.0) aus = sg * vo > 0.0 ? sg * vo * e0 : 0.0;       // der Nachbar ist blockiert
+                else {
+                    float vz = achse == 0 ? tempo[iz].x : tempo[iz].y;
+                    float vf = sg * 0.5 * (vo + vz);
+                    aus = vf > 0.0 ? vf * e0 : vf * a[iz];
+                }
+            } else if (z >= 0) {                                                       // trocken: Kante
+                float vf = sg * vo;
+                aus = vf > 0.0 ? vf * e0 : 0.0;
+                // was die gespiegelte Richtung an dieser Kante abgibt, kommt mit K_r² hier an (Spiegeln ist umkehrbar)
+                int qs = achse == 0 ? ((W.nd / 2 - q) % W.nd + W.nd) % W.nd : (W.nd - q) % W.nd;
+                int is = ix(c, b, qs);
+                if (bin[is].x > 0.0) {
+                    float vs = sg * (achse == 0 ? tempo[is].x : tempo[is].y);
+                    if (vs > 0.0) {
+                        float ex = sd == 0 ? (achse == 0 ? -1.0 : 0.0) : (achse == 0 ? 1.0 : 0.0);
+                        float ey = achse == 1 ? sg : 0.0;
+                        float k = reflexion(c, z, b, ex, ey);
+                        refl += k * k * vs * a[is] * h / W.dx;
+                    }
+                }
+            } else {                                                                   // Rand des Gebiets
+                float vf = sg * vo;
+                float ein = 0.0;
+                if (vf < 0.0) ein = achse == 0 ? einlauf(sd == 0 ? -1 : W.nx, j, b, q) : einlauf(i, sd == 0 ? -1 : W.ny, b, q);
+                aus = vf > 0.0 ? vf * e0 : vf * ein;
+            }
+            de -= aus * h / W.dx;
+        }
+    }
+    float neu = e0 + de + refl;
+    if (W.mitRefraktion != 0 || W.mitBeugung != 0)
+        neu -= (flussTheta(c, b, q, lokal) - flussTheta(c, b, (q + W.nd - 1) % W.nd, lokal)) * h / W.dTheta;
+    n[id] = max(0.0, neu);
+}

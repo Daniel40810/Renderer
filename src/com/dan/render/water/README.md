@@ -79,6 +79,70 @@ Mit Seegang und `Wasserbild.brandung` (Vorgabe an; `-Dlauf.brandung=aus`: wie bi
 - Prüfung: `Brandprobe` (`brandprobe.comp`) gegen `Seegangsoptik`, `render.brandung.demo.BrandungCheck`, `lauf.demo.BrandungBildCheck`.
 - Die Referenz bleibt eben mit Facetten (P10d) und sieht weder Höhe noch Schaumköpfe.
 
+## Seit S3c: das Netz der Clipmap (Seegang Werkbuch, SF7 A)
+
+Legt `render.seegang` eine Clipmap ab (`Seegang/Netz` und die Puffer dazu, Bindungen 14–17), zeichnet das Wasser dort
+ein Netz statt der Suche je Bildpunkt; das Dreieck über das Bild (`wasser.frag`) schweigt in diesem Bereich (`imNetz`,
+`netz.glsl`) und zeichnet nur außerhalb, wie bisher. `Wasserbild.netz = false` schaltet zurück.
+
+- **`netz.comp`:** je Stufe und Stelle der Scheitel: ruhende Stelle x₀ plus ξ, Höhe η_Bild(x₀) plus η, Erdkrümmung wie
+  der Spiegel; wo kein Wasser ist, seit S3c-5 der Spiegel des nächsten nassen Nachbarn (unten). Im äußeren Band (12 Stellen [G]) jeder Stufe außer der letzten
+  geht der Scheitel bilinear in die gröbere über (auch η_Bild); am Rand liegt er auf ihren Kanten.
+- **`netz.vert`:** je Stufe (n − 1)² Vierecke aus `gl_VertexIndex`; die feineren reichen über die Stellen 0 … n − 2, die
+  gröbere spart ihr Inneres aus, aber nicht den äußersten Ring (dort decken beide; sonst fielen an der T-Naht durch
+  Rundung einzelne Bildpunkte durch: N2).
+- **`netz.frag`:** kein Wasser an P (η_Bild) → weg; das Gelände verdeckt über die Tiefe. Normale und Aufgelöstes aus der
+  Stufe mit d_L ≥ fuss / 2 (nicht feiner als die des Scheitels, zwischen zwei Stufen linear); Restvarianz fürs Glitzern
+  max(0, mss − Σ k² E g²); Schaum nach SF25 A: Weißwasser, wo η der Fläche γ h · Kammanteil überschreitet (nur jetzt),
+  Schaumköpfe auf ihren Kämmen (`schaumKoepfe` mit η und der gezeichneten Varianz). Dann `wasserOptik` wie bisher.
+- **`wasser_optik.glsl`:** die Optik ab dem Treffer, aus `wasser.frag` herausgelöst und mit `netz.frag` geteilt.
+
+Prüfung: `lauf.demo.SeegangNetzCheck` (N1 Scheitel gegen Java, N2 keine Lücken in drei Ansichten, N3 ohne Wellen
+dieselbe Tiefe wie ohne Netz; Attest `docs/status/S3c_Netz.md`).
+
+**Seit S3c-5 (Seegang Werkbuch 19/20):**
+
+- **B47, trockene Scheitel:** `netz.comp` gibt einem trockenen Scheitel den Spiegel des nächsten nassen Nachbarn im
+  Abstand s = max(Zelle, d_L) (erst die Seitennachbarn, dann über Eck, von mehreren der höchste), sonst den Pegel des
+  Kopfs (`Spiegelbild.etaScheitel` rechnet dasselbe in Java). Die Art des Scheitels (1 nass, 0,5 nah am Wasser, 0 weit)
+  steht im zweiten vec4 des Scheitels.
+- **B47, Fuß am Bildpunkt:** Weicht der Fuß des Netzes um mehr als 2 cm [G] von η_Bild am Bildpunkt ab (Kanten zwischen
+  zwei Spiegeln, trockene Scheitel), sucht `netz.frag` die Fläche η_Bild + η der Welle auf dem Strahl selbst (feste Stelle
+  wie `suche`, ab η_Bild am Netz, sonst ab den Spiegeln der vier Nachbarn, der höchste zuerst) und schreibt deren Tiefe.
+  Trockene Bildpunkte weit vom Wasser fallen sofort weg. N3b in `SeegangNetzCheck`: Teich auf +1,5 m hinter einem
+  trockenen Ring mit Bauwerken, gegen den Strahl in Schritten von 5 cm.
+- **B48, Abbruch über die Tiefe:** Liegt das Gelände vor dem Bildpunkt (Tiefe darunter), bricht `netz.frag` vor der Optik
+  ab (`Wasserbild.abbruch`, Kopf `seeMehr.w`; aus mit `-Dwasser.abbruch=aus`). Bitgleich (N6b).
+- **B49a:** Zeichnet das Netz, gilt im Weg ohne Netz für das Weißwasser dieselbe Regel (nur jetzt, SF25 A).
+- **SF28 A:** Zeichnet das Wasser das Netz, legt es `Wasser/Netz` (`NETZ_GEZEICHNET`) mit dem inneren Bereich in UTM in
+  `z.werte`; `render.brandung` liest den Schlüssel.
+
+**Seit S3c-6 (Seegang Werkbuch 22):**
+
+- **Fuß in `netz_fuss.glsl`:** η_Bild, Wegfallen und B47 aus `netz.frag` herausgelöst, geteilt mit dem Vorlauf.
+- **N6, Vorlauf der Tiefe** (`Wasserbild.vorlauf`, Vorgabe aus, an mit `-Dwasser.vorlauf=an`): `netz_vorlauf.frag`
+  rechnet je Bildpunkt nur den Fuß, schreibt die Tiefe und als Farbe (`R32UI`) die Nummer des Dreiecks (`vId` aus
+  `netz.vert`); danach schattiert `netz.frag` ohne Prüfung der Tiefe nur den Sieger (Schub `nsch.x`). Bitgleich (N6c).
+- **N6, Zähler** (`Wasserbild.zaehlen`, `zaehlung()`): je Bildpunkt die Aufrufe im Vorlauf, in `netz.frag`, mit Fuß und
+  bis zur Optik (Binding 20, Schub `nsch.y`); nur für den Befund.
+- **SF31 A:** `seegang.glsl` mischt am Rand eines feineren Netzes des Seegangs über 500 m (`SEE_RAND`) in das nächst
+  gröbere, das den Ort deckt; `Seegangsoptik.werte` ebenso (N9).
+
+**Seit S3c-7 (Seegang Werkbuch 24):**
+
+- **SF33 A, Übergang außen:** `seeWerte` nach der Art in `seeZ[0].z` (`Seegangsnetz.RAND_ART`, `-Dseegang.rand`):
+  außen (Vorgabe) gilt im feineren Netz nur das feinere, außerhalb geht es über 500 m von dessen Randwert
+  (`seeWerteRand`) in das gröbere über; innen wie S3c-6; aus ohne Übergang. N9 je Art.
+- **Zähler** in `netz_zaehler.glsl` (8 je Bildpunkt): dazu B47 im Netz und der alte Weg (`wasser.frag`, Binding 15):
+  Aufrufe, im Netz nach der Suche verworfen, bis zur Optik (`Wasserbild.zaehlung`, Felder 8–11).
+
+**Seit S3c-8 (Seegang Werkbuch 26, SF34 A):**
+
+- **Maske des Netzes:** `netz.frag` schreibt als zweites Ziel (`R32UI`) die Nummer des Dreiecks, wo es im inneren
+  Bereich zeichnet (`imNetz`); `wasser.frag` verwirft diese Bildpunkte vor seiner Suche (Binding 16, Schub `nsch.w`).
+  Vorher suchte der alte Weg auch dort (rund 1,5 ms je Bild mit viel Wasser, L2j). Im äußersten Ring zeichnen beide
+  wie bisher. Bitgleich (N6d); aus mit `-Dwasser.maske=aus`.
+
 ## Grenzen der Grundstufe
 
 - Gespiegelt wird nur, was im Bild ist; was hinter dem Auge oder unter dem Bildrand liegt, ersetzt der Himmel. Die gespiegelte Farbe trägt keine Luftperspektive zwischen Wasser und Treffer.
@@ -124,3 +188,46 @@ Gelände und Himmel sind dort ein Ersatz mit bekannten Werten. Attest `docs/stat
 ## Saum der Wasserlinie (seit C1b, Werkbuch HalligHooge 137, A52)
 
 Eine trockene Zelle zeigt am Rand zu einer nassen Seitenzelle deren Spiegel, wenn die gemeinsame Kante weder ein Bauwerk trägt noch über dem Spiegel liegt (Schwelle aus der Subgrid-Packung). Je Ort zählen der nächste Nachbar nach Ost oder West und nach Nord oder Süd (wie die bilinearen Nachbarn), von zweien der höhere Spiegel. Das Gelände schneidet die Wasserlinie dann auf 1 m wie in einer nassen Zelle; vorher brach sie an der Zellgrenze ab (Treppen, trockene Flecken in Zellform). `wasser.glsl` und `core.szene.Spiegelbild` rechnen dieselbe Regel (nur Vergleiche, bitgleich); `-Dwasser.saum=aus` schaltet sie ab (Netz.z.y = 0). `WaterCheck` Teil 0 prüft die Regel auf dem Prozessor; Prüfstein 3 (dicht) läuft ohne Saum.
+
+**Seit S4a (Seegang Werkbuch 35):** Das Netz bindet als 21 das Schaumfeld (`Seegang/Schaum`, render.seegang.Schaumfeld;
+ohne Feld ein leerer Kopf). `netz.frag` liest es an der ruhenden Stelle bilinear (fein, sonst grob) und nimmt dort den
+Anteil min(1, f) statt der Statistik aus P13c (Schaumköpfe und Brechen); über 32 Zellen am Rand jedes Rasters geht es
+weich über. Der Weg ohne Netz (`wasser.frag`) bleibt bei der Statistik.
+
+**Seit S4b (Seegang Werkbuch 36):** `wasser_optik.glsl` hat drei Stellschrauben, die nur das Netz setzt: `schaumAlb`
+(Albedo des Schaums, sonst see.w), `blasen` (Aufhellung der Säule unter frischem Schaum), `glatt` (Dämpfung der
+unaufgelösten Kräuselung). `netz.frag` rechnet aus der Menge f des Felds die Frische min(1, f), ein zelliges Muster
+(Worley F2 − F1 auf 0,4 m: frisch deckend, alternd ein Netz an den Zellgrenzen), die Albedo frisch 0,55 bis alt 0,2,
+Blasen 2 · Frische³, Glattwasser bis 0,6 [G]. Ohne Feld ändert sich nichts.
+
+## Auflauf im Wasser (seit S6c-2, Seegang Werkbuch 82, SF93 A)
+
+Shader, die vor `wasser.glsl` `SWASH_BINDUNG` setzen (netz.comp 19, netz.frag und netz_vorlauf.frag 22, wasser.frag 17),
+lesen das Bild des Auflaufs (`Wasserbild.SWASH_BILD`, Lage im Kopf: `swLage`, `swAchse`, `swN`). Im Rechteck ist η_Bild der
+Stand des Lösers, wo die Zelle mindestens 3 cm Wasser trägt (darunter zeichnet das Gelände den Film), bilinear wie die
+Spiegel (ein Nachbar mit weniger Wasser zählt mit der eigenen Zelle); über 8 m an W, S und N geht er in η_Bild der Spiegel
+über (`swGewicht`). `netz.comp` nimmt dort die Verschiebung der Clipmap mit (1 − Gewicht) (der Löser trägt die Welle),
+`netz.frag` die Neigung des Lösers und Weißwasser an steilen Fronten (Neigung 0,15 bis 0,45) [G]. Die bisherige Regel heißt
+`etaBildSpiegel`; ohne Bild oder mit `swashAn` = false (`-Dwasser.swash=aus`) bitgleich wie bisher (WaterCheck,
+`core.szene.Spiegelbild` kennen den Auflauf nicht).
+
+Seit S6c-2b (Seegang Werkbuch 83, Befund L4o: an der Böschung ein helles Band mit dunklen Zähnen):
+- `swFlaeche`: im Rechteck ist die Fläche des Lösers überall bestimmt – mit mindestens 3 cm Wasser ihr Stand, sonst 0,1 m
+  unter ihrem Grund (`SW_UNTER`). Bilinear dazwischen taucht das Netz an der Wasserlinie stetig unter das Gelände; vorher
+  sprangen die Scheitel zwischen dem Stand des Lösers und dem Pegel der Hydro (oder dem Spiegel eines Nachbarn), das gab
+  senkrechte Wände. `swNetz` (im Band an W, S, N gemischt mit den Spiegeln der Hydro) nehmen `netz.comp` (Scheitel) und
+  `netz_fuss.glsl` (Bildpunkte, Suche längs des Strahls ohne Nachbarn); gezeichnet wird, wo der Löser bilinear ab 2,5 cm
+  trägt (`SW_NETZ_ZEIGEN`). η_Bild (`etaBild`) im Rechteck ebenso.
+- Weißwasser im Rechteck an der Front: wo Stand und Tiefe zugleich steil sind (das kleinere von |∇η| und |∇h| ab 0,08,
+  voll bei 0,3), mit dem Muster und der Albedo des Schaumfelds (Frische 0,7 · Stärke). Vorher aus |∇η| allein – auf dem
+  dünnen Film einer Böschung 1:2,5 ist das die Böschung selbst, und die ganze Böschung wurde weiß (L4o); |∇h| allein ist am
+  ruhenden Ufer die Böschung (L4q: heller Streifen am Fuß). Schaumfeld und Statistik der Brandung im Rechteck × (1 −
+  Gewicht): Sie gehören zu den Wellen der Synthese, die dort der Löser ersetzt (L4r: große, glatte Flecken auf 2–3 m
+  tiefem Wasser im Rechteck).
+
+## Seit S6e (Seegang Werkbuch 85, A21): die Fläche des Lösers als B-Spline
+
+- `swFlaeche` (wasser.glsl) nimmt Stand und Wasser als **quadratischen B-Spline über 3 × 3 Zellen** um die nächste Mitte (bis S6d bilinear).
+  - Bilinear lag die Linie, an der das Netz das Gelände schneidet, auf den Diagonalen der Zellen. An den 1-m-Zellen der Flutkante war das eine Treppe (L4y).
+  - Der B-Spline ist in der Neigung stetig; er glättet über ± 1,5 Zellen.
+  - Die Neigung des Wassers (`gh`, Front) kommt aus der Ableitung des Splines.

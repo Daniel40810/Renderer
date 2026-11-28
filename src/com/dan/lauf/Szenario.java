@@ -26,6 +26,13 @@ public final class Szenario {
     public double schwebstoff = Double.NaN;
     /** Seit P9c, nur live: Der Lauf rechnet das Sediment mit (Trübung am Ort, Rippel, Boden mit Rückwirkung). */
     public boolean sediment;
+    /** Seit S7b-2 (Seegang Werkbuch 88): die Schwimmer des Szenarios (leer: keine). */
+    public java.util.List<Schwimmerangabe> schwimmer = java.util.List.of();
+    /**
+     * Seit S7d4 (Seegang Werkbuch 92, SF121 A): Mitte der Körperfläche (UTM Ost, Nord) aus {@code seegang.koerper} der
+     * Szenendatei oder {@code szenario.<name>.koerper}; null: aus den Plätzen der Schwimmer (Flotte.koerpermitte).
+     */
+    public double[] koerper;
 
     public Szenario(String schluessel, String name, File archiv, Instant start, String stufen, int[] fenster3, Instant beginn, double zeitraffer, String ansicht) {
         this.schluessel = schluessel;
