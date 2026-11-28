@@ -192,10 +192,13 @@ public final class CoreCheck {
     private static void potential() {
         // Winkelgeschwindigkeiten gegen die Konstanten des Packages tide (Grad je Stunde, nach Doodson)
         Object[][] soll = {{"M2", 28.9841042}, {"S2", 30.0}, {"N2", 28.4397295}, {"K2", 30.0821373}, {"K1", 15.0410686}, {"O1", 13.9430356}, {"M4", 57.9682084},
-                {"MS4", 58.9841042}, {"MN4", 57.4238337}, {"M6", 86.9523127}};
+                {"MS4", 58.9841042}, {"MN4", 57.4238337}, {"M6", 86.9523127},
+                // seit DB5 (Werkbuch HalligHooge 176): Flachwassertiden, L2 und M3, Geschwindigkeiten nach Doodson
+                {"L2", 29.5284789}, {"2SM2", 31.0158958}, {"M3", 43.4761563}, {"MK3", 44.0251729}, {"MO3", 42.9271398}, {"S4", 60.0}, {"2MS6", 87.9682084},
+                {"2MN6", 86.4079380}, {"MSN6", 87.4238337}, {"M8", 115.9364168}, {"3MS8", 116.9523127}};
         double dw = 0;
         for (Object[] z : soll) dw = Math.max(dw, Math.abs(Partialtide.nach((String) z[0]).gradJeStunde() - (double) z[1]));
-        A.hoechstens("Winkelgeschwindigkeit von 10 Partialtiden gegen das Package tide", dw, 2e-7, "°/h");
+        A.hoechstens("Winkelgeschwindigkeit von 21 Partialtiden gegen das Package tide und Doodson", dw, 2e-7, "°/h");
         A.pruefe(Partialtide.EOT20.size() == 17, "Partialtiden von EOT20", Partialtide.EOT20.toString(), "17");
         // Knotenfaktoren gegen die geschlossenen Formeln von Schureman bei N = 0° und 180° (Neigung I = 23,452° ± 5,145°)
         double df = 0;
